@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #0b0d12;
+
+  /*
+   * Restrained, single-accent palette.
+   * Deep navy blue signals data + trust (think Mercury, Stripe Dashboard, Linear).
+   * Used sparingly: links, focus rings, primary affordances, single chart strokes.
+   */
+  --accent: #1d4ed8;        /* blue-700 */
+  --accent-hover: #1e40af;  /* blue-800 */
+  --accent-soft: #eff4ff;   /* tinted surface for subtle emphasis */
+
+  /* Neutral surfaces. Hairline borders are the primary chrome. */
+  --surface: #ffffff;
+  --surface-muted: #f7f7f8;
+  --surface-ink: #0b0d12;
+  --hairline: #e4e4e7;       /* zinc-200 */
+  --hairline-soft: #f1f1f3;  /* zinc-100 */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv11", "tnum";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/*
+ * Standard easing for the entire app. Use `var(--ease-out)` in any custom
+ * transition. All motion stays under 250ms — calm, never bouncy.
+ */
+:root {
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Slide-in for the address drawer. */
+@keyframes drawer-enter {
+  from { transform: translateX(8px); opacity: 0; }
+  to   { transform: translateX(0);   opacity: 1; }
+}
+
+.drawer-enter {
+  animation: drawer-enter 220ms var(--ease-out) both;
+}
+
+/* Backdrop fade for modal overlays. */
+@keyframes backdrop-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.backdrop-fade {
+  animation: backdrop-fade 180ms var(--ease-out) both;
+}
+
+/* Subtle lift on interactive cards. Used by StatCard, panel buttons. */
+.surface-card {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  transition: border-color 200ms var(--ease-out), box-shadow 200ms var(--ease-out);
+}
+
+.surface-card:hover {
+  border-color: #d4d4d8; /* zinc-300 */
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.02), 0 8px 24px -16px rgb(15 23 42 / 0.12);
+}
+
+/* Smooth, focused outline for keyboard users. */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Make every numeric value in tables/cards align cleanly. */
+.tnum, .tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

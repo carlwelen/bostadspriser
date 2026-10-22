@@ -1,0 +1,51 @@
+import Link from "next/link";
+import { BrandMark } from "./BrandMark";
+import { StreetSearch } from "./StreetSearch";
+
+type Crumb = { label: string; href?: string };
+
+export function SiteHeader({ crumbs = [] }: { crumbs?: Crumb[] }) {
+  return (
+    <header className="sticky top-0 z-30 border-b border-zinc-200/70 bg-white/75 backdrop-blur">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
+        <BrandMark />
+        <nav className="hidden items-center gap-1 text-sm text-zinc-500 md:flex">
+          {crumbs.length > 0 ? (
+            <>
+              <Link href="/" className="rounded px-2 py-1 hover:bg-zinc-100">
+                Karta
+              </Link>
+              {crumbs.map((c, i) => (
+                <span key={`${c.label}-${i}`} className="contents">
+                  <span aria-hidden className="text-zinc-300">›</span>
+                  {c.href ? (
+                    <Link href={c.href} className="rounded px-2 py-1 hover:bg-zinc-100">
+                      {c.label}
+                    </Link>
+                  ) : (
+                    <span className="rounded px-2 py-1 text-zinc-900">{c.label}</span>
+                  )}
+                </span>
+              ))}
+            </>
+          ) : null}
+        </nav>
+        <div className="hidden items-center gap-2 text-sm md:flex">
+          <Link
+            href="/insights"
+            className="rounded-md px-3 py-1.5 text-zinc-700 hover:bg-zinc-100"
+          >
+            Insikter
+          </Link>
+          <Link
+            href="/compare"
+            className="rounded-md px-3 py-1.5 text-zinc-700 hover:bg-zinc-100"
+          >
+            Jämför
+          </Link>
+          <StreetSearch />
+        </div>
+      </div>
+    </header>
+  );
+}

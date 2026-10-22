@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum District {
+  ostermalm
+  vasastan
+  norrmalm
+  sodermalm
+}
+
+model Listing {
+  id             String    @id @default(uuid())
+  source         String
+  sourceId       String
+  // Deterministic hash of (normalized street, houseNumber, soldAt, priceSek) —
+  // collapses the same real-world sale observed via Hemnet and Booli.
+  // Multiple rows can share a dedupKey; aggregations select DISTINCT ON it.
+  // Nullable while we backfill the legacy Hemnet rows; new writes always set it.
+  dedupKey       String?   @db.VarChar(64)
+  street         String
+  houseNumber    String?
+  district       District
+  rooms          Decimal?  @db.Decimal(4, 1)
+  areaSqm        Decimal?  @db.Decimal(6, 1)
+  priceSek       BigInt
+  pricePerSqmSek BigInt
+  soldAt         DateTime  @db.Date
+  lat            Float?
+  lng            Float?
+  raw            Json
+  scrapedAt      DateTime  @default(now())
+  geocodedAt     DateTime?
+
+  @@unique([source, sourceId])
+  @@index([dedupKey])
+  @@index([district, soldAt])
+  @@index([street, houseNumber, soldAt])
+  @@index([lat, lng])
+}

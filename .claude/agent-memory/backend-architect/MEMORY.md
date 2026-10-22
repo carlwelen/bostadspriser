@@ -1,0 +1,1 @@
+- [Booli scraper specifics](booli_scraper.md) — area IDs, payload shape, URL pattern, district leakage filter
