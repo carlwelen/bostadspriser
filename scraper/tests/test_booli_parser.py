@@ -161,6 +161,12 @@ def test_to_row_accepts_epoch_sold_date() -> None:
     assert row["soldAt"].isoformat() == "2026-04-24"
 
 
+def test_geocoded_at_requires_both_lat_and_lng() -> None:
+    for lat, lng in ((59.3, None), (None, 18.0)):
+        row = _to_row({**SAMPLE_CARD, "latitude": lat, "longitude": lng}, "vasastan")
+        assert row is not None and row["geocodedAt"] is None, (lat, lng)
+
+
 def test_to_row_skips_rows_without_a_final_price() -> None:
     """No price means no row: columns are NOT NULL and 0 would poison averages/dedup keys."""
     assert _to_row({**SAMPLE_CARD, "soldPrice": None}, "vasastan") is None

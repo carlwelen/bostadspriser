@@ -10,11 +10,10 @@ no card dated >= since does.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from datetime import date
 
 import pytest
-
-import dataclasses
 
 from scraper import booli, hemnet, source_base
 from scraper.errors import CrawlIncomplete

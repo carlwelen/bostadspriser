@@ -258,8 +258,9 @@ def test_fetch_gives_up_after_two_attempts_and_never_caches_a_challenge(src, cfg
     assert ctx.content_calls == 16  # 8 polls per attempt
     assert ctx.closed_pages == 2
     assert not s.cache_path(cfg, URL).exists()
-    assert sleeps.count(1.5) == 16  # a 1.5 s wait after each of the 8 failed polls, per attempt
-    assert any(10 <= d <= 60 for d in sleeps)  # exponential backoff between attempts
+    # 8 polls per attempt, each followed by 1.5 s; tenacity waits exactly 10 s
+    # (wait_exponential(multiplier=2, min=10, max=60), first retry) between attempts.
+    assert sleeps == [1.5] * 8 + [10] + [1.5] * 8
 
 
 @pytest.mark.parametrize("status", [429, 503])
@@ -369,6 +370,9 @@ class RecordingPW:
 
 
 def _run_empty_crawl(src, monkeypatch, state_exists: bool, cfg_state_path):
+    # Never create or delete anything outside conftest's temp dir (e.g. the real
+    # scraper/.state/storageState.json).
+    assert "scraper-tests-" in str(cfg_state_path), cfg_state_path
     s = src["seams"]
     pw = RecordingPW()
     warmups: list[int] = []

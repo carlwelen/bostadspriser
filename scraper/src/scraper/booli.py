@@ -214,7 +214,7 @@ def _to_row(card: dict, district: str) -> dict | None:
         "id": str(uuid.uuid4()),
         "source": "booli",
         **fields,
-        "geocodedAt": datetime.now(timezone.utc) if fields["lat"] is not None else None,
+        "geocodedAt": datetime.now(timezone.utc) if fields["lat"] is not None and fields["lng"] is not None else None,
         "raw": card,
     }
 

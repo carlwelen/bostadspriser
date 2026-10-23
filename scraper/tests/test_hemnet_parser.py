@@ -71,6 +71,12 @@ def test_geocoded_at_is_stamped_whenever_coordinates_are_present() -> None:
     assert row is not None and row["geocodedAt"] is not None
 
 
+def test_geocoded_at_requires_both_lat_and_lng() -> None:
+    for coords in ({"lat": 59.3, "long": None}, {"lat": None, "long": 18.0}, {"lat": 59.3}):
+        row = _to_row({**SAMPLE_CARD, "coordinates": coords}, "ostermalm")
+        assert row is not None and row["geocodedAt"] is None, coords
+
+
 def test_to_row_skips_rows_without_a_final_price() -> None:
     """No price means no row: columns are NOT NULL and 0 would poison averages/dedup keys."""
     assert _to_row({**SAMPLE_CARD, "finalPrice": None}, "ostermalm") is None
