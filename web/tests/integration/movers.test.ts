@@ -151,6 +151,21 @@ describe("medians over disjoint windows", () => {
     expect(key(await topMovers("up", 2, AS_OF))).toEqual(expected.slice(0, 2));
   });
 
+  it("district outranks street in ties", async () => {
+    await seed(prisma, [
+      ...street("Samma", 10, 100_000, 5, 110_000, "norrmalm"),
+      ...street("Aaa", 10, 100_000, 5, 110_000, "sodermalm"),
+      ...street("Samma", 10, 100_000, 5, 110_000, "vasastan"),
+    ]);
+    const key = (ms: Awaited<ReturnType<typeof topMovers>>) => ms.map((m) => `${m.district}/${m.street}`);
+    // Enum order is vasastan, norrmalm, sodermalm; by street alone "Aaa" would be first.
+    expect(key(await topMovers("up", 10, AS_OF))).toEqual([
+      "vasastan/Samma",
+      "norrmalm/Samma",
+      "sodermalm/Aaa",
+    ]);
+  });
+
   it("returns nothing on an empty database", async () => {
     await seed(prisma, []);
     expect(await topMovers("up", 5, AS_OF)).toEqual([]);

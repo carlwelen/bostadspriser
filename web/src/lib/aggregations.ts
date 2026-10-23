@@ -276,12 +276,12 @@ export type StreetMover = {
   slug: string;
   district: DistrictSlug;
   /**
-   * Sales in the two windows together (recentCount + priorCount, the last 455
-   * days). Before B26 this was the street's all-time count.
+   * Sales in the two windows together (recentCount + priorCount: today plus the 455
+   * days before it, 456 calendar days). Before B26 this was the street's all-time count.
    */
   count: number;
   /**
-   * Mean kr/m² over those same sales (both windows, last 455 days). Before B26
+   * Mean kr/m² over those same sales (both windows: today plus the 455 days before it). Before B26
    * this was the all-time mean.
    */
   meanPricePerSqm: number;
