@@ -38,6 +38,7 @@ from playwright.async_api import Browser, BrowserContext, async_playwright
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from .config import Config, load_config
+from .errors import CrawlIncomplete
 from .normalize import (
     dedup_key,
     parse_rooms,
@@ -336,6 +337,7 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
     cfg = load_config()
     allowed_areas = _AREA_NAMES[district]
 
+    incomplete: str | None = None
     async with async_playwright() as p:
         browser: Browser = await p.chromium.launch(
             headless=True,
@@ -378,20 +380,17 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
             prev_ids: set[str] = set()
             while True:
                 if page_num > MAX_PAGES:
-                    print(
-                        f"[booli] {district}: hit MAX_PAGES={MAX_PAGES}; stopping pagination here",
-                        flush=True,
-                    )
+                    incomplete = f"booli {district}: hit MAX_PAGES={MAX_PAGES}"
+                    print(f"[booli] {incomplete}; stopping pagination here", flush=True)
                     break
                 url = _district_url(district, page_num)
                 try:
                     html = await _fetch(ctx, cfg, url)
                 except Exception as e:  # noqa: BLE001
-                    print(
-                        f"[booli] {district} page {page_num} failed: {type(e).__name__}: {e};"
-                        f" stopping pagination here",
-                        flush=True,
+                    incomplete = (
+                        f"booli {district} page {page_num} failed: {type(e).__name__}: {e}"
                     )
+                    print(f"[booli] {incomplete}; stopping pagination here", flush=True)
                     break
 
                 cards = _extract_sold_properties(html)
@@ -441,3 +440,8 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
         finally:
             await ctx.close()
             await browser.close()
+
+    if incomplete is not None:
+        # Everything fetched before the failure has been yielded; callers keep
+        # those rows and mark this source/district as partial.
+        raise CrawlIncomplete(incomplete)

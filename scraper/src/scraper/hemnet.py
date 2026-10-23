@@ -32,6 +32,7 @@ from playwright.async_api import Browser, BrowserContext, async_playwright
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from .config import Config, load_config
+from .errors import CrawlIncomplete
 from .normalize import (
     dedup_key,
     parse_rooms,
@@ -267,6 +268,7 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
         raise ValueError(f"unknown district: {district}")
     cfg = load_config()
 
+    incomplete: str | None = None
     async with async_playwright() as p:
         browser: Browser = await p.chromium.launch(
             headless=True,
@@ -312,10 +314,8 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
             prev_ids: set[str] = set()
             while True:
                 if page_num > MAX_PAGES:
-                    print(
-                        f"[hemnet] {district}: hit MAX_PAGES={MAX_PAGES}; stopping pagination here",
-                        flush=True,
-                    )
+                    incomplete = f"hemnet {district}: hit MAX_PAGES={MAX_PAGES}"
+                    print(f"[hemnet] {incomplete}; stopping pagination here", flush=True)
                     break
                 url = _district_url(district, page_num)
                 try:
@@ -324,11 +324,10 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
                     # Stuck on a CF challenge or transient error — keep what we
                     # already yielded; subsequent runs will fill the gap because
                     # we re-scrape the last 7 days each time (`scraper update`).
-                    print(
-                        f"[hemnet] {district} page {page_num} failed: {type(e).__name__}: {e};"
-                        f" stopping pagination here",
-                        flush=True,
+                    incomplete = (
+                        f"hemnet {district} page {page_num} failed: {type(e).__name__}: {e}"
                     )
+                    print(f"[hemnet] {incomplete}; stopping pagination here", flush=True)
                     break
 
                 cards = _extract_sale_cards(html)
@@ -371,3 +370,8 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
         finally:
             await ctx.close()
             await browser.close()
+
+    if incomplete is not None:
+        # Everything fetched before the failure has been yielded; callers keep
+        # those rows and mark this source/district as partial.
+        raise CrawlIncomplete(incomplete)

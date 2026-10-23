@@ -15,6 +15,7 @@ from datetime import date
 import pytest
 
 from scraper import booli, hemnet
+from scraper.errors import CrawlIncomplete
 
 SINCE = date(2026, 5, 1)
 # Hemnet encodes soldAt as epoch seconds at Stockholm-local midnight.
@@ -99,6 +100,16 @@ class _Clamp(dict):
 
 
 def _crawl(module, monkeypatch, extract_name: str, pages: dict[int, list[dict]]) -> list[str]:
+    """Like _run_crawl, but the crawl must complete."""
+    ids, incomplete = _run_crawl(module, monkeypatch, extract_name, pages)
+    assert incomplete is None, incomplete
+    return ids
+
+
+def _run_crawl(
+    module, monkeypatch, extract_name: str, pages: dict[int, list[dict]], fail_pages: tuple[int, ...] = ()
+) -> tuple[list[str], CrawlIncomplete | None]:
+    """Drive iter_district over `pages`. Returns (sourceIds yielded, CrawlIncomplete or None)."""
     fetched: list[int] = []
 
     async def fake_fetch(_ctx, _cfg, url: str) -> str:
@@ -106,6 +117,8 @@ def _crawl(module, monkeypatch, extract_name: str, pages: dict[int, list[dict]])
         fetched.append(n)
         if len(fetched) >= 20:
             raise _Runaway(f"pagination did not stop; fetched pages {fetched}")
+        if n in fail_pages:
+            raise RuntimeError("Cloudflare challenge did not resolve")
         return str(n)
 
     async def noop(*_a, **_k) -> None: ...
@@ -115,10 +128,28 @@ def _crawl(module, monkeypatch, extract_name: str, pages: dict[int, list[dict]])
     monkeypatch.setattr(module, extract_name, lambda html: pages.get(int(html), []))
     monkeypatch.setattr(module, "_warmup", noop)
 
-    async def collect() -> list[str]:
-        return [r["sourceId"] async for r in module.iter_district("ostermalm", SINCE)]
+    ids: list[str] = []
+    incomplete: list[CrawlIncomplete] = []
 
-    return asyncio.run(collect())
+    async def collect() -> None:
+        try:
+            async for r in module.iter_district("ostermalm", SINCE):
+                ids.append(r["sourceId"])
+        except CrawlIncomplete as e:
+            incomplete.append(e)
+
+    asyncio.run(collect())
+    return ids, (incomplete[0] if incomplete else None)
+
+
+@pytest.mark.parametrize("source", ["hemnet", "booli"])
+def test_page_fetch_failure_yields_what_it_got_then_raises_crawl_incomplete(source, monkeypatch) -> None:
+    module, card, extract = SOURCES[source]
+    pages = {1: [card("p1")], 2: [card("p2")], 3: [card("p3")]}
+    ids, incomplete = _run_crawl(module, monkeypatch, extract, pages, fail_pages=(2,))
+    assert ids == ["p1"]
+    assert incomplete is not None
+    assert "page 2" in str(incomplete) and "Cloudflare challenge" in str(incomplete)
 
 
 @pytest.mark.parametrize("source", SOURCES)
@@ -188,5 +219,7 @@ def test_max_pages_caps_the_crawl_and_logs(source, monkeypatch, capsys) -> None:
         def get(self, k, default=None):
             return [card(f"p{k}")]  # every page new and valid: only the cap can stop it
 
-    assert _crawl(module, monkeypatch, extract, Endless()) == ["p1", "p2", "p3", "p4"]
+    ids, incomplete = _run_crawl(module, monkeypatch, extract, Endless())
+    assert ids == ["p1", "p2", "p3", "p4"]
     assert "MAX_PAGES" in capsys.readouterr().out
+    assert incomplete is not None and "MAX_PAGES" in str(incomplete)

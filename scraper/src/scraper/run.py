@@ -14,6 +14,7 @@ from .backfill import backfill_dedup_keys
 from .booli import DISTRICT_AREA_IDS as _BOOLI_DISTRICTS
 from .booli import iter_district as _booli_iter
 from .db import engine, upsert_listing
+from .errors import CrawlIncomplete
 from .geocode import geocode_pending
 from .hemnet import DISTRICT_LOCATION_IDS
 from .hemnet import iter_district as _hemnet_iter
@@ -64,15 +65,20 @@ def scrape(district: str, since: date, source: str) -> None:
     """Scrape SOURCE sold-listings for DISTRICT back to SINCE."""
     iter_district = _SOURCE_ITER[source]
 
-    async def _run() -> int:
-        n = 0
+    counted = [0]
+
+    async def _run_counting() -> None:
         async for row in iter_district(district, since):
             upsert_listing(row)
-            n += 1
-        return n
+            counted[0] += 1
 
-    n = asyncio.run(_run())
-    click.echo(f"upserted {n} listings for {district} from {source}")
+    try:
+        asyncio.run(_run_counting())
+    except CrawlIncomplete as e:
+        click.echo(f"upserted {counted[0]} listings for {district} from {source}")
+        click.echo(f"crawl incomplete: {e}", err=True)
+        sys.exit(1)
+    click.echo(f"upserted {counted[0]} listings for {district} from {source}")
 
 
 @cli.command()
@@ -112,9 +118,13 @@ def update(districts: tuple[str, ...], sources: tuple[str, ...], lookback_days: 
         _refresh(source, d, overlap, lookback_days) for source in sources for d in districts
     ]
     click.echo(_format_results(results))
-    failed = [r for r in results if r.error is not None]
+    failed = [r for r in results if r.error is not None and not r.partial]
+    partial = [r for r in results if r.partial]
     if failed:
         click.echo(f"{len(failed)} of {len(results)} failed", err=True)
+    if partial:
+        click.echo(f"{len(partial)} of {len(results)} partial (crawl incomplete)", err=True)
+    if failed or partial:
         sys.exit(1)
     click.echo(f"{len(results)} of {len(results)} ok")
 
@@ -126,6 +136,8 @@ class UpdateResult:
     since: date | None = None
     upserted: int = 0
     error: str | None = None
+    # The crawl stopped early (CrawlIncomplete): rows already upserted are kept.
+    partial: bool = False
 
 
 def _refresh(source: str, district: str, overlap: timedelta, lookback_days: int) -> UpdateResult:
@@ -147,6 +159,10 @@ def _refresh(source: str, district: str, overlap: timedelta, lookback_days: int)
         click.echo(f"{source}/{district}: refreshing since {result.since.isoformat()}")
         asyncio.run(_run())
         click.echo(f"  upserted {result.upserted} for {source}/{district}")
+    except CrawlIncomplete as e:
+        result.partial = True
+        result.error = " ".join(str(e).split())
+        click.echo(f"  {source}/{district} partial: {result.error}", err=True)
     except Exception as e:  # noqa: BLE001
         result.error = " ".join(f"{type(e).__name__}: {e}".split())
         click.echo(f"  {source}/{district} failed: {result.error}", err=True)
@@ -155,14 +171,14 @@ def _refresh(source: str, district: str, overlap: timedelta, lookback_days: int)
 
 def _format_results(results: list[UpdateResult]) -> str:
     """Fixed-width summary table, one line per source/district."""
-    header = f"{'source':8} {'district':10} {'since':10} {'upserted':>8} {'status':6} error"
+    header = f"{'source':8} {'district':10} {'since':10} {'upserted':>8} {'status':7} error"
     lines = ["", header]
     for r in results:
         since = r.since.isoformat() if r.since else "-"
-        status = "ok" if r.error is None else "FAILED"
+        status = "partial" if r.partial else ("ok" if r.error is None else "FAILED")
         error = (r.error or "")[:150]
         lines.append(
-            f"{r.source:8} {r.district:10} {since:10} {r.upserted:>8} {status:6} {error}".rstrip()
+            f"{r.source:8} {r.district:10} {since:10} {r.upserted:>8} {status:7} {error}".rstrip()
         )
     return "\n".join(lines)
 

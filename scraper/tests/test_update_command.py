@@ -9,6 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 from scraper import run
+from scraper.errors import CrawlIncomplete
 
 
 @pytest.fixture()
@@ -88,3 +89,45 @@ def test_update_counts_a_failing_cutoff_lookup_as_a_failure(fake_world, monkeypa
     assert result.exit_code == 1
     assert "connection refused" in result.output
     assert "FAILED" in result.output
+
+
+def test_update_marks_an_incomplete_crawl_partial_keeps_rows_and_exits_nonzero(
+    fake_world, monkeypatch
+) -> None:
+    upserted, _ = fake_world
+
+    async def truncated(district: str, since: date):
+        yield {"source": "booli", "district": district, "n": 1}
+        yield {"source": "booli", "district": district, "n": 2}
+        raise CrawlIncomplete(f"booli {district} page 3 failed: RuntimeError: challenge")
+
+    monkeypatch.setitem(run._SOURCE_ITER, "booli", truncated)
+    result = CliRunner().invoke(
+        run.cli,
+        ["update", "--source", "hemnet", "--source", "booli", "--district", "ostermalm"],
+    )
+    assert result.exit_code == 1, result.output
+    assert len(upserted) == 2 + 2  # hemnet's rows, plus the partial booli rows are kept
+    booli_line = next(ln for ln in result.output.splitlines() if ln.startswith("booli "))
+    assert "partial" in booli_line and "FAILED" not in booli_line
+    assert " 2 " in booli_line and "page 3 failed" in booli_line
+    hemnet_line = next(ln for ln in result.output.splitlines() if ln.startswith("hemnet "))
+    assert " ok" in hemnet_line
+    assert "1 of 2 partial" in result.output
+    assert "failed" not in result.output.lower().replace("page 3 failed", "")
+
+
+def test_scrape_command_exits_nonzero_on_an_incomplete_crawl(fake_world, monkeypatch) -> None:
+    upserted, _ = fake_world
+
+    async def truncated(district: str, since: date):
+        yield {"source": "hemnet", "district": district, "n": 1}
+        raise CrawlIncomplete("hemnet ostermalm page 2 failed")
+
+    monkeypatch.setitem(run._SOURCE_ITER, "hemnet", truncated)
+    result = CliRunner().invoke(
+        run.cli, ["scrape", "--district", "ostermalm", "--since", "2026-05-01", "--source", "hemnet"]
+    )
+    assert result.exit_code == 1, result.output
+    assert len(upserted) == 1
+    assert "upserted 1" in result.output and "incomplete" in result.output
