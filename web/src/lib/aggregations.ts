@@ -4,6 +4,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import type { DistrictSlug } from "./districts";
+import { slugifyStreet } from "./text";
 import {
   OPEN_ENDED_ROOMS,
   type AddressBucketGranularity,
@@ -55,17 +56,9 @@ const MEDIAN_PPS = Prisma.sql`ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY
 
 const TRUNC = (g: Granularity) => (g === "year" ? "year" : "month");
 
-/** Stable, URL-safe slug for a Swedish street name. Round-trip via `unslugifyStreet`. */
-export function slugifyStreet(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/å/g, "a")
-    .replace(/ä/g, "a")
-    .replace(/ö/g, "o")
-    .replace(/é/g, "e")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
+// The slug lives in ./text (shared vectors with the scraper); re-exported so
+// existing imports keep working.
+export { slugifyStreet };
 
 /** Resolve a slug back to its canonical street display name within a district. */
 export async function streetFromSlug(
