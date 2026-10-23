@@ -73,6 +73,22 @@ test("deselecting every district shows the empty state and requests nothing", as
   expect(heatmapRequests[0]).toContain("districts=vasastan");
 });
 
+// F7: the sidebar note names both sources and follows the selected period.
+test("the sidebar source note names Hemnet and Booli and follows the period", async ({ page }) => {
+  await page.goto("/");
+  const note = page.getByTestId("source-note");
+  await expect(note).toContainText("Hemnet");
+  await expect(note).toContainText("Booli");
+  await expect(note).toContainText("senaste 12 månaderna");
+  await page.getByRole("button", { name: "30 dagar", exact: true }).click();
+  await expect(note).toContainText("senaste 30 dagarna");
+  await page.getByRole("button", { name: "3 mån", exact: true }).click();
+  await expect(note).toContainText("senaste 3 månaderna");
+  await page.getByRole("button", { name: "Allt", exact: true }).click();
+  await expect(note).toContainText("hela perioden");
+  await expect(note).not.toContainText("12 mån");
+});
+
 // F6: the e2e build always has an empty NEXT_PUBLIC_MAPBOX_TOKEN.
 test("a missing Mapbox token shows a clear message and keeps the sidebar working", async ({
   page,

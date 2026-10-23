@@ -14,10 +14,10 @@ import { DISTRICTS, type DistrictSlug } from "@/lib/districts";
 const ALL_DISTRICTS = DISTRICTS.map((d) => d.slug);
 const ROOM_OPTIONS = [1, 2, 3, 4, 5];
 const SINCE_OPTIONS = [
-  { label: "30 dagar", value: 30 },
-  { label: "3 mån", value: 90 },
-  { label: "12 mån", value: 365 },
-  { label: "Allt", value: undefined as number | undefined },
+  { label: "30 dagar", phrase: "senaste 30 dagarna", value: 30 },
+  { label: "3 mån", phrase: "senaste 3 månaderna", value: 90 },
+  { label: "12 mån", phrase: "senaste 12 månaderna", value: 365 },
+  { label: "Allt", phrase: "hela perioden", value: undefined as number | undefined },
 ];
 
 export default function HomePage() {
@@ -247,8 +247,9 @@ function Sidebar({
         {mode === "price" ? <PriceLegend /> : <FrequencyLegend />}
       </section>
 
-      <p className="mt-auto pt-3 text-[10px] text-zinc-400">
-        Källa: Hemnet sålda. Senaste 12 mån i Stockholms innerstad.
+      <p data-testid="source-note" className="mt-auto pt-3 text-[10px] text-zinc-400">
+        Källa: sålda bostäder från Hemnet och Booli, {SINCE_OPTIONS.find((o) => o.value === sinceDays)?.phrase} i
+        Stockholms innerstad.
       </p>
     </aside>
   );
