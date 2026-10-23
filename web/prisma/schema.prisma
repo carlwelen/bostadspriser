@@ -35,8 +35,9 @@ model Listing {
   // the matcher: all rows sharing a dedupKey carry one clusterId (new exact
   // copies arrive without one until the matcher runs again), and merging two
   // clusters rewrites the smaller one's rows to the larger's id.
-  // aggregations.ts dedupKeysInMultipleClusters() lists violations. Null = not
-  // clustered.
+  // aggregations.ts dedupKeysInMultipleClusters() is the reference check for
+  // violations; the matcher (Python) implements the same check itself.
+  // Null = not clustered.
   clusterId       String?       @db.VarChar(64)
   street          String
   houseNumber     String?

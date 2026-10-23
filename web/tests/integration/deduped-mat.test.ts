@@ -125,10 +125,18 @@ describe("DedupedListingMat", () => {
     await refresh(); // fine again once the reader is gone
   });
 
-  it("runs the test connections with a 60 s statement_timeout", async () => {
+  it("runs the test connections with the configured statement_timeout (60 s by default)", async () => {
     const [{ statement_timeout }] = await prisma.$queryRaw<Array<{ statement_timeout: string }>>`
       SHOW statement_timeout`;
-    expect(statement_timeout).toBe("1min");
+    // Postgres prints the largest unit that divides the value evenly.
+    const ms = Number(process.env.TEST_DB_STATEMENT_TIMEOUT_MS ?? "60000");
+    const show = (n: number) =>
+      n === 0 ? "0"
+      : n % 3_600_000 === 0 ? `${n / 3_600_000}h`
+      : n % 60_000 === 0 ? `${n / 60_000}min`
+      : n % 1000 === 0 ? `${n / 1000}s`
+      : `${n}ms`;
+    expect(statement_timeout).toBe(show(ms));
   });
 
   it("has the same column list as the live view (recreate both together)", async () => {
@@ -147,7 +155,8 @@ describe("DedupedListingMat", () => {
     const listing = (
       await prisma.$queryRaw<Array<{ column_name: string }>>`
         SELECT column_name FROM information_schema.columns
-        WHERE table_name = 'Listing' ORDER BY ordinal_position`
+        WHERE table_schema = current_schema() AND table_name = 'Listing'
+        ORDER BY ordinal_position`
     ).map((c) => c.column_name);
     expect(live.map((c) => c.split(":")[0])).toEqual([...listing, "sources"]);
   });

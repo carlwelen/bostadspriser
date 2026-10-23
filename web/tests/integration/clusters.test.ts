@@ -4,8 +4,9 @@ import { dedupKeysInMultipleClusters } from "@/lib/aggregations";
 import type { FixtureListing } from "../fixtures/listings";
 import { seed } from "../support/seed";
 
-// B13 contract: all rows sharing a dedupKey carry one clusterId. The matcher
-// and `scraper stats` use dedupKeysInMultipleClusters() to check it.
+// B13 contract: all rows sharing a dedupKey carry one clusterId.
+// dedupKeysInMultipleClusters() is the reference check for the matcher (B), which
+// implements the same check in Python; the web side cannot be called from there.
 
 const row = (id: string, extra: Partial<FixtureListing> = {}): FixtureListing => ({
   id,

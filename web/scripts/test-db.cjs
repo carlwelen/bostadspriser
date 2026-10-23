@@ -55,8 +55,20 @@ function testDatabaseUrl() {
   // should fail the test after a minute instead of hanging the suite. Set
   // TEST_DB_STATEMENT_TIMEOUT_MS=0 to disable (the perf run does).
   const timeoutMs = process.env.TEST_DB_STATEMENT_TIMEOUT_MS ?? "60000";
-  if (timeoutMs !== "0" && !url.searchParams.has("options")) {
-    url.searchParams.set("options", `-c statement_timeout=${timeoutMs}`);
+  if (!/^\d+$/.test(timeoutMs)) {
+    throw new Error(
+      `TEST_DB_STATEMENT_TIMEOUT_MS must be a non-negative integer (milliseconds), got "${timeoutMs}"`
+    );
+  }
+  if (timeoutMs !== "0") {
+    // Append to any `options` the URL already has. Spaces must be %20, not the
+    // "+" URLSearchParams would write: libpq-style clients (psql, psycopg) don't
+    // decode "+" and reject the option.
+    const existing = url.searchParams.get("options");
+    const options = `${existing ? `${existing} ` : ""}-c statement_timeout=${timeoutMs}`;
+    const rest = new URLSearchParams(url.search);
+    rest.delete("options");
+    url.search = [rest.toString(), `options=${encodeURIComponent(options)}`].filter(Boolean).join("&");
   }
   const out = url.toString();
   assertTestUrl(out);
