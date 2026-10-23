@@ -1,22 +1,25 @@
 import { createHash } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db";
 import { GET as heatmapGET } from "@/app/api/heatmap/route";
 import { GET as streetsAllGET } from "@/app/api/streets/all/route";
 import { GET as addressGET } from "@/app/api/address/route";
-import { RECENT_DAYS_AGO } from "../fixtures/listings";
 import { seed } from "../support/seed";
 
 // Characterisation of the three routes whose SQL moved into aggregations.ts
 // (B27). Each response is reduced to {count, sha256} of its canonical JSON, so
 // any change in rows, fields or values shows up; ordering is asserted
-// separately where the route promises one. The fixture's "recent" sales are
-// dated relative to today, so that date is normalised.
+// separately where the route promises one.
+//
+// The clock is pinned before the fixture is built: its "recent" sales are
+// dated relative to today and every cut-off and bucket reads the same fixed
+// instant, so the snapshots do not decay with the calendar.
+vi.hoisted(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-23T10:00:00Z"));
+});
 
-const RECENT = new Date(Date.now() - RECENT_DAYS_AGO * 86_400_000).toISOString().slice(0, 10);
-
-const canonical = (value: unknown) =>
-  JSON.stringify(value).replaceAll(`"${RECENT}"`, '"<recent>"');
+const canonical = (value: unknown) => JSON.stringify(value);
 
 const digest = (items: unknown[]) => {
   const lines = items.map((i) => canonical(i)).sort();
@@ -71,6 +74,7 @@ describe("/api/heatmap", () => {
 describe("/api/address", () => {
   const queries = [
     "district=vasastan&street=Odengatan&period=all",
+    "district=vasastan&street=Odengatan&period=12mo",
     "district=vasastan&street=Odengatan&house=10&period=all",
     "district=ostermalm&street=Karlav%C3%A4gen&house=2&period=3mo",
     "district=ostermalm&street=Karlav%C3%A4gen&house=2&period=30d",

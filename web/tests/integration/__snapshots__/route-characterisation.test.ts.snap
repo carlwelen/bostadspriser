@@ -10,7 +10,7 @@ exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&
 exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&house=2&period=3mo" is unchanged > sales 1`] = `
 {
   "count": 1,
-  "sha": "62292d836b6f0d4d",
+  "sha": "b24c7cb3560c44e5",
 }
 `;
 
@@ -31,14 +31,14 @@ exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&
 exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&house=2&period=30d" is unchanged > sales 1`] = `
 {
   "count": 1,
-  "sha": "62292d836b6f0d4d",
+  "sha": "b24c7cb3560c44e5",
 }
 `;
 
 exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&house=2&period=30d" is unchanged > series 1`] = `
 {
   "count": 1,
-  "sha": "64584cb965d53b0a",
+  "sha": "32ac7cbe2cb5a287",
 }
 `;
 
@@ -73,7 +73,7 @@ exports[`/api/address > response for "district=sodermalm&street=G%C3%B6tgatan&pe
 exports[`/api/address > response for "district=sodermalm&street=G%C3%B6tgatan&period=all" is unchanged > sales 1`] = `
 {
   "count": 14,
-  "sha": "0e46e0d4f28f1737",
+  "sha": "6a037f1ab997773e",
 }
 `;
 
@@ -126,6 +126,27 @@ exports[`/api/address > response for "district=vasastan&street=Odengatan&house=1
 }
 `;
 
+exports[`/api/address > response for "district=vasastan&street=Odengatan&period=12mo" is unchanged > meta 1`] = `
+{
+  "count": 1,
+  "sha": "da790cbbc231b3f6",
+}
+`;
+
+exports[`/api/address > response for "district=vasastan&street=Odengatan&period=12mo" is unchanged > sales 1`] = `
+{
+  "count": 3,
+  "sha": "3c2044651b2eadcf",
+}
+`;
+
+exports[`/api/address > response for "district=vasastan&street=Odengatan&period=12mo" is unchanged > series 1`] = `
+{
+  "count": 3,
+  "sha": "e661f8f42b8af81e",
+}
+`;
+
 exports[`/api/address > response for "district=vasastan&street=Odengatan&period=all" is unchanged > meta 1`] = `
 {
   "count": 1,
@@ -136,7 +157,7 @@ exports[`/api/address > response for "district=vasastan&street=Odengatan&period=
 exports[`/api/address > response for "district=vasastan&street=Odengatan&period=all" is unchanged > sales 1`] = `
 {
   "count": 13,
-  "sha": "c78d7bf66fbe5fe1",
+  "sha": "6241e9b13ebf1f27",
 }
 `;
 
@@ -150,21 +171,21 @@ exports[`/api/address > response for "district=vasastan&street=Odengatan&period=
 exports[`/api/heatmap > response for "" is unchanged 1`] = `
 {
   "count": 149,
-  "sha": "d0d541f6a805f162",
+  "sha": "dfeb54e8a9c613c7",
 }
 `;
 
 exports[`/api/heatmap > response for "?bbox=18.04,59.33,18.07,59.34" is unchanged 1`] = `
 {
   "count": 37,
-  "sha": "b30eb38630108d60",
+  "sha": "6cd2fe7f28314b3d",
 }
 `;
 
 exports[`/api/heatmap > response for "?districts=norrmalm&rooms=2,5" is unchanged 1`] = `
 {
   "count": 19,
-  "sha": "d827603021163e94",
+  "sha": "04b2c6e6ae7d6c0f",
 }
 `;
 
@@ -178,21 +199,21 @@ exports[`/api/heatmap > response for "?districts=sodermalm&priceMin=9000000" is 
 exports[`/api/heatmap > response for "?districts=vasastan,sodermalm" is unchanged 1`] = `
 {
   "count": 74,
-  "sha": "74f2a6b1c978612c",
+  "sha": "647b9a34f7452e42",
 }
 `;
 
 exports[`/api/heatmap > response for "?priceMin=125000&priceMax=140000" is unchanged 1`] = `
 {
   "count": 59,
-  "sha": "8c1a7ad870de15c9",
+  "sha": "52a2fb4adaf8228c",
 }
 `;
 
 exports[`/api/heatmap > response for "?priceMin=150000" is unchanged 1`] = `
 {
   "count": 41,
-  "sha": "51ed21efb2b89ed6",
+  "sha": "f64c2d7c61d8657c",
 }
 `;
 
@@ -213,7 +234,7 @@ exports[`/api/heatmap > response for "?rooms=5" is unchanged 1`] = `
 exports[`/api/heatmap > response for "?sinceDays=30" is unchanged 1`] = `
 {
   "count": 4,
-  "sha": "4c2d1d0846a9aac7",
+  "sha": "9cd6436dacb87ece",
 }
 `;
 

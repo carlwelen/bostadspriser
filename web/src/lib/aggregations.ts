@@ -1,7 +1,12 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import type { DistrictSlug } from "./districts";
-import { OPEN_ENDED_ROOMS } from "./api-types";
+import {
+  OPEN_ENDED_ROOMS,
+  type AddressBucketGranularity,
+  type AddressSale,
+  type StreetsAllItem,
+} from "./api-types";
 
 export type Granularity = "month" | "year";
 
@@ -39,7 +44,7 @@ export function stockholmToday(asOf: Date = new Date()): Prisma.Sql {
   return Prisma.sql`((${asOf}::timestamptz AT TIME ZONE 'Europe/Stockholm')::date)`;
 }
 
-const TRUNC =(g: Granularity) => (g === "year" ? "year" : "month");
+const TRUNC = (g: Granularity) => (g === "year" ? "year" : "month");
 
 /** Stable, URL-safe slug for a Swedish street name. Round-trip via `unslugifyStreet`. */
 export function slugifyStreet(name: string): string {
@@ -691,16 +696,8 @@ export async function heatmapPoints(
   `);
 }
 
-export type StreetOverview = {
-  district: DistrictSlug;
-  street: string;
-  slug: string;
-  count: number;
-  meanPricePerSqm: number;
-};
-
 /** Every street with sales, busiest first (ties by name), across all districts. */
-export async function listAllStreets(limit = 4000): Promise<StreetOverview[]> {
+export async function listAllStreets(limit = 4000): Promise<StreetsAllItem[]> {
   const rows = await prisma.$queryRaw<
     Array<{ district: DistrictSlug; street: string; n: bigint; mean_pps: bigint }>
   >(Prisma.sql`
@@ -723,16 +720,9 @@ export async function listAllStreets(limit = 4000): Promise<StreetOverview[]> {
   }));
 }
 
-export type AddressDrawerSale = {
-  soldAt: string;
-  priceSek: number;
-  pricePerSqmSek: number;
-  sources: string[];
-};
-
 export type AddressDrawerData = {
   streetSeries: TimeseriesPoint[];
-  addressSales: AddressDrawerSale[];
+  addressSales: AddressSale[];
 };
 
 /**
@@ -745,7 +735,7 @@ export async function addressDrawerData(
   district: DistrictSlug,
   street: string,
   house: string | undefined,
-  range: { days: number | null; bucket: "day" | "week" | "month" },
+  range: { days: number | null; bucket: AddressBucketGranularity },
   asOf: Date = new Date()
 ): Promise<AddressDrawerData> {
   const sinceClause = range.days
