@@ -53,23 +53,24 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | B38 | P1 | C | done | DedupedListing prefers priced rows (`pricePerSqmSek > 0`) before other tie-breakers | e1a1b46 | R approved |
 | B39 | P1 | B | done | A partial crawl must not advance the `update` cutoff (no permanent gap in the failed tail) | a5089df, 2f4f6cf | R approved; crawl_state.json "complete through" per source/district |
 | F33 | P1 | D | done | Drawer never shows the previous address's data while a new one loads; "Försök igen" after error | 7e92e3a | R approved; a11y focus-after-retry nit → D |
-| B43 | P1 | B | review | Single-instance `flock` lock for scrape/update/reparse; second run exits non-zero |  | R approved (with geocode/backfill-dedup lock + help text); merges with the B16 series |
-| B44 | P1 | B | review | Deep backfill not capped forever by MAX_PAGES: `scraper backfill --resume` with recorded progress, explicit `--max-pages` |  | R approved; minors with B18 |
+| B43 | P1 | B | done | Single-instance `flock` lock for scrape/update/reparse; second run exits non-zero | 0633d16, a0ba25f | R approved |
+| B44 | P1 | B | done | Deep backfill not capped forever by MAX_PAGES: `scraper backfill --resume` with recorded progress, explicit `--max-pages` | 1457ded, 067e67a | R approved |
 | B45 | P2 | B+C | todo | Move crawl_state.json (update cutoffs, backfill resume) into ScrapeRun (`kind`, `lastPage` columns); resumed backfills don't count as freshness | | From B/R |
-| B46 | P1 | B | todo | Scraper calls `refresh_deduped_listing()` after every writing command (guarded until the function exists), `refresh-view` command, mat-vs-live count check in `stats` | | MERGE GATE for B21 |
+| B46 | P1 | B | review | Scraper calls `refresh_deduped_listing()` after every writing command (guarded until the function exists), `refresh-view` command, mat-vs-live count check in `stats` |  | B 60e5a39 + 67349c5 in review (guarded refresh_deduped(), refresh-view, stats mat-vs-live, pytest statement_timeout). MERGE GATE for B21 |
 | B47 | P3 | B | todo | Parser: floor marker after a range letter (`2-3B tr`, `2-3 t r`) | | From R review of B2 |
-| B13 | P1 | C+B | review | Fuzzy cross-source matcher (same street+house, \ | Δdate\ | View fix 275e98a R approved (C branch, rebasing). Matcher (one clusterId per dedupKey invariant + multi-cluster check) → B later |  | Schema (C) first |
-| B14 | P1 | B+C | in-progress | Ingest sanity bounds (area 10–400, kr/m² 20k–400k, rooms 1–15) reject + count; SQL exposes median + count everywhere; UI defaults to median |  | SQL done incl. review fix 9c50e53 (R approved, C branch rebasing); ingest bounds → B; UI default median → E (in progress) |
+| B48 | P2 | B | review | Geocode exit codes: 75 rate-limited/unavailable, 78 bad token, 1 internal, 0 ok | | In B 57056f1 |
+| B13 | P1 | C+B | in-progress | Fuzzy cross-source matcher (same street+house, \ | ae5be64, 0d3c916 | Schema + canonical-key view merged (R approved). Matcher → B (now unblocked) |  | Schema (C) first |
+| B14 | P1 | B+C | in-progress | Ingest sanity bounds (area 10–400, kr/m² 20k–400k, rooms 1–15) reject + count; SQL exposes median + count everywhere; UI defaults to median | 272f279, 6435fe3 | SQL merged (R approved); ingest bounds → B; UI default median → E (in progress) |
 | B15 | P1 | B | todo | Check SaleCard for an area/location name and filter on it, or record that none exists | | |
-| B16 | P1 | B(+C) | in-progress | Geocode: status/retry column, 429 backoff, display-name query, inner-Stockholm bbox + reject outside; (d) storage terms | a9ca105 | Scraper side: token leak + poison pill fixed (R confirmed no leak); remaining: 5xx/transport circuit breaker + per-row catch-all → B. Mapbox storage terms → owner decision |
+| B16 | P1 | B(+C) | in-progress | Geocode: status/retry column, 429 backoff, display-name query, inner-Stockholm bbox + reject outside; (d) storage terms | a9ca105, 2e3669e, , 5b3428b | Merged as strict improvement over baseline geocode (baseline leaked token via raise_for_status). B16 review 3 + B48 exit codes in review. Mapbox storage terms → owner decision |
 | B17 | P1 | B | done | Shared browser/source base; sources only define URL, `_looks_real`, extraction, `_to_row`; characterisation tests first | cdc61ba, 930c658 | R approved; guardrail diff byte-identical; shared core in source_base.py |
-| B18 | P1 | C+B | in-progress | `ScrapeRun` model (C); scraper writes it and uses `logging` (B); web shows freshness (F18) | 4893c3c | Schema merged. Scraper side (ScrapeRun rows, logging) R approved with minors → B fixing (committed oldestSoldAt, monotonic, reaper try/except); UI F18 → E |
-| B19 | P1 | B | review | Oldest-covered date per source/district; `scraper backfill --source --district --since --resume` |  | With B44 (backfill --resume); R approved |
+| B18 | P1 | C+B | in-progress | `ScrapeRun` model (C); scraper writes it and uses `logging` (B); web shows freshness (F18) | 4893c3c, 1457ded, ad0f8ab | Scraper side merged (R approved). B18 review 3 (update-path test) in review. UI F18 → E |
+| B19 | P1 | B | done | Oldest-covered date per source/district; `scraper backfill --source --district --since --resume` | 1457ded | R approved (backfill --resume) |
 | B20 | P1 | B | done | Batched upserts (page or 100 rows per transaction) | 5516ecc, a1fc82e | R approved |
 | B21 | P2 | C | in-progress | Measure ~200k rows + EXPLAIN ANALYZE into docs/perf.md; materialized view or `isCanonical`; re-measure |  | C: materialized view DedupedListingMat, before/after in docs/perf.md (queries 0.9–2.3s → ≤175ms at 200k rows). R: approved design; MERGE GATE: B adds guarded refresh_deduped_listing() calls first, then C B21 merges. C adding lock_timeout + test statement_timeout |
 | B22 | P2 | C+B | todo | Persisted `streetSlug` + index, shared slug vectors, React `cache()` on lookups | | Depends on B23. `streetFromSlug` scans all district streets; E added `resolveStreet.ts` cache() wrapper in F26 |
 | B23 | P2 | C(+B,D,E) | in-progress | One slug/fold implementation in `web/src/lib/text.ts`; `shared/slug-vectors.json` asserted by pytest and vitest |  | C b241ee5 R approved (lib/text.ts + shared/slug-vectors.json, URLs unchanged). Remaining: pytest vectors (B), StreetSearch/AddressDrawer adopt it (D) |
-| B24 | P2 | C/E | todo | `revalidate` or tag caching + secret `POST /api/revalidate`; build never needs a DB | | Build part done in P0.2 |
+| B24 | P2 | C/E | review | `revalidate` or tag caching + secret `POST /api/revalidate`; build never needs a DB |  | Build part done in P0.2; C 733bbbf (tag-based unstable_cache + POST /api/revalidate) in review |
 | B25 | P2 | C | review | Deliberate heatmap cap, minimal properties, bbox/zoom filtering, gzip; documented; response reports truncation |  | C 730b5f1 R approved (cap 30k + truncated flag); minors → C; UI hint → D later |
 | B26 | P2 | C | in-progress | topMovers: disjoint windows, higher thresholds, medians, expose n |  | C 72f1716: R changes requested (doc semantics); insights copy → E (F35) |
 | B27 | P2 | C | done | Inline SQL in /api/address, /api/heatmap, /api/streets/all moved to aggregations.ts | 1906cab, d143604 | R approved; snapshots pinned to a fixed clock |
@@ -93,7 +94,7 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | F11 | P1 | E/D | todo | Numeric time axis with honest gaps (PriceChart E, AddressDrawer D) | | |
 | F12 | P1 | E/D | todo | Tooltips show n; buckets with n < 3 de-emphasised | | |
 | F13 | P1 | C+E | in-progress | SQL `streetSummary` / `addressSummary` / `districtStreetCount`; correct labelled stats | 48d7aa0 | SQL side merged; UI wiring → E |
-| F14 | P1 | C | done | House numbers sort naturally in SQL | a5b5813 | R approved; NBSP follow-up a59733a approved on C branch |
+| F14 | P1 | C | done | House numbers sort naturally in SQL | a5b5813, 1ced813 | R approved |
 | F15 | P1 | D | done | Map filters round-trip through searchParams | 120347d, 7869c5a, 4efd397 | R approved; server-rendered from searchParams |
 | F16 | P1 | E(+C) | todo | Room/size segmentation chips on district + street pages | | |
 | F17 | P1 | D(+C) | done | Data-driven quantile price legend; ramp + legend in one module | 2de7d86, 2aa4c76, 4efd397 | R approved; outlier-stretch follow-up in F38 |
