@@ -4,93 +4,111 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Web app that aggregates, analyzes, and visualizes apartment sale prices in Stockholm's inner city (Östermalm, Vasastan, Norrmalm, Södermalm). Original Swedish brief: `plan.md`. Implementation plan: `/home/carlw/.claude/plans/okay-lets-start-with-federated-fox.md`.
+Web app that aggregates, analyzes, and visualizes apartment sale prices in Stockholm's inner city (Östermalm, Vasastan, Norrmalm, Södermalm). Original Swedish brief: `plan.md`. Work queue and status ledger: `docs/backlog.md`.
 
 ## Stack
 
-- **`web/`** — Next.js 15 App Router (TypeScript, Tailwind 4), Prisma 6, Recharts, Mapbox GL, h3-js (client-side hex aggregation).
-- **`scraper/`** — Python 3.12 (Playwright + SQLAlchemy 2 + psycopg 3 + Click), single-worker, jittered.
-- **Postgres 16** via `docker-compose.yml`.
+- **`web/`**: Next.js 15 App Router (TypeScript, React 19, Tailwind 4), Prisma 6, Recharts, Mapbox GL, h3-js (client-side hex aggregation).
+- **`scraper/`**: Python 3.12 (Playwright + SQLAlchemy 2 + psycopg 3 + Click + tenacity), single-worker, jittered. Two sources: Hemnet (`hemnet.py`) and Booli (`booli.py`).
+- **Postgres 16** via `docker-compose.yml` (container `bostadspriser-postgres`).
 
-`web/` and `scraper/` share one database. **Prisma owns the schema and migrations**; SQLAlchemy reflects it. If a column changes, edit `web/prisma/schema.prisma`, run `pnpm exec prisma migrate dev`, then update Python call sites — never the other way around.
+`web/` and `scraper/` share one database. **Prisma owns the schema and migrations**; SQLAlchemy reflects it. To change a column: edit `web/prisma/schema.prisma`, create a migration (`pnpm exec prisma migrate dev --create-only` against a *test* DB, or hand-write it), then update the Python call sites. Never the other way around.
+
+## Toolchain (this machine)
+
+macOS (darwin/arm64), Node 26, pnpm 12, uv, Python 3.12. The docker CLI lives at `/Applications/Docker.app/Contents/Resources/bin`.
+
+- pnpm 10+ ignores dependency build scripts unless allowlisted; the allowlist is `allowBuilds` in `web/pnpm-workspace.yaml` (Prisma, sharp, unrs-resolver).
+- The single `.env` lives at the repo root. `web/next.config.ts` loads it via `@next/env`; the scraper's `config.py` loads it with python-dotenv. Prisma CLI commands need `DATABASE_URL` in the environment (export it, or run from a shell that sourced `.env`).
+- Next.js is still pinned to 15 and Prisma to 6. Node ≥ 20 is available now, so both *can* be upgraded, but only as a separate, reviewed task (see backlog).
+- The Python scraper uses `psycopg` (v3); SQLAlchemy's default `postgresql://` URL routes to psycopg2, so `db.engine()` rewrites the URL to `postgresql+psycopg://`.
 
 ## Common commands
 
 | Task | Command |
 |---|---|
+| **Full gate (run before every commit)** | `scripts/check.sh` (`--quick` skips build + e2e; not the gate) |
 | Start Postgres | `docker compose up -d postgres` |
 | Install web deps | `cd web && pnpm install` |
-| Migrate DB | `cd web && pnpm exec prisma migrate dev` |
+| Apply migrations to the dev DB | `cd web && DATABASE_URL=… pnpm exec prisma migrate deploy` |
 | Web dev server | `cd web && pnpm dev` (→ <http://localhost:3000>) |
-| Web typecheck | `cd web && pnpm exec tsc --noEmit` |
-| Web lint | `cd web && pnpm lint` |
+| Typecheck / lint | `cd web && pnpm typecheck` / `pnpm lint` (zero warnings allowed) |
+| Unit tests (vitest, no DB) | `cd web && pnpm test:unit` |
+| Integration tests (vitest + test DB) | `cd web && pnpm test:int` |
+| E2E smoke (Playwright) | `cd web && pnpm e2e:build && pnpm test:e2e` |
+| Coverage | `cd web && pnpm test:coverage`; `cd scraper && uv run pytest --cov=scraper` |
+| Screenshots for UI tasks | `cd web && pnpm e2e:build && SCREENS_ID=F1 SCREENS_PATHS=/a,/b pnpm screens` → `docs/screens/` |
+| Test DB helper | `cd web && node scripts/test-db.cjs url\|ensure\|reset` |
 | Install scraper deps | `cd scraper && uv sync` |
 | Install Playwright browser (one-time) | `cd scraper && uv run playwright install chromium` |
-| Initial backfill (one district) | `cd scraper && uv run scraper scrape --district ostermalm --since 2025-05-03` |
-| Daily refresh (all 4 districts) | `cd scraper && uv run scraper update` |
+| Scraper tests / lint | `cd scraper && uv run pytest -q` / `uv run ruff check` |
+| Initial backfill (one district) | `cd scraper && uv run scraper scrape --source hemnet --district ostermalm --since 2025-05-03` |
+| Daily refresh (all sources × districts) | `cd scraper && uv run scraper update` |
 | Geocode pending rows | `cd scraper && uv run scraper geocode --limit 200` |
+| Backfill dedup keys | `cd scraper && uv run scraper backfill-dedup` |
 | DB stats | `cd scraper && uv run scraper stats` |
-| Run scraper tests | `cd scraper && uv run pytest -q` |
 
-`pnpm` and `uv` are user-local at `~/.npm-global/bin/pnpm` and `~/.local/bin/uv`. If they're not on PATH, prepend `export PATH=~/.npm-global/bin:~/.local/bin:$PATH` to commands.
+## Testing
 
-## Version pins (load-bearing)
-
-- **Node 18.19.1** is what's installed; **Node 20+** is preferred but not available here. This forces:
-  - **Next.js pinned to ^15** (Next 16 needs Node ≥20.9).
-  - **Prisma pinned to ^6** (Prisma 7 needs Node ≥20.19).
-  - If the user upgrades Node, both can be bumped freely.
-- pnpm needs `@tailwindcss/oxide-linux-x64-gnu` listed explicitly under `devDependencies` — the auto-resolved optional dep doesn't always install on this platform, and Tailwind 4 won't compile without the native binary.
-- The Python scraper uses `psycopg` (v3); SQLAlchemy's default `postgresql://` URL routes to psycopg2, so `db.engine()` rewrites the URL to `postgresql+psycopg://`.
+- **Never point tests at the dev DB (`bostadspriser`).** Test databases are resolved by `web/scripts/test-db.cjs` (web) and `scraper/tests/conftest.py` (pytest): `TEST_DATABASE_URL`, else `DATABASE_URL` with the name replaced by `TEST_DB_NAME` (default `bostadspriser_test`). Both refuse any database whose name lacks a `test` segment, and truncation re-checks `current_database()`.
+- Parallel worktrees: give each one its own `TEST_DB_NAME` (e.g. `bostadspriser_test_b`) and `E2E_PORT`.
+- Web integration tests (`web/tests/integration/`) call `aggregations.ts` functions and route handlers (`GET(new Request(…))`) directly against the seeded test DB. The deterministic fixture is `web/tests/fixtures/listings.ts`; seeding is `web/tests/support/seed.ts`.
+- E2E (`web/e2e/`) runs a production build from `.next-e2e/` with an empty `NEXT_PUBLIC_MAPBOX_TOKEN`; every off-origin request is aborted. Known baseline bugs are pinned as `test.fail(...)` (or listed in `KNOWN_CONSOLE_ERRORS`) with their backlog ID. The fixing commit flips them.
+- Scraper DB tests request the `db` fixture; it migrates the test DB via `pnpm exec prisma migrate deploy` (so `web/node_modules` must be installed) and truncates all tables per test. conftest also redirects the cache/state dirs to a temp dir and sets a fake `MAPBOX_TOKEN`.
+- **Never run the live scrapers in tests.** Scraper tests are fixture-based (captured `SaleCard` / `SoldProperty` shapes).
 
 ## Architecture notes
 
 ### Schema
-- `Listing` is the single primary table — one row per sold listing, with `(source, sourceId)` as the natural key for idempotent re-scrapes. Indexes are tuned for the three required aggregation axes: `(district, soldAt)`, `(street, houseNumber, soldAt)`, `(lat, lng)`.
-- Prisma's `@default(uuid())` is a client-side default. SQLAlchemy reflection doesn't see it, so the Python scraper generates `id = str(uuid.uuid4())` per row in `_to_row`.
+- `Listing` is the single primary table: one row per sold listing per source, with `(source, sourceId)` as the natural key for idempotent re-scrapes. Indexes: `(district, soldAt)`, `(street, houseNumber, soldAt)`, `(lat, lng)`, `(dedupKey)`.
+- `dedupKey` = blake2b of normalized address + soldAt + price (`normalize.dedup_key`); it collapses the same sale seen via Hemnet and Booli.
+- **All reads go through the `"DedupedListing"` view**: `DISTINCT ON (COALESCE(dedupKey, id))`, preferring rows with coordinates, then Hemnet, then the latest `scrapedAt`; it adds a `sources text[]` column.
+- Prisma's `@default(uuid())` is a client-side default. SQLAlchemy reflection doesn't see it, so the scraper generates `id = str(uuid.uuid4())` per row in `_to_row`.
 
 ### Aggregations live in SQL
-`web/src/lib/aggregations.ts` is the single home for `AVG`, `date_trunc`, `GROUP BY` queries used by both the API routes and the server-rendered pages. Don't pull listings into memory and reduce.
+`web/src/lib/aggregations.ts` is the home for `AVG`, `date_trunc`, `GROUP BY` queries used by API routes and server-rendered pages. Don't pull listings into memory and reduce. (Some routes still inline SQL; moving it is backlog item B27.)
 
-### Hemnet scraper
-Hemnet sits behind Cloudflare and ships listing data inside `__NEXT_DATA__.props.pageProps.__APOLLO_STATE__`, keyed by Apollo-cache id with `__typename == "SaleCard"`. Plain `httpx` gets a 403 challenge; we need real Chromium.
+### Scrapers
+Both sites render server-side and ship data in `__NEXT_DATA__.props.pageProps.__APOLLO_STATE__`: Hemnet as `__typename == "SaleCard"`, Booli as `"SoldProperty"`. See `.claude/agent-memory/backend-architect/booli_scraper.md` for Booli specifics (area IDs, `descriptiveAreaName` district filter).
 
-Bot-protection handling (first-class concern):
-- **Single-worker, jittered 3–5 s delay** between page fetches.
-- **Persistent storageState** at `scraper/.state/storageState.json` — re-using cookies dramatically lowers Cloudflare friction. *Don't `rm -rf` it between runs.*
-- **HTML cache** at `scraper/.cache/<date>_<urlhash>.html`. Challenge pages ("Vänta…", "Just a moment…") are detected via `_looks_real()` and never cached.
-- **CF challenge resolution** — after `goto`, `_fetch` waits for `script#__NEXT_DATA__` and re-checks `_looks_real()` for up to ~12 s before retrying.
-- **429/503 → exponential backoff** up to 10 minutes via tenacity, then exit cleanly so cron can retry next cycle.
-- **Soft-real fields** are localized strings: `"4 900 000 kr"`, `"35 m²"`, `"2,5 rum"`. Parsers in `normalize.py` are tested in `tests/test_normalize.py` — keep them tolerant of non-breaking spaces and comma decimals.
-- **`soldAt` is Stockholm-local midnight encoded as Unix epoch.** Converting in UTC drops the date by one during DST. `_to_row` uses `ZoneInfo("Europe/Stockholm")` to match the "Såld <day>" label.
+Polite-crawling behaviour (do not make it more aggressive or add circumvention):
+- **Single worker, jittered 3–5 s delay** between page fetches.
+- **Persistent storageState** at `scraper/.state/storageState.json`. *Don't delete it between runs.*
+- **HTML cache** at `scraper/.cache/<date>_<urlhash>.html`. Challenge pages are detected via `_looks_real()` and never cached.
+- **429/503 → exponential backoff** via tenacity, then the page is skipped so cron can retry.
+- **Localized fields**: `"4 900 000 kr"`, `"35 m²"`, `"2,5 rum"`. Parsers in `normalize.py` (tests in `tests/test_normalize.py`) must tolerate NBSP and comma decimals.
+- **Hemnet `soldAt` is Stockholm-local midnight as Unix epoch.** Converting in UTC drops a day during DST; `_to_row` uses `ZoneInfo("Europe/Stockholm")`. Booli ships `soldDate` as `YYYY-MM-DD`.
 
 ### Geocoding
-For Hemnet rows, `coordinates.lat/long` ship inline with each `SaleCard` — `_to_row` populates lat/lng directly and stamps `geocodedAt`. The `scraper geocode` command remains for sources that don't ship coordinates (Booli, future).
+Both sources usually ship coordinates inline; `_to_row` fills lat/lng and stamps `geocodedAt`. `scraper geocode` (Mapbox) handles rows without them.
 
 ### Heatmap
 The landing page (`/`) toggles between two visualizations:
-- **Pris** — color-by-`pricePerSqm` heatmap layer + circle dots with hover popups. Light style, flat camera.
-- **Frekvens** — h3-js client-side aggregation at resolution 10 (~65 m hex), rendered as a `fill-extrusion` layer with `extrusion-height` keyed off the count. Camera tilts to 55° pitch automatically when this mode is active.
+- **Pris**: color-by-`pricePerSqm` heatmap layer + circle dots with hover popups. Flat camera.
+- **Frekvens**: h3-js client-side aggregation at **resolution 9** (~175 m edge), rendered as `fill-extrusion` keyed off the count; camera tilts to 55°.
 
-Both layers source the same `/api/heatmap?districts=…` GeoJSON. The API caps at 5,000 features and supports an optional `bbox` filter.
+Both read `/api/heatmap` GeoJSON. The query currently caps at **50,000** features (B25 will pick a deliberate cap) and supports `districts`, `bbox`, `rooms`, `priceMin`/`priceMax`, `sinceDays`.
 
 ## Routes
 
 | Path | Purpose |
 |---|---|
-| `/` | Landing — full-bleed Mapbox map + sidebar (district filters, Pris/Frekvens, Heat map toggle) |
-| `/district/[slug]` | District summary: count, mean kr/m², MoM %, top 12 streets, recent sales, monthly chart |
+| `/` | Landing: full-bleed Mapbox map + sidebar (districts, rooms, period, Pris/Frekvens, heatmap toggle) + address drawer |
+| `/district/[slug]` | District summary: count, mean kr/m², MoM %, top streets, recent sales, monthly chart |
 | `/street/[district]/[street]` | Street drill-down: chart, house-number list, recent sales |
 | `/street/[district]/[street]/[house]` | Address drill-down: chart with street overlay, sales |
-| `/compare?series=district:ostermalm,district:vasastan` | Multi-series chart |
+| `/compare?series=district:ostermalm,street:vasastan/odengatan` | Multi-series chart |
+| `/insights` | Dataset-wide stats: distribution, rooms breakdown, top movers, scatter |
 | `/api/timeseries?scope=district\|street&id=…&granularity=month\|year` | JSON time series |
-| `/api/heatmap?districts=…&bbox=w,s,e,n` | GeoJSON FeatureCollection |
-| `/api/streets?district=…` | Per-district street summary |
+| `/api/heatmap?districts=…&bbox=w,s,e,n&rooms=…&sinceDays=…` | GeoJSON FeatureCollection |
+| `/api/streets?district=…&limit=…` | Per-district street summary |
+| `/api/streets/all` | All streets (search index) |
+| `/api/address?district=…&street=…&house=…&period=30d\|3mo\|12mo\|all` | Address-drawer data |
 
-All API responses send `Cache-Control: public, max-age=60, stale-while-revalidate=300`.
+API responses send `Cache-Control: public, max-age=60, stale-while-revalidate=300` (`/api/streets/all`: 300/600). `sitemap.xml` is rendered per request so `next build` needs no database.
 
-## What's next
+## Conventions
 
-- Booli source (the brief mentions an API; would slot under `source = "booli"` and use the same `_to_row` shape).
-- Wire the top nav's "Filtrera" / "Sök gata" buttons to a real filter sheet / typeahead.
-- A Postgres unique index on `(source, sourceId)` is already enforced by Prisma; if scraper throughput becomes a bottleneck consider batching upserts.
+- UI copy is **Swedish**; code, comments and commit messages are English.
+- One commit per backlog item, conventional message with the ID: `fix(scraper): … (B1)`.
+- New problems get a new backlog ID (`B30+`, `F26+`); don't fix them silently in an unrelated commit.

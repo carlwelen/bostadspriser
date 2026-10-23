@@ -421,7 +421,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
 
   return (
     <div className="relative h-full w-full">
-      <div ref={containerRef} className="h-full w-full" />
+      <div ref={containerRef} data-testid="map-container" className="h-full w-full" />
 
       {/* coverage / loading badge */}
       <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-2 rounded-full bg-white/85 px-3 py-1 text-xs text-zinc-700 shadow-sm ring-1 ring-zinc-200 backdrop-blur">

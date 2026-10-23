@@ -1,0 +1,38 @@
+import { test as base, expect } from "@playwright/test";
+
+/**
+ * Console errors that are known baseline bugs. Each entry names the backlog
+ * item that removes it; delete the entry in the same commit as the fix.
+ */
+export const KNOWN_CONSOLE_ERRORS: Array<{ id: string; pattern: RegExp }> = [
+  // F6: a missing token should render an in-app message instead.
+  { id: "F6", pattern: /NEXT_PUBLIC_MAPBOX_TOKEN is not set/ },
+];
+
+type Fixtures = { consoleErrors: string[] };
+
+/**
+ * Extends `test` with:
+ *   - hermetic network: any request that isn't to the app server is aborted;
+ *   - `consoleErrors`: console.error / uncaught page errors collected during
+ *     the test, minus KNOWN_CONSOLE_ERRORS. Assert it is empty.
+ */
+export const test = base.extend<Fixtures>({
+  consoleErrors: async ({ page, baseURL }, provide) => {
+    const origin = new URL(baseURL!).origin;
+    await page.context().route("**/*", (route) =>
+      route.request().url().startsWith(origin) ? route.continue() : route.abort()
+    );
+    const errors: string[] = [];
+    const keep = (msg: string) => {
+      if (!KNOWN_CONSOLE_ERRORS.some((k) => k.pattern.test(msg))) errors.push(msg);
+    };
+    page.on("console", (m) => {
+      if (m.type() === "error") keep(m.text());
+    });
+    page.on("pageerror", (e) => keep(`pageerror: ${e.message}`));
+    await provide(errors);
+  },
+});
+
+export { expect };

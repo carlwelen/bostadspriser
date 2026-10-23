@@ -7,6 +7,10 @@ import type { NextConfig } from "next";
 // variables already set in the environment or in `web/.env*` win.
 loadEnvConfig(path.resolve(__dirname, ".."));
 
-const nextConfig: NextConfig = {};
+const nextConfig: NextConfig = {
+  // The e2e suite builds into its own directory so it never clobbers a
+  // running `pnpm dev` (see scripts/check.sh).
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+};
 
 export default nextConfig;
