@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import type { DistrictSlug } from "./districts";
+import { OPEN_ENDED_ROOMS } from "./api-types";
 
 export type Granularity = "month" | "year";
 
@@ -605,5 +606,193 @@ export async function districtMomChange(
     previousMonth: rows[0].previous_month,
     currentCount,
     previousCount,
+  };
+}
+
+// Queries behind the JSON API routes (moved out of the route handlers, B27).
+
+/** Upper bound on points returned for the map (revisit with B25). */
+export const HEATMAP_LIMIT = 50_000;
+
+export type HeatmapFilters = {
+  districts?: DistrictSlug[];
+  /** west, south, east, north in degrees (inclusive). */
+  bbox?: [number, number, number, number];
+  /** kr/m², inclusive bounds. */
+  priceMin?: number;
+  priceMax?: number;
+  /** Room counts; `OPEN_ENDED_ROOMS` (5) means "5 or more", other values match FLOOR(rooms). */
+  rooms?: number[];
+  /** Only sales from the last N days, counted from today in Stockholm. */
+  sinceDays?: number;
+};
+
+export type HeatmapPoint = {
+  lat: number;
+  lng: number;
+  pricePerSqm: number;
+  street: string;
+  houseNumber: string | null;
+  district: DistrictSlug;
+  soldAt: Date;
+  source: string;
+  sources: string[];
+  dedupKey: string | null;
+};
+
+/** Geocoded, deduplicated sales matching `filters`, newest first. */
+export async function heatmapPoints(
+  filters: HeatmapFilters = {},
+  asOf: Date = new Date()
+): Promise<HeatmapPoint[]> {
+  const { districts, bbox, priceMin, priceMax, rooms, sinceDays } = filters;
+  const conds: Prisma.Sql[] = [
+    Prisma.sql`lat IS NOT NULL`,
+    Prisma.sql`lng IS NOT NULL`,
+    Prisma.sql`"pricePerSqmSek" > 0`,
+  ];
+  if (districts && districts.length > 0) {
+    conds.push(Prisma.sql`district::text IN (${Prisma.join(districts)})`);
+  }
+  if (bbox) {
+    const [w, s, e, n] = bbox;
+    conds.push(Prisma.sql`lng BETWEEN ${w} AND ${e}`);
+    conds.push(Prisma.sql`lat BETWEEN ${s} AND ${n}`);
+  }
+  if (priceMin !== undefined) {
+    conds.push(Prisma.sql`"pricePerSqmSek" >= ${priceMin}`);
+  }
+  if (priceMax !== undefined) {
+    conds.push(Prisma.sql`"pricePerSqmSek" <= ${priceMax}`);
+  }
+  if (rooms && rooms.length > 0) {
+    // Every value matches the integer-rounded room count (4 covers 4 and 4.5),
+    // except the open-ended "5+" value (5), which matches 5 rooms or more.
+    // `rooms` is non-empty, so at least one of the two alternatives exists.
+    const exact = rooms.filter((r) => r !== OPEN_ENDED_ROOMS);
+    const alts: Prisma.Sql[] = [];
+    if (exact.length > 0) alts.push(Prisma.sql`FLOOR(rooms) IN (${Prisma.join(exact)})`);
+    if (rooms.includes(OPEN_ENDED_ROOMS)) alts.push(Prisma.sql`rooms >= ${OPEN_ENDED_ROOMS}`);
+    conds.push(Prisma.sql`(${Prisma.join(alts, " OR ")})`);
+  }
+  if (sinceDays !== undefined) {
+    conds.push(Prisma.sql`"soldAt" >= (${stockholmToday(asOf)} - ${sinceDays}::int)`);
+  }
+
+  return prisma.$queryRaw<HeatmapPoint[]>(Prisma.sql`
+    SELECT lat, lng,
+           "pricePerSqmSek"::int AS "pricePerSqm",
+           street, "houseNumber", district::text AS district,
+           "soldAt", source, sources, "dedupKey"
+    FROM "DedupedListing"
+    WHERE ${Prisma.join(conds, " AND ")}
+    ORDER BY "soldAt" DESC
+    LIMIT ${HEATMAP_LIMIT}
+  `);
+}
+
+export type StreetOverview = {
+  district: DistrictSlug;
+  street: string;
+  slug: string;
+  count: number;
+  meanPricePerSqm: number;
+};
+
+/** Every street with sales, busiest first (ties by name), across all districts. */
+export async function listAllStreets(limit = 4000): Promise<StreetOverview[]> {
+  const rows = await prisma.$queryRaw<
+    Array<{ district: DistrictSlug; street: string; n: bigint; mean_pps: bigint }>
+  >(Prisma.sql`
+    SELECT district::text AS district,
+           street,
+           COUNT(*)::bigint               AS n,
+           AVG("pricePerSqmSek")::bigint  AS mean_pps
+    FROM "DedupedListing"
+    WHERE "pricePerSqmSek" > 0
+    GROUP BY district, street
+    ORDER BY n DESC, street ASC
+    LIMIT ${limit}
+  `);
+  return rows.map((r) => ({
+    district: r.district,
+    street: r.street,
+    slug: slugifyStreet(r.street),
+    count: Number(r.n),
+    meanPricePerSqm: Number(r.mean_pps),
+  }));
+}
+
+export type AddressDrawerSale = {
+  soldAt: string;
+  priceSek: number;
+  pricePerSqmSek: number;
+  sources: string[];
+};
+
+export type AddressDrawerData = {
+  streetSeries: TimeseriesPoint[];
+  addressSales: AddressDrawerSale[];
+};
+
+/**
+ * Data behind the price-dot drawer: the sales at one address (all houses on the
+ * street when `house` is omitted, newest first, at most 200) and the street's
+ * bucketed trend. `days` limits both to the last N days (Stockholm), null = all
+ * time; `bucket` is the trend's date_trunc unit.
+ */
+export async function addressDrawerData(
+  district: DistrictSlug,
+  street: string,
+  house: string | undefined,
+  range: { days: number | null; bucket: "day" | "week" | "month" },
+  asOf: Date = new Date()
+): Promise<AddressDrawerData> {
+  const sinceClause = range.days
+    ? Prisma.sql`AND "soldAt" >= ${stockholmToday(asOf)} - ${range.days}::int`
+    : Prisma.sql``;
+  const houseClause = house ? Prisma.sql`AND "houseNumber" = ${house}` : Prisma.sql``;
+
+  const [sales, series] = await Promise.all([
+    prisma.$queryRaw<
+      Array<{ soldAt: Date; priceSek: bigint; pricePerSqmSek: bigint; sources: string[] | null }>
+    >(Prisma.sql`
+      SELECT "soldAt", "priceSek", "pricePerSqmSek", sources
+      FROM "DedupedListing"
+      WHERE district = ${district}::"District"
+        AND street    = ${street}
+        ${houseClause}
+        AND "pricePerSqmSek" > 0
+        ${sinceClause}
+      ORDER BY "soldAt" DESC
+      LIMIT 200
+    `),
+    prisma.$queryRaw<Array<{ bucket: Date; mean_price_per_sqm: bigint; n: bigint }>>(Prisma.sql`
+      SELECT
+        date_trunc(${range.bucket}, "soldAt")::date AS bucket,
+        AVG("pricePerSqmSek")::bigint               AS mean_price_per_sqm,
+        COUNT(*)::bigint                            AS n
+      FROM "DedupedListing"
+      WHERE district = ${district}::"District"
+        AND street    = ${street}
+        AND "pricePerSqmSek" > 0
+        ${sinceClause}
+      GROUP BY bucket
+      ORDER BY bucket ASC
+    `),
+  ]);
+
+  return {
+    streetSeries: series.map((r) => ({
+      bucket: r.bucket.toISOString().slice(0, 10),
+      meanPricePerSqm: Number(r.mean_price_per_sqm),
+      count: Number(r.n),
+    })),
+    addressSales: sales.map((r) => ({
+      soldAt: r.soldAt.toISOString().slice(0, 10),
+      priceSek: Number(r.priceSek),
+      pricePerSqmSek: Number(r.pricePerSqmSek),
+      sources: r.sources ?? [],
+    })),
   };
 }

@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/db";
-import { stockholmToday } from "@/lib/aggregations";
+import { addressDrawerData } from "@/lib/aggregations";
 import type {
   AddressBucketGranularity,
   AddressResponse,
@@ -19,19 +17,6 @@ const PERIOD_CONFIG: Record<
   all: { days: null, granularity: "month" },
 };
 
-type Sale = {
-  soldAt: Date;
-  priceSek: bigint;
-  pricePerSqmSek: bigint;
-  sources: string[] | null;
-};
-
-type Bucket = {
-  bucket: Date;
-  mean_price_per_sqm: bigint;
-  n: bigint;
-};
-
 /**
  * Fetch the data backing the price-dot drawer:
  *   - per-address sales (rendered as dots),
@@ -46,39 +31,10 @@ export const GET = withApiErrors("/api/address", async (request: Request) => {
   const { district, street, house, period } = parsed.data;
 
   const { days, granularity } = PERIOD_CONFIG[period];
-  const sinceClause = days
-    ? Prisma.sql`AND "soldAt" >= ${stockholmToday()} - ${days}::int`
-    : Prisma.sql``;
-  const houseClause = house
-    ? Prisma.sql`AND "houseNumber" = ${house}`
-    : Prisma.sql``;
-
-  const [addressSales, streetSeries] = await Promise.all([
-    prisma.$queryRaw<Sale[]>(Prisma.sql`
-      SELECT "soldAt", "priceSek", "pricePerSqmSek", sources
-      FROM "DedupedListing"
-      WHERE district = ${district}::"District"
-        AND street    = ${street}
-        ${houseClause}
-        AND "pricePerSqmSek" > 0
-        ${sinceClause}
-      ORDER BY "soldAt" DESC
-      LIMIT 200
-    `),
-    prisma.$queryRaw<Bucket[]>(Prisma.sql`
-      SELECT
-        date_trunc(${granularity}, "soldAt")::date AS bucket,
-        AVG("pricePerSqmSek")::bigint              AS mean_price_per_sqm,
-        COUNT(*)::bigint                           AS n
-      FROM "DedupedListing"
-      WHERE district = ${district}::"District"
-        AND street    = ${street}
-        AND "pricePerSqmSek" > 0
-        ${sinceClause}
-      GROUP BY bucket
-      ORDER BY bucket ASC
-    `),
-  ]);
+  const { streetSeries, addressSales } = await addressDrawerData(district, street, house, {
+    days,
+    bucket: granularity,
+  });
 
   const body: AddressResponse = {
     district,
@@ -86,17 +42,8 @@ export const GET = withApiErrors("/api/address", async (request: Request) => {
     house: house ?? null,
     period,
     granularity,
-    streetSeries: streetSeries.map((r) => ({
-      bucket: r.bucket.toISOString().slice(0, 10),
-      meanPricePerSqm: Number(r.mean_price_per_sqm),
-      count: Number(r.n),
-    })),
-    addressSales: addressSales.map((r) => ({
-      soldAt: r.soldAt.toISOString().slice(0, 10),
-      priceSek: Number(r.priceSek),
-      pricePerSqmSek: Number(r.pricePerSqmSek),
-      sources: r.sources ?? [],
-    })),
+    streetSeries,
+    addressSales,
   };
   return NextResponse.json(body, { headers: { "Cache-Control": PUBLIC_CACHE } });
 });

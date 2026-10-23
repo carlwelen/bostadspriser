@@ -23,6 +23,9 @@ export type ApiIssue = {
 export const PERIODS = ["30d", "3mo", "12mo", "all"] as const;
 export type Period = (typeof PERIODS)[number];
 
+/** The map's "5+" room chip is sent as `rooms=5` and means 5 rooms or more. */
+export const OPEN_ENDED_ROOMS = 5;
+
 export type AddressBucketGranularity = "day" | "week" | "month";
 
 // GET /api/heatmap

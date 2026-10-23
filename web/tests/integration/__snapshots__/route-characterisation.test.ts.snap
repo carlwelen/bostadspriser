@@ -1,0 +1,246 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&house=2&period=3mo" is unchanged > meta 1`] = `
+{
+  "count": 1,
+  "sha": "a3a6dde256cf26dd",
+}
+`;
+
+exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&house=2&period=3mo" is unchanged > sales 1`] = `
+{
+  "count": 1,
+  "sha": "62292d836b6f0d4d",
+}
+`;
+
+exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&house=2&period=3mo" is unchanged > series 1`] = `
+{
+  "count": 1,
+  "sha": "b1abdc2f63ebd9a9",
+}
+`;
+
+exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&house=2&period=30d" is unchanged > meta 1`] = `
+{
+  "count": 1,
+  "sha": "5ec4cfb7e4046e09",
+}
+`;
+
+exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&house=2&period=30d" is unchanged > sales 1`] = `
+{
+  "count": 1,
+  "sha": "62292d836b6f0d4d",
+}
+`;
+
+exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&house=2&period=30d" is unchanged > series 1`] = `
+{
+  "count": 1,
+  "sha": "64584cb965d53b0a",
+}
+`;
+
+exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&house=10&period=all" is unchanged > meta 1`] = `
+{
+  "count": 1,
+  "sha": "bdb9a92676759c2b",
+}
+`;
+
+exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&house=10&period=all" is unchanged > sales 1`] = `
+{
+  "count": 4,
+  "sha": "4e8f31286012f0b4",
+}
+`;
+
+exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&house=10&period=all" is unchanged > series 1`] = `
+{
+  "count": 13,
+  "sha": "4498bce57083f12f",
+}
+`;
+
+exports[`/api/address > response for "district=sodermalm&street=G%C3%B6tgatan&period=all" is unchanged > meta 1`] = `
+{
+  "count": 1,
+  "sha": "b84ac9032981ebc7",
+}
+`;
+
+exports[`/api/address > response for "district=sodermalm&street=G%C3%B6tgatan&period=all" is unchanged > sales 1`] = `
+{
+  "count": 14,
+  "sha": "0e46e0d4f28f1737",
+}
+`;
+
+exports[`/api/address > response for "district=sodermalm&street=G%C3%B6tgatan&period=all" is unchanged > series 1`] = `
+{
+  "count": 13,
+  "sha": "c2f035534f034670",
+}
+`;
+
+exports[`/api/address > response for "district=sodermalm&street=Nowhere&period=all" is unchanged > meta 1`] = `
+{
+  "count": 1,
+  "sha": "1efbf20c96567020",
+}
+`;
+
+exports[`/api/address > response for "district=sodermalm&street=Nowhere&period=all" is unchanged > sales 1`] = `
+{
+  "count": 0,
+  "sha": "e3b0c44298fc1c14",
+}
+`;
+
+exports[`/api/address > response for "district=sodermalm&street=Nowhere&period=all" is unchanged > series 1`] = `
+{
+  "count": 0,
+  "sha": "e3b0c44298fc1c14",
+}
+`;
+
+exports[`/api/address > response for "district=vasastan&street=Odengatan&house=10&period=all" is unchanged > meta 1`] = `
+{
+  "count": 1,
+  "sha": "65e5ffb645597b9e",
+}
+`;
+
+exports[`/api/address > response for "district=vasastan&street=Odengatan&house=10&period=all" is unchanged > sales 1`] = `
+{
+  "count": 3,
+  "sha": "eabbf6a6f7955804",
+}
+`;
+
+exports[`/api/address > response for "district=vasastan&street=Odengatan&house=10&period=all" is unchanged > series 1`] = `
+{
+  "count": 13,
+  "sha": "f88b43c4d4a670d0",
+}
+`;
+
+exports[`/api/address > response for "district=vasastan&street=Odengatan&period=all" is unchanged > meta 1`] = `
+{
+  "count": 1,
+  "sha": "b8eb537f43e9153e",
+}
+`;
+
+exports[`/api/address > response for "district=vasastan&street=Odengatan&period=all" is unchanged > sales 1`] = `
+{
+  "count": 13,
+  "sha": "c78d7bf66fbe5fe1",
+}
+`;
+
+exports[`/api/address > response for "district=vasastan&street=Odengatan&period=all" is unchanged > series 1`] = `
+{
+  "count": 13,
+  "sha": "f88b43c4d4a670d0",
+}
+`;
+
+exports[`/api/heatmap > response for "" is unchanged 1`] = `
+{
+  "count": 149,
+  "sha": "d0d541f6a805f162",
+}
+`;
+
+exports[`/api/heatmap > response for "?bbox=18.04,59.33,18.07,59.34" is unchanged 1`] = `
+{
+  "count": 37,
+  "sha": "b30eb38630108d60",
+}
+`;
+
+exports[`/api/heatmap > response for "?districts=norrmalm&rooms=2,5" is unchanged 1`] = `
+{
+  "count": 19,
+  "sha": "d827603021163e94",
+}
+`;
+
+exports[`/api/heatmap > response for "?districts=sodermalm&priceMin=9000000" is unchanged 1`] = `
+{
+  "count": 0,
+  "sha": "e3b0c44298fc1c14",
+}
+`;
+
+exports[`/api/heatmap > response for "?districts=vasastan,sodermalm" is unchanged 1`] = `
+{
+  "count": 74,
+  "sha": "74f2a6b1c978612c",
+}
+`;
+
+exports[`/api/heatmap > response for "?priceMin=125000&priceMax=140000" is unchanged 1`] = `
+{
+  "count": 59,
+  "sha": "8c1a7ad870de15c9",
+}
+`;
+
+exports[`/api/heatmap > response for "?priceMin=150000" is unchanged 1`] = `
+{
+  "count": 41,
+  "sha": "51ed21efb2b89ed6",
+}
+`;
+
+exports[`/api/heatmap > response for "?rooms=4" is unchanged 1`] = `
+{
+  "count": 24,
+  "sha": "6a2c89e90638a613",
+}
+`;
+
+exports[`/api/heatmap > response for "?rooms=5" is unchanged 1`] = `
+{
+  "count": 48,
+  "sha": "6c44ef2d3ae81ef7",
+}
+`;
+
+exports[`/api/heatmap > response for "?sinceDays=30" is unchanged 1`] = `
+{
+  "count": 4,
+  "sha": "4c2d1d0846a9aac7",
+}
+`;
+
+exports[`/api/heatmap > response for "?sinceDays=3650&districts=ostermalm&priceMax=160000&rooms=1,2,3" is unchanged 1`] = `
+{
+  "count": 11,
+  "sha": "f5b2ce4ef6765977",
+}
+`;
+
+exports[`/api/streets/all > response for "" is unchanged 1`] = `
+{
+  "count": 12,
+  "sha": "6a149570dc4902c0",
+}
+`;
+
+exports[`/api/streets/all > response for "?limit=1" is unchanged 1`] = `
+{
+  "count": 1,
+  "sha": "81fc6e51b595ffa7",
+}
+`;
+
+exports[`/api/streets/all > response for "?limit=5" is unchanged 1`] = `
+{
+  "count": 5,
+  "sha": "eddba78b8b45a181",
+}
+`;

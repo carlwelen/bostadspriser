@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { DISTRICTS, type DistrictSlug } from "./districts";
-import { PERIODS, type ApiErrorBody, type ApiIssue } from "./api-types";
+import { OPEN_ENDED_ROOMS, PERIODS, type ApiErrorBody, type ApiIssue } from "./api-types";
 
 // Query-string validation and error handling shared by every /api route.
 //
@@ -29,7 +29,7 @@ export const LIMITS = {
   /** /api/heatmap `priceMin`/`priceMax`, kr per m². Far above any real price. */
   pricePerSqm: { min: 0, max: 10_000_000 },
   /** /api/heatmap `rooms`. The value `open` is the UI's "5+" chip: 5 or more rooms. */
-  rooms: { min: 1, max: 15, open: 5 },
+  rooms: { min: 1, max: 15, open: OPEN_ENDED_ROOMS },
   /** Street and house strings, in characters. */
   street: { max: 200 },
   house: { max: 50 },
