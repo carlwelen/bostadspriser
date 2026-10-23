@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { stockholmToday } from "@/lib/aggregations";
 import type {
   AddressBucketGranularity,
   AddressResponse,
@@ -46,7 +47,7 @@ export const GET = withApiErrors("/api/address", async (request: Request) => {
 
   const { days, granularity } = PERIOD_CONFIG[period];
   const sinceClause = days
-    ? Prisma.sql`AND "soldAt" >= CURRENT_DATE - ${days}::int`
+    ? Prisma.sql`AND "soldAt" >= ${stockholmToday()} - ${days}::int`
     : Prisma.sql``;
   const houseClause = house
     ? Prisma.sql`AND "houseNumber" = ${house}`

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { stockholmToday } from "@/lib/aggregations";
 import type { DistrictSlug } from "@/lib/districts";
 import type { HeatmapResponse } from "@/lib/api-types";
 import {
@@ -59,7 +60,7 @@ export const GET = withApiErrors("/api/heatmap", async (request: Request) => {
     conds.push(Prisma.sql`(${Prisma.join(alts, " OR ")})`);
   }
   if (sinceDays !== undefined) {
-    conds.push(Prisma.sql`"soldAt" >= (CURRENT_DATE - ${sinceDays}::int)`);
+    conds.push(Prisma.sql`"soldAt" >= (${stockholmToday()} - ${sinceDays}::int)`);
   }
   const where = Prisma.sql`WHERE ${Prisma.join(conds, " AND ")}`;
 

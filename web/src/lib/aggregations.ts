@@ -29,7 +29,16 @@ export type RecentSale = {
   sources: string[];
 };
 
-const TRUNC = (g: Granularity) => (g === "year" ? "year" : "month");
+/**
+ * SQL expression for today's date in Europe/Stockholm (`soldAt` is a
+ * Stockholm-local date). Use it instead of `CURRENT_DATE`, which follows the
+ * database session's time zone. `asOf` pins the clock for tests.
+ */
+export function stockholmToday(asOf: Date = new Date()): Prisma.Sql {
+  return Prisma.sql`((${asOf}::timestamptz AT TIME ZONE 'Europe/Stockholm')::date)`;
+}
+
+const TRUNC =(g: Granularity) => (g === "year" ? "year" : "month");
 
 /** Stable, URL-safe slug for a Swedish street name. Round-trip via `unslugifyStreet`. */
 export function slugifyStreet(name: string): string {
@@ -228,9 +237,11 @@ export type StreetMover = {
  */
 export async function topMovers(
   direction: "up" | "down",
-  limit = 8
+  limit = 8,
+  asOf: Date = new Date()
 ): Promise<StreetMover[]> {
   const op = direction === "up" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
+  const today = stockholmToday(asOf);
   const rows = await prisma.$queryRaw<
     Array<{
       district: DistrictSlug;
@@ -245,8 +256,8 @@ export async function topMovers(
       SELECT
         district,
         street,
-        COUNT(*) FILTER (WHERE "soldAt" >= CURRENT_DATE - 90)::bigint               AS recent_n,
-        AVG("pricePerSqmSek") FILTER (WHERE "soldAt" >= CURRENT_DATE - 90)::bigint  AS recent_mean,
+        COUNT(*) FILTER (WHERE "soldAt" >= ${today} - 90)::bigint               AS recent_n,
+        AVG("pricePerSqmSek") FILTER (WHERE "soldAt" >= ${today} - 90)::bigint  AS recent_mean,
         COUNT(*)::bigint                                                            AS hist_n,
         AVG("pricePerSqmSek")::bigint                                               AS hist_mean
       FROM "DedupedListing"

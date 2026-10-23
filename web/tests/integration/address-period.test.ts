@@ -50,7 +50,7 @@ describe("/api/address period vs per-address sales (shared fixture)", () => {
 });
 
 describe("/api/address period boundaries", () => {
-  // The route cuts off at the database's CURRENT_DATE, so build the dates from
+  // The route cuts off at the Stockholm date, so build the dates from
   // it instead of the JS clock (they differ around midnight UTC).
   let today = "";
   const dbDaysAgo = (n: number) => {
@@ -80,7 +80,7 @@ describe("/api/address period boundaries", () => {
 
   beforeAll(async () => {
     const [r] = await prisma.$queryRaw<Array<{ today: string }>>`
-      SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today`;
+      SELECT to_char(now() AT TIME ZONE 'Europe/Stockholm', 'YYYY-MM-DD') AS today`;
     today = r.today;
     await seed(prisma, ages.map(row));
   });
