@@ -4,7 +4,7 @@ Single source of truth for the hardening loop. A resumed session told "continue 
 
 ## Orchestration state
 
-- **Current phase:** Phase 1 (P0). Merged: E batch (F1, F4, F26, F7-E). C fixing B5 + B6 minors. B fixing B2/B3 + B35, then B9-python after C merge. D running (F3,F2,F5,F6,F7-sidebar, F30-D). Merge order constraint: D F30 before C B6.
+- **Current phase:** Phase 1 (P0) wrapping up, Phase 2 (P1) started. Merged: E batch, B series (B1–B4, B10–B12, B35). In review: D batch (F3,F30,F2,F5,F6,F7-D), B batch 2 (B37, B2-2, B31, B32). C fixing B27/B6 review + schema batch (B38, B18, B16, B13, B14-SQL). Merge order: D F30 → C series (B6 needs it) → B9-python.
 - **Gate:** `scripts/check.sh` (typecheck, lint with zero warnings, vitest unit + integration, production build, Playwright e2e desktop + mobile, ruff, pytest). Must be green after every merge to `main`.
 - **Process:** implementer agents (B scraper, C data/API, D map UI, E analytics UI) work in their own git worktrees, at most 3 at a time, one commit per backlog ID. A fresh reviewer (R) checks each task's diff and proving test. Only the orchestrator merges into `main`, one task at a time, re-running the gate after each merge. **Only the orchestrator edits this file**, so it never conflicts across worktrees; agents report status back to it.
 - **Per-worktree isolation:** each role uses its own test DB and e2e port: B → `TEST_DB_NAME=bostadspriser_test_b E2E_PORT=3102`, C → `_c`/3103, D → `_d`/3104, E → `_e`/3105, orchestrator on `main` → `bostadspriser_test` (default)/3100. Never the dev DB `bostadspriser`.
@@ -31,30 +31,32 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | ID | P | Owner | Status | Acceptance | Commit | Notes |
 |---|---|---|---|---|---|---|
 | B1 | P0 | B | done | `scraper update` MAX(soldAt) query works (no `:d::` bind bug); DB test covers it | f10d9d2 | R approved |
-| B2 | P0 | B | review | One `parse_street_address()` in normalize.py used by both sources; table test incl. `S:t Eriksgatan`, `Karlavägen 1 A`, `Ringvägen 12-14`, `Hornsgatan 64 1tr`, `Odengatan 5, lgh 1101` |  | Fix 1d836ff (prefix match, decimal-comma floors, letter ranges → first letter, letterless streets rejected) in re-review |
-| B3 | P0 | B | review | `scraper reparse [--dry-run]` re-derives street/house/rooms/area/prices/dedupKey from `raw`, batched, idempotent; backfill batched too |  | Fix 53b7e56 (soldAt re-derived, round_1dp, FOR UPDATE) in re-review |
-| B4 | P0 | B | review | Rows without a final price are skipped (no `0` prices / `::0` dedup keys); Hemnet derives kr/m² from price/area when missing |  | R approved; merges with the B series after B2/B3 fixes |
-| B5 | P0 | C | in-progress | `rooms=5` on /api/heatmap means `>= 5` ("5+"); integration test with a 6-room row |  | R: changes requested (`rooms=6` alone → 500 from empty Prisma.join) → C fixing |
-| B6 | P0 | C | review | Every API route validates params (400 + JSON error on bad/negative/huge input); DB errors → 500 JSON + server log; tests per bad input |  | R approved; minors (priceMax=0, trailing comma, zero-width bbox) → C. MERGE ORDER: UI must check res.ok first (F30 D-part) or error JSON crashes drawer/map/search |
+| B2 | P0 | B | done | One `parse_street_address()` in normalize.py used by both sources; table test incl. `S:t Eriksgatan`, `Karlavägen 1 A`, `Ringvägen 12-14`, `Hornsgatan 64 1tr`, `Odengatan 5, lgh 1101` | 0d23680, b7021d5 | R approved after review fix; follow-up e0e5914 (B2 review 2) in review |
+| B3 | P0 | B | done | `scraper reparse [--dry-run]` re-derives street/house/rooms/area/prices/dedupKey from `raw`, batched, idempotent; backfill batched too | 70678c0, fc0cec9 | R approved after review fix (soldAt re-derived, round_1dp, FOR UPDATE) |
+| B4 | P0 | B | done | Rows without a final price are skipped (no `0` prices / `::0` dedup keys); Hemnet derives kr/m² from price/area when missing | 71528f6 | R approved |
+| B5 | P0 | C | review | `rooms=5` on /api/heatmap means `>= 5` ("5+"); integration test with a 6-room row |  | R approved incl. fix 7d43609; merges with the C series after D F30 |
+| B6 | P0 | C | in-progress | Every API route validates params (400 + JSON error on bad/negative/huge input); DB errors → 500 JSON + server log; tests per bad input |  | R approved + fix 53a285f; MoM test still vacuous → C fixing (B6 review 2). Merge after D F30 |
 | B7 | P0 | C | review | MoM uses the last two complete, adjacent months; `null` when either has < N sales |  | R approved; merges with the C series |
 | B8 | P0 | C | review | `/api/address` applies the period to `addressSales` |  | R approved; merges with the C series |
 | B9 | P0 | C→B | in-progress | Prisma migration adds `lastSeenAt` (C); scraper sets it on every upsert and the view tie-breaks on it (B) |  | Schema half d82bd17 R approved. Python half blocked until C series merges (B stopped as instructed) |
-| B10 | P0 | B | review | Upsert keeps existing lat/lng/geocodedAt when incoming coords are NULL (DB test) |  | R approved; merges with the B series after B2/B3 fixes |
-| B11 | P0 | B | review | probe scripts fixed or deleted; nothing imports `DISTRICT_URLS` |  | R approved; merges with the B series after B2/B3 fixes |
-| B12 | P0 | B | review | `update` exits non-zero if any source/district fails and prints a summary table |  | R approved; merges with the B series after B2/B3 fixes |
+| B10 | P0 | B | done | Upsert keeps existing lat/lng/geocodedAt when incoming coords are NULL (DB test) | 07ba608 | R approved |
+| B11 | P0 | B | done | probe scripts fixed or deleted; nothing imports `DISTRICT_URLS` | 7bb57d6 | R approved; probe scripts deleted |
+| B12 | P0 | B | done | `update` exits non-zero if any source/district fails and prints a summary table | fff39cc | R approved |
 | B30 | P0 | C | review | `isDistrictSlug` rejects prototype keys (`toString`, `constructor`, `__proto__`); unit test |  | R approved; merges with the C series |
-| B31 | P1 | B | todo | `db.engine()` pins session `timezone=UTC` so `timestamp(3)` columns don't depend on server TimeZone; test | | From B (P1 run) |
-| B32 | P1 | B | todo | Source iterators signal an incomplete crawl (page fetch failed mid-pagination) so `update` reports `partial` and exits non-zero | | From B (P1 run); overlaps B17/B18 |
+| B31 | P1 | B | review | `db.engine()` pins session `timezone=UTC` so `timestamp(3)` columns don't depend on server TimeZone; test |  | B commit 1cac682 in review |
+| B32 | P1 | B | review | Source iterators signal an incomplete crawl (page fetch failed mid-pagination) so `update` reports `partial` and exits non-zero |  | B commit 5dad885 in review |
 | B33 | P3 | B | todo | Unify Hemnet/Booli geocodedAt stamping (`is not None`) | | From B (P1 run); fold into B17 |
-| B34 | P1 | C | todo | `sinceDays`/period cut-offs (heatmap, address, topMovers) use Stockholm's current date explicitly, not the session `CURRENT_DATE` | | From C (P1 run) |
-| B35 | P0 | B | review | Pagination doesn't stop on a page whose cards were all skipped (only on soldAt < since / empty page / no parseable date ≥ since); test both sources |  | 58ce43b in review. From R review of B4 |
+| B34 | P1 | C | review | `sinceDays`/period cut-offs (heatmap, address, topMovers) use Stockholm's current date explicitly, not the session `CURRENT_DATE` |  | C e58b1f4, R approved |
+| B35 | P0 | B | done | Pagination doesn't stop on a page whose cards were all skipped (only on soldAt < since / empty page / no parseable date ≥ since); test both sources | 0687c0c | R approved |
 | B36 | P2 | B | todo | Reviewed purge/flag for legacy rows reparse reports unparseable (e.g. `reparse --prune-unparseable`) | | From R review of B4 |
-| B13 | P1 | C+B | todo | Fuzzy cross-source matcher (same street+house, \|Δdate\| ≤ 3 d, price ±0.5%) assigns a cluster id; view groups on it; paired-fixture tests | | Schema (C) first |
-| B14 | P1 | B+C | todo | Ingest sanity bounds (area 10–400, kr/m² 20k–400k, rooms 1–15) reject + count; SQL exposes median + count everywhere; UI defaults to median | | |
+| B37 | P0 | B | review | Crawl stops on a repeated page (same card ids) and at a hard MAX_PAGES cap; runaway test guard can't be swallowed | | From R review of B35; B commit d467f35 in review |
+| B38 | P1 | C | in-progress | DedupedListing prefers priced rows (`pricePerSqmSek > 0`) before other tie-breakers | | From R review of C (pre-existing) |
+| B13 | P1 | C+B | in-progress | Fuzzy cross-source matcher (same street+house, \ | Δdate\ | Schema clusterId + view grouping → C in progress; matcher → B later |  | Schema (C) first |
+| B14 | P1 | B+C | in-progress | Ingest sanity bounds (area 10–400, kr/m² 20k–400k, rooms 1–15) reject + count; SQL exposes median + count everywhere; UI defaults to median |  | SQL median everywhere → C in progress; ingest bounds → B later; UI default median → E later |
 | B15 | P1 | B | todo | Check SaleCard for an area/location name and filter on it, or record that none exists | | |
-| B16 | P1 | B(+C) | todo | Geocode: status/retry column, 429 backoff, display-name query, inner-Stockholm bbox + reject outside; (d) storage terms | | (d) likely owner decision; schema via C |
+| B16 | P1 | B(+C) | in-progress | Geocode: status/retry column, 429 backoff, display-name query, inner-Stockholm bbox + reject outside; (d) storage terms |  | Schema (geocodeStatus, geocodeAttempts) → C in progress; scraper logic → B later |
 | B17 | P1 | B | todo | Shared browser/source base; sources only define URL, `_looks_real`, extraction, `_to_row`; characterisation tests first |  | Also add a max-pages / repeated-page guard (B noted a page repeating forever would loop) |
-| B18 | P1 | C+B | todo | `ScrapeRun` model (C); scraper writes it and uses `logging` (B); web shows freshness (F18) | | |
+| B18 | P1 | C+B | in-progress | `ScrapeRun` model (C); scraper writes it and uses `logging` (B); web shows freshness (F18) |  | Schema + freshness query → C (in progress); scraper writes rows → B later; UI F18 → E |
 | B19 | P1 | B | todo | Oldest-covered date per source/district; `scraper backfill --source --district --since --resume` | | Depends on B18 |
 | B20 | P1 | B | todo | Batched upserts (page or 100 rows per transaction) | | |
 | B21 | P2 | C | todo | Measure ~200k rows + EXPLAIN ANALYZE into docs/perf.md; materialized view or `isCanonical`; re-measure | | |
@@ -63,7 +65,7 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | B24 | P2 | C/E | todo | `revalidate` or tag caching + secret `POST /api/revalidate`; build never needs a DB | | Build part done in P0.2 |
 | B25 | P2 | C | todo | Deliberate heatmap cap, minimal properties, bbox/zoom filtering, gzip; documented; response reports truncation | | |
 | B26 | P2 | C | todo | topMovers: disjoint windows, higher thresholds, medians, expose n | | |
-| B27 | P2 | C | todo | Inline SQL in /api/address, /api/heatmap, /api/streets/all moved to aggregations.ts | | |
+| B27 | P2 | C | in-progress | Inline SQL in /api/address, /api/heatmap, /api/streets/all moved to aggregations.ts |  | C 0fdfa0b: R blocker (snapshots decay with the calendar) → C pinning the clock |
 | B28 | P3 | C | todo | PostGIS only if B21/B25 measurements justify it | | |
 | B29 | P3 | A/B | todo | Dockerfile + cron/systemd example for `update && geocode`, with lockfile | | |
 
@@ -72,24 +74,24 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | ID | P | Owner | Status | Acceptance | Commit | Notes |
 |---|---|---|---|---|---|---|
 | F1 | P0 | E | done | Secondary pages scroll with real input; full-height/overflow lives in the map page wrapper | 7257cab | R approved. Follow-ups: F32 (footer overflow on mobile), StreetSearch scroll lock → F21; `h-dvh` without fallback accepted |
-| F2 | P0 | D | todo | Deselecting every district shows the empty state (or the last can't be deselected), consistently | | |
-| F3 | P0 | D | todo | Map popups never inject scraped strings as HTML; test with a malicious address | | |
+| F2 | P0 | D | review | Deselecting every district shows the empty state (or the last can't be deselected), consistently |  | D batch in review |
+| F3 | P0 | D | review | Map popups never inject scraped strings as HTML; test with a malicious address |  | D batch in review |
 | F4 | P0 | E | done | `<html lang="sv">` | 6d1773c |  |
-| F5 | P0 | D | todo | Hex layer handlers registered once (no pile-up across mode switches) | | |
-| F6 | P0 | D | todo | Missing Mapbox token → clear in-app message; remove the F6 entry from `KNOWN_CONSOLE_ERRORS` | | |
+| F5 | P0 | D | review | Hex layer handlers registered once (no pile-up across mode switches) |  | D batch in review |
+| F6 | P0 | D | review | Missing Mapbox token → clear in-app message; remove the F6 entry from `KNOWN_CONSOLE_ERRORS` |  | D batch in review |
 | F7 | P0 | E/D | in-progress | Copy reflects Booli + selected period; footer uses `DISTRICTS` display names | 384d821 | E footer/insights part done; D sidebar part in progress |
 | F8 | P1 | E | todo | Månad/År toggle on every time-series chart, in URL (`?g=year`), year buckets formatted `2025` | | |
 | F9 | P1 | E | todo | Compare builder: add-series combobox (streets + districts), removable chips, "Jämför" buttons, dedupe, shared palette | | |
 | F10 | P1 | E | todo | House page shows address vs street vs district | | |
 | F11 | P1 | E/D | todo | Numeric time axis with honest gaps (PriceChart E, AddressDrawer D) | | |
 | F12 | P1 | E/D | todo | Tooltips show n; buckets with n < 3 de-emphasised | | |
-| F13 | P1 | C+E | todo | SQL `streetSummary` / `addressSummary` / `districtStreetCount`; correct labelled stats | | |
-| F14 | P1 | C | todo | House numbers sort naturally in SQL | | |
+| F13 | P1 | C+E | in-progress | SQL `streetSummary` / `addressSummary` / `districtStreetCount`; correct labelled stats |  | SQL side C 773f61a R approved; UI wiring → E |
+| F14 | P1 | C | review | House numbers sort naturally in SQL |  | C ef6ae1b, R approved |
 | F15 | P1 | D | todo | Map filters round-trip through searchParams | | |
 | F16 | P1 | E(+C) | todo | Room/size segmentation chips on district + street pages | | |
 | F17 | P1 | D(+C) | todo | Data-driven quantile price legend; ramp + legend in one module | | |
 | F18 | P1 | E | todo | "Senast uppdaterad …" + per-source coverage | | Depends on B18 |
-| F30 | P1 | D/E | in-progress | UI fetches check `res.ok` and handle `ApiErrorBody`; consume `@/lib/api-types` instead of local shapes (AddressDrawer, HeatmapMap, StreetSearch, compare) |  | D-part (AddressDrawer, HeatmapMap, StreetSearch) added to D batch; must merge before B6. From C/R |
+| F30 | P1 | D/E | in-progress | UI fetches check `res.ok` and handle `ApiErrorBody`; consume `@/lib/api-types` instead of local shapes (AddressDrawer, HeatmapMap, StreetSearch, compare) |  | D part 838c55e in review; must merge before C B6. From C/R |
 | F31 | P1 | E | todo | District MoM card shows "för få affärer" when `pctChange` is null (use `currentCount`/`previousCount`) |  | From C B7 + R: hide "prev → cur" hint or show months/counts when pctChange is null |
 | F19 | P1 | E/D | todo | error.tsx per segment, inline retry (drawer, map, search), loading.tsx for insights/compare/house | | |
 | F26 | P1 | E | done | Unknown district/street/house responds HTTP 404 (not a streamed 200); flip the pinned e2e test | 23a5ba3 | R approved. Layout-level validation + `(overview)` route group + `resolveStreet.ts` cache(). Nit: house page still runs its queries on 404 (→ B22) |
