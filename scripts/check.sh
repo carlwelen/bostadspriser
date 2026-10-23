@@ -53,6 +53,12 @@ run "web: lint" pnpm lint
 run "test db: reset ($TEST_DB_NAME)" node scripts/test-db.cjs reset
 run "web: unit + integration (vitest)" pnpm exec vitest run
 if [[ $QUICK -eq 0 ]]; then
+  # Parallel worktrees share the machine: move to the next free port rather
+  # than failing when E2E_PORT is taken.
+  while (exec 3<>"/dev/tcp/127.0.0.1/$E2E_PORT") 2>/dev/null; do
+    echo "port $E2E_PORT busy, trying $((E2E_PORT + 1))"
+    E2E_PORT=$((E2E_PORT + 1))
+  done
   run "web: production build for e2e" pnpm e2e:build
   run "web: e2e (playwright)" pnpm exec playwright test
 fi
