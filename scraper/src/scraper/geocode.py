@@ -14,6 +14,7 @@ decision (see backlog B16 d); the endpoint is unchanged here.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -58,6 +59,9 @@ PROXIMITY = (18.07, 59.33)  # lng, lat: Mapbox's `proximity` bias
 MAX_ATTEMPTS = 3  # a row is tried at most this many times in total
 REQUEST_ATTEMPTS = 4  # HTTP tries per lookup (429/5xx/transport errors)
 WRITE_BATCH_SIZE = 100
+# This many rows in a row ending in an exhausted retry (5xx / network, any kind) means
+# the service or our connection is down, not that these rows are bad: stop the pass.
+OUTAGE_ROW_LIMIT = 3
 _POLITE_PAUSE = 0.05
 
 _sleep = time.sleep  # tests replace it so nothing really sleeps
@@ -71,6 +75,9 @@ class GeocodeSummary:
     # The pass stopped early because Mapbox kept answering 429. The rows not yet
     # tried (and the one that tripped it) keep their attempt budget.
     rate_limited: bool = False
+    # The pass stopped early after OUTAGE_ROW_LIMIT consecutive rows failed on
+    # 5xx/network errors (Mapbox down or we are offline). Those rows keep their budget.
+    unavailable: bool = False
 
 
 class _Retryable(Exception):
@@ -80,6 +87,10 @@ class _Retryable(Exception):
         super().__init__(reason)
         self.retry_after = retry_after
         self.rate_limited = rate_limited
+
+
+class _FatalGeocodeError(RuntimeError):
+    """Rejected token: nothing will work, abort the pass (message has no URL/token)."""
 
 
 class _RowFailed(Exception):
@@ -125,12 +136,23 @@ def _wait(state: RetryCallState) -> float:
     return max(backoff, min(hinted, 120.0)) if hinted else backoff
 
 
+_RETRY_AFTER = re.compile(r"[0-9]+(?:\.[0-9]+)?")
+
+
+def _parse_retry_after(hint: str) -> float | None:
+    """Seconds from a Retry-After header, or None. ASCII digits only: str.isdigit()
+    accepts "²" and "٣", float() then raises."""
+    hint = hint.strip()
+    return float(hint) if _RETRY_AFTER.fullmatch(hint) else None
+
+
 def _lookup(http: httpx.Client, token: str, q: str) -> tuple[float, float] | None:
     """(lng, lat) of the best match, None if there is none.
 
     Retries 429/5xx/network errors; raises _Retryable when they persist, _RowFailed
-    for a non-retryable 4xx or an unusable payload, RuntimeError for a rejected
-    token. No exception raised here carries the request URL (and so the token).
+    for a non-retryable 4xx, an undecodable body or an unusable payload,
+    _FatalGeocodeError for a rejected token. No exception raised here carries the
+    request URL (and so the token).
     """
 
     def once() -> tuple[float, float] | None:
@@ -147,16 +169,17 @@ def _lookup(http: httpx.Client, token: str, q: str) -> tuple[float, float] | Non
             )
         except httpx.TransportError as e:
             raise _Retryable(_redact(f"{type(e).__name__}: {e}", token)) from None
+        except httpx.HTTPError as e:  # e.g. DecodingError (a gzip header on a plain body)
+            raise _RowFailed(f"request error ({type(e).__name__})") from None
         code = r.status_code
         if code == 429 or code >= 500:
-            hint = r.headers.get("Retry-After", "")
             raise _Retryable(
                 f"HTTP {code}",
-                float(hint) if hint.replace(".", "", 1).isdigit() else None,
+                _parse_retry_after(r.headers.get("Retry-After", "")),
                 rate_limited=code == 429,
             )
         if code in (401, 403):
-            raise RuntimeError(f"Mapbox rejected the token (HTTP {code}); check MAPBOX_TOKEN") from None
+            raise _FatalGeocodeError(f"Mapbox rejected the token (HTTP {code}); check MAPBOX_TOKEN") from None
         if code >= 400:
             raise _RowFailed(f"HTTP {code}")
         try:
@@ -238,12 +261,25 @@ def geocode_pending(
             s.commit()
         pending.clear()
 
+    # Rows that ended in an exhausted 5xx/network retry. Not charged yet: if a later
+    # row succeeds they were just bad rows (charge them); if OUTAGE_ROW_LIMIT of them
+    # follow each other it is an outage (charge nobody, stop the pass).
+    held: list[str] = []
+
+    def charge_held() -> None:
+        for held_id in held:
+            summary.failed += 1
+            pending.append(_outcome(held_id, None, None, None, "failed"))
+        held.clear()
+
     http = client or httpx.Client(timeout=15)
     try:
         for row_id, street, house, district in rows:
             q = _query(street, house, str(district))
             try:
                 hit = _lookup(http, cfg.mapbox_token, q)
+            except _FatalGeocodeError:
+                raise
             except _Retryable as e:
                 if e.rate_limited:
                     # Sustained 429: stop, keep this row's attempts (rate limiting says
@@ -251,11 +287,26 @@ def geocode_pending(
                     summary.rate_limited = True
                     log.warning("geocode rate limited, stopping pass id=%s error=%s", row_id, e)
                     break
+                log.warning("geocode retries exhausted id=%s query=%r error=%s", row_id, q, e)
+                held.append(row_id)
+                if len(held) >= OUTAGE_ROW_LIMIT:
+                    summary.unavailable = True
+                    log.warning(
+                        "geocode service unavailable, stopping pass consecutive_rows=%d", len(held)
+                    )
+                    held.clear()  # not charged: this says nothing about the rows
+                    break
+                _sleep(_POLITE_PAUSE)
+                continue
+            except _RowFailed as e:
                 log.warning("geocode failed id=%s query=%r error=%s", row_id, q, e)
                 summary.failed += 1
                 pending.append(_outcome(row_id, None, None, None, "failed"))
-            except _RowFailed as e:
-                log.warning("geocode failed id=%s query=%r error=%s", row_id, q, e)
+            except Exception as e:  # noqa: BLE001
+                # Whatever else goes wrong with one row must not abort the pass or leave
+                # the row unaccounted for (it would sort first forever). Log only the type:
+                # the message could carry the URL.
+                log.warning("geocode failed id=%s error=%s", row_id, type(e).__name__)
                 summary.failed += 1
                 pending.append(_outcome(row_id, None, None, None, "failed"))
             else:
@@ -268,16 +319,19 @@ def geocode_pending(
                         log.info("geocode result outside inner Stockholm id=%s query=%r", row_id, q)
                     summary.not_found += 1
                     pending.append(_outcome(row_id, None, None, now, "not_found"))
+            charge_held()  # the service answered: earlier exhausted rows were their own fault
             if len(pending) >= write_batch_size:
                 flush()
             _sleep(_POLITE_PAUSE)
+        else:
+            charge_held()  # ran out of rows with a short failing streak
     finally:
         flush()  # keep what was geocoded even if a fatal error (bad token) aborts the pass
         if client is None:
             http.close()
     log.info(
-        "geocode pass done ok=%d not_found=%d failed=%d rate_limited=%s",
-        summary.ok, summary.not_found, summary.failed, summary.rate_limited,
+        "geocode pass done ok=%d not_found=%d failed=%d rate_limited=%s unavailable=%s",
+        summary.ok, summary.not_found, summary.failed, summary.rate_limited, summary.unavailable,
     )
     return summary
 

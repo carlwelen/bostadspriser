@@ -140,6 +140,8 @@ class Mapbox:
             return httpx.Response(spec[1], headers=spec[2] if len(spec) > 2 else {}, json={})
         if kind == "boom":
             raise httpx.ConnectError("connection reset")
+        if kind == "raw":
+            return spec[1]
         raise AssertionError(kind)
 
     def client(self) -> httpx.Client:
@@ -245,12 +247,12 @@ def test_sustained_429_stops_the_pass_without_burning_the_row_s_attempts(db, map
     assert not any("After" in p for p in asked)  # the pass stopped, it did not hammer on
 
 
-def test_probe_429_storm_burns_attempts(db, mapbox, sleeps) -> None:
+def test_three_rate_limited_passes_spend_no_attempts(db, mapbox, sleeps) -> None:
     upsert_listings([_row("a", street="Aaa")])
     mapbox.default = [("status", 429, {"Retry-After": "5"})]
     for _ in range(3):
         _pass(mapbox)
-    assert _all(db)["a"]["geocodeAttempts"] < 3  # three rate-limited passes spent nothing
+    assert _all(db)["a"]["geocodeAttempts"] == 0  # three rate-limited passes spent nothing
 
 
 def test_cli_exits_nonzero_with_a_rate_limited_summary(db, mapbox, sleeps, monkeypatch) -> None:
@@ -267,7 +269,7 @@ SECRET = "pk.SECRET123"
 
 
 @pytest.mark.parametrize("status", [400, 404, 422])
-def test_probe_422_aborts_pass_and_leaks_token(db, mapbox, sleeps, monkeypatch, caplog, status) -> None:
+def test_non_retryable_4xx_fails_only_that_row_and_never_logs_the_token(db, mapbox, sleeps, monkeypatch, caplog, status) -> None:
     """A non-retryable 4xx is a per-row failure; the token never reaches logs or exceptions."""
     import logging
 
@@ -460,3 +462,135 @@ def test_cli_reports_the_outcome_counts(db, mapbox, sleeps, monkeypatch) -> None
     result = CliRunner().invoke(run.cli, ["geocode", "--limit", "10"])
     assert result.exit_code == 0, result.output
     assert "ok 1" in result.output and "not found 1" in result.output and "failed 0" in result.output
+
+
+# ---------------------------------------------------------------------------
+# B16 review 2: outage circuit breaker, per-row catch-all
+# ---------------------------------------------------------------------------
+
+
+def test_sustained_503_with_retry_after_trips_the_breaker_and_spends_no_attempts(db, sleeps) -> None:
+    upsert_listings([_row(str(i), street=f"Gata{i}") for i in range(10)])
+    mb = Mapbox()
+    mb.default = [("status", 503, {"Retry-After": "120"})]
+    for _ in range(3):
+        summary = geo.geocode_pending(limit=50, client=mb.client())
+        assert summary.unavailable and not summary.rate_limited
+    assert all(r["geocodeAttempts"] == 0 and r["geocodeStatus"] == "pending" for r in _all(db).values())
+    # N rows' worth of requests per pass, not the whole backlog (10 rows x 4 tries x 3 passes = 120)
+    assert len(mb.requests) == 3 * geo.OUTAGE_ROW_LIMIT * geo.REQUEST_ATTEMPTS
+    assert sum(sleeps) < 3 * 3 * 3 * 130  # bounded: the pass stops instead of waiting out every row
+
+
+def test_sustained_connect_error_stops_after_a_few_rows(db, sleeps) -> None:
+    upsert_listings([_row(str(i), street=f"Gata{i}") for i in range(10)])
+    mb = Mapbox()
+    mb.default = [("boom",)]
+    summary = geo.geocode_pending(limit=50, client=mb.client())
+    assert summary.unavailable
+    assert len(mb.requests) < 10 * geo.REQUEST_ATTEMPTS
+    assert len(mb.requests) == geo.OUTAGE_ROW_LIMIT * geo.REQUEST_ATTEMPTS
+    assert all(r["geocodeAttempts"] == 0 for r in _all(db).values())
+
+
+def test_a_success_resets_the_outage_streak_and_charges_the_rows_that_failed_before_it(db, mapbox, sleeps) -> None:
+    ids = [("a", "Aaa", "id-1"), ("b", "Bbb", "id-2"), ("c", "Ccc", "id-3")]
+    upsert_listings([_row(sid, street=street, id=rid) for sid, street, rid in ids])
+    mapbox.answers = {"Aaa": [("status", 503)], "Bbb": [("status", 503)], "Ccc": [("ok", INSIDE)]}
+    summary = _pass(mapbox)
+    got = _all(db)
+    assert not summary.unavailable and (summary.failed, summary.ok) == (2, 1)
+    assert got["a"]["geocodeStatus"] == "failed" and got["a"]["geocodeAttempts"] == 1
+    assert got["b"]["geocodeStatus"] == "failed" and got["b"]["geocodeAttempts"] == 1
+    assert got["c"]["geocodeStatus"] == "ok"
+
+
+def test_rows_failing_at_the_end_of_a_short_pass_are_charged(db, mapbox, sleeps) -> None:
+    upsert_listings([_row("a", street="Aaa", id="id-1"), _row("b", street="Bbb", id="id-2")])
+    mapbox.default = [("status", 503)]
+    summary = _pass(mapbox)  # fewer failing rows than the breaker limit: just failed rows
+    assert not summary.unavailable and summary.failed == 2
+    assert {r["geocodeAttempts"] for r in _all(db).values()} == {1}
+
+
+def test_the_breaker_leaves_untried_and_tripping_rows_untouched_but_keeps_earlier_results(db, mapbox, sleeps) -> None:
+    rows = [("ok", "Fine", "id-0")] + [(f"d{i}", f"Down{i}", f"id-{i + 1}") for i in range(3)] + [("late", "Late", "id-9")]
+    upsert_listings([_row(sid, street=street, id=rid) for sid, street, rid in rows])
+    mapbox.answers = {f"Down{i}": [("status", 503)] for i in range(3)} | {"Fine": [("ok", INSIDE)]}
+    summary = _pass(mapbox)
+    got = _all(db)
+    assert summary.unavailable and summary.ok == 1
+    assert got["ok"]["geocodeStatus"] == "ok"
+    for sid in ("d0", "d1", "d2", "late"):
+        assert got[sid]["geocodeStatus"] == "pending" and got[sid]["geocodeAttempts"] == 0
+    assert not any("Late" in unquote(r.url.path) for r in mapbox.requests)
+
+
+def test_cli_reports_an_outage_and_exits_nonzero(db, mapbox, sleeps, monkeypatch) -> None:
+    upsert_listings([_row(str(i), street=f"Gata{i}") for i in range(5)])
+    mapbox.default = [("boom",)]
+    real = geo.geocode_pending
+    monkeypatch.setattr(run, "geocode_pending", lambda **kw: real(client=mapbox.client(), **kw))
+    result = CliRunner().invoke(run.cli, ["geocode"])
+    assert result.exit_code == 1
+    assert "unavailable" in result.output
+
+
+def test_probe_decoding_error_poisons_later_passes(db, sleeps) -> None:
+    upsert_listings([_row("a", street="Aaa", id="id-a"), _row("b", street="Bbb", id="id-b")])
+
+    def h(req):
+        if "Aaa" in unquote(req.url.path):
+            return httpx.Response(200, headers={"Content-Encoding": "gzip"}, content=b"notgzip")
+        return httpx.Response(200, json={"features": [{"center": INSIDE}]})
+
+    for expected in (1, 2):
+        summary = geo.geocode_pending(limit=50, client=httpx.Client(transport=httpx.MockTransport(h)))
+        got = _all(db)
+        assert (summary.failed, summary.ok) == ((1, 1) if expected == 1 else (1, 0))
+        assert got["a"]["geocodeStatus"] == "failed" and got["a"]["geocodeAttempts"] == expected
+        assert got["b"]["geocodeStatus"] == "ok"
+
+
+def test_probe_superscript_retry_after_aborts_pass(db, sleeps) -> None:
+    """b"\xb2" decodes to "²", which str.isdigit() accepts but float() rejects."""
+    upsert_listings([_row("a", street="Aaa", id="id-a"), _row("b", street="Bbb", id="id-b")])
+    mb = Mapbox()
+    mb.answers = {
+        "Aaa": [("raw", httpx.Response(503, headers=[(b"Retry-After", b"\xb2")]))],
+        "Bbb": [("ok", INSIDE)],
+    }
+    summary = geo.geocode_pending(limit=50, client=mb.client())
+    assert (summary.failed, summary.ok) == (1, 1)
+    assert _all(db)["a"]["geocodeStatus"] == "failed"
+
+
+@pytest.mark.parametrize("hint,expected", [("7", 7.0), ("7.5", 7.5), ("\xb2", None), ("", None), ("-3", None), ("1e3", None), ("٣", None)])
+def test_retry_after_parsing_accepts_only_plain_decimals(hint, expected) -> None:
+    assert geo._parse_retry_after(hint) == expected
+
+
+def test_any_other_error_while_handling_a_row_fails_that_row_and_logs_only_its_type(
+    db, mapbox, sleeps, monkeypatch, caplog
+) -> None:
+    upsert_listings([_row("a", street="Aaa", id="id-a"), _row("b", street="Bbb", id="id-b")])
+    real = geo._lookup
+
+    def flaky(http, token, q):
+        if "Aaa" in q:
+            raise ZeroDivisionError(f"surprise containing {token}")
+        return real(http, token, q)
+
+    monkeypatch.setenv("MAPBOX_TOKEN", SECRET)
+    monkeypatch.setattr(geo, "_lookup", flaky)
+    summary = _pass(mapbox)
+    assert (summary.failed, summary.ok) == (1, 1)
+    assert _all(db)["a"]["geocodeAttempts"] == 1
+    assert SECRET not in caplog.text and "ZeroDivisionError" in caplog.text
+
+
+def test_a_rejected_token_still_aborts_the_pass(db, mapbox, sleeps) -> None:
+    upsert_listings([_row("a", street="Aaa")])
+    mapbox.answers = {"Aaa": [("status", 403)]}
+    with pytest.raises(RuntimeError, match="403"):
+        _pass(mapbox)

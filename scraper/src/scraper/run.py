@@ -483,8 +483,9 @@ def geocode(limit: int, max_attempts: int) -> None:
     """Geocode listings missing lat/lng via Mapbox (pending and previously failed rows).
 
     Takes the same single-instance lock as scrape/update (exit code 75 when another
-    run holds it). Exits 1 if Mapbox rate-limited the pass; rows not reached keep
-    their attempt budget.
+    run holds it). Exits 1 if Mapbox rate-limited the pass or was unavailable
+    (3 rows in a row failing on 5xx/network errors); rows not reached keep their
+    attempt budget.
     """
     summary = geocode_pending(limit=limit, max_attempts=max_attempts)
     click.echo(
@@ -492,6 +493,13 @@ def geocode(limit: int, max_attempts: int) -> None:
     )
     if summary.rate_limited:
         click.echo("rate limited by Mapbox: pass stopped early; run again later", err=True)
+        sys.exit(1)
+    if summary.unavailable:
+        click.echo(
+            "Mapbox unavailable (repeated 5xx/network errors): pass stopped early, "
+            "no attempts were charged; run again later",
+            err=True,
+        )
         sys.exit(1)
 
 
