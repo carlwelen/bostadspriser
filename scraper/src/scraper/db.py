@@ -73,7 +73,8 @@ def session() -> Iterator[Session]:
 
 # Never overwritten on conflict: the natural key and the primary key.
 _CONFLICT_KEPT = frozenset({"source", "sourceId", "id"})
-_COORDINATE_COLS = frozenset({"lat", "lng", "geocodedAt"})
+# The coordinate group moves together; geocodeStatus ("inline") travels with it.
+_COORDINATE_COLS = frozenset({"lat", "lng", "geocodedAt", "geocodeStatus"})
 # Stamped by the database, never taken from the caller: scrapedAt/lastSeenAt.
 _SERVER_STAMPED = frozenset({"scrapedAt", "lastSeenAt"})
 
@@ -100,7 +101,7 @@ def upsert_listings(rows: list[dict], batch_size: int = DEFAULT_BATCH_SIZE) -> i
     written = 0
     for start in range(0, len(rows), batch_size):
         # lastSeenAt/scrapedAt are stamped by the database, on insert too.
-        chunk = [{k: v for k, v in r.items() if k not in _SERVER_STAMPED} for r in rows[start : start + batch_size]]
+        chunk = [_prepare(r) for r in rows[start : start + batch_size]]
         batch = _collapse_duplicates(chunk)
         # One statement needs one column set; rows from the parsers always share
         # it, but group defensively so a row missing e.g. lat/lng still works.
@@ -113,6 +114,15 @@ def upsert_listings(rows: list[dict], batch_size: int = DEFAULT_BATCH_SIZE) -> i
             s.commit()
         written += len(batch)
     return written
+
+
+def _prepare(row: dict) -> dict:
+    """Drop the database-stamped columns; mark coordinates that ship with the data
+    as `inline` (a geocoder-produced pair is `ok`, see geocode.py)."""
+    clean = {k: v for k, v in row.items() if k not in _SERVER_STAMPED}
+    if _has_coords(clean):
+        clean["geocodeStatus"] = "inline"
+    return clean
 
 
 def _has_coords(row: dict) -> bool:

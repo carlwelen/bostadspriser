@@ -18,6 +18,7 @@ from .booli import iter_district as _booli_iter
 from . import crawl_state, scrape_run
 from .db import DEFAULT_BATCH_SIZE, engine, upsert_listings
 from .errors import CrawlIncomplete
+from .geocode import MAX_ATTEMPTS as MAX_GEOCODE_ATTEMPTS
 from .geocode import geocode_pending
 from .hemnet import DISTRICT_LOCATION_IDS
 from .hemnet import iter_district as _hemnet_iter
@@ -442,10 +443,19 @@ def _format_results(results: list[UpdateResult]) -> str:
 
 @cli.command()
 @click.option("--limit", default=200, show_default=True)
-def geocode(limit: int) -> None:
-    """Geocode listings missing lat/lng via Mapbox."""
-    n = geocode_pending(limit=limit)
-    click.echo(f"geocoded {n} rows")
+@click.option(
+    "--max-attempts",
+    default=MAX_GEOCODE_ATTEMPTS,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="Give up on a row after this many lookups.",
+)
+def geocode(limit: int, max_attempts: int) -> None:
+    """Geocode listings missing lat/lng via Mapbox (pending and previously failed rows)."""
+    summary = geocode_pending(limit=limit, max_attempts=max_attempts)
+    click.echo(
+        f"geocoded: ok {summary.ok}, not found {summary.not_found}, failed {summary.failed}"
+    )
 
 
 @cli.command()
