@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSalesInSelection, salesWord } from "./format";
+import { formatSalesInSelection, salesWord, soldWord } from "./format";
 
 describe("salesWord", () => {
   it("is singular only for exactly one", () => {
@@ -7,6 +7,14 @@ describe("salesWord", () => {
     expect(salesWord(0)).toBe("försäljningar");
     expect(salesWord(2)).toBe("försäljningar");
     expect(salesWord(1000)).toBe("försäljningar");
+  });
+});
+
+describe("soldWord", () => {
+  it("is singular only for exactly one", () => {
+    expect(soldWord(1)).toBe("såld");
+    expect(soldWord(0)).toBe("sålda");
+    expect(soldWord(7)).toBe("sålda");
   });
 });
 

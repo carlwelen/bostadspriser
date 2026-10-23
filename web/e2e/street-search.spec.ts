@@ -57,10 +57,24 @@ test("ArrowDown/ArrowUp wrap around and Home/End jump", async ({ page }) => {
   expect(await activeIndex()).toBe(n - 1);
   await page.keyboard.press("ArrowDown"); // wraps to first
   expect(await activeIndex()).toBe(0);
+  // Home/End stay with the text caret in an editable combobox (APG).
   await page.keyboard.press("End");
-  expect(await activeIndex()).toBe(n - 1);
-  await page.keyboard.press("Home");
   expect(await activeIndex()).toBe(0);
+});
+
+test("clicking a result navigates client-side, without a full page load", async ({ page }) => {
+  const { dialog } = await openSearch(page);
+  await dialog.getByRole("combobox").fill("karla");
+  await page.evaluate(() => ((window as unknown as { __kept: number }).__kept = 1));
+  await dialog.getByRole("option").first().click();
+  await expect(page).toHaveURL(/\/street\/ostermalm\/karlavagen$/);
+  expect(await page.evaluate(() => (window as unknown as { __kept?: number }).__kept)).toBe(1);
+});
+
+test("results use Swedish quotation marks when nothing matches", async ({ page }) => {
+  const { dialog } = await openSearch(page);
+  await dialog.getByRole("combobox").fill("zzzz");
+  await expect(dialog.getByText("Ingen träff på ”zzzz”.")).toBeVisible();
 });
 
 test("Escape closes it and returns focus to the trigger", async ({ page }) => {

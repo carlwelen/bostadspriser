@@ -13,7 +13,7 @@ import {
 } from "recharts";
 
 import { SourceBadge } from "./SourceBadge";
-import { lockBodyScroll, trapTab } from "./map/focusTrap";
+import { registerModal } from "./map/focusTrap";
 import type { Period } from "@/lib/api-types";
 import { useAddressData } from "./map/useAddressData";
 
@@ -73,22 +73,24 @@ export function AddressDrawer({
   // Modal behaviour: focus moves into the drawer and returns to where it was
   // (the map canvas / body, or whatever opened it), the page behind doesn't
   // scroll, Esc closes and Tab stays inside.
+  // `onClose` is a new function on most parent renders; it lives in a ref so a
+  // re-render never re-runs this effect (which would move focus and unlock scroll).
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
   useEffect(() => {
     if (!open) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
     panelRef.current?.focus();
-    const unlock = lockBodyScroll();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      else if (panelRef.current) trapTab(e, panelRef.current);
-    };
-    window.addEventListener("keydown", onKey);
+    // Esc/Tab and the scroll lock go through the modal stack, so a search opened
+    // over the drawer takes them over until it closes.
+    const unregister = registerModal(() => panelRef.current, () => onCloseRef.current());
     return () => {
-      window.removeEventListener("keydown", onKey);
-      unlock();
+      unregister();
       if (previouslyFocused && document.contains(previouslyFocused)) previouslyFocused.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   const merged = useMemo(() => {
     if (!data) return [];

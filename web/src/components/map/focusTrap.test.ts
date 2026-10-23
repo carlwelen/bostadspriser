@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
-import { focusableWithin, lockBodyScroll, trapTab } from "./focusTrap";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { focusableWithin, lockBodyScroll, registerModal, trapTab } from "./focusTrap";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -83,6 +83,53 @@ describe("trapTab", () => {
     const e = new KeyboardEvent("keydown", { key: "a", cancelable: true });
     trapTab(e, box);
     expect(e.defaultPrevented).toBe(false);
+  });
+});
+
+describe("registerModal", () => {
+  const press = (key: string) =>
+    window.dispatchEvent(new KeyboardEvent("keydown", { key, cancelable: true }));
+
+  it("sends Esc only to the most recently opened modal", () => {
+    const box = setup();
+    const lower = vi.fn();
+    const upper = vi.fn();
+    const offLower = registerModal(() => box, lower);
+    const offUpper = registerModal(() => box, upper);
+    press("Escape");
+    expect(upper).toHaveBeenCalledTimes(1);
+    expect(lower).not.toHaveBeenCalled();
+    offUpper();
+    press("Escape");
+    expect(lower).toHaveBeenCalledTimes(1);
+    offLower();
+    press("Escape");
+    expect(lower).toHaveBeenCalledTimes(1); // listener is gone
+  });
+
+  it("closing a lower modal first leaves the upper one in charge", () => {
+    const box = setup();
+    const lower = vi.fn();
+    const upper = vi.fn();
+    const offLower = registerModal(() => box, lower);
+    const offUpper = registerModal(() => box, upper);
+    offLower();
+    press("Escape");
+    expect(upper).toHaveBeenCalledTimes(1);
+    offUpper();
+  });
+
+  it("holds one scroll lock until the last modal is gone, in any order", () => {
+    document.body.style.overflow = "scroll";
+    const box = setup();
+    const a = registerModal(() => box, () => {});
+    const b = registerModal(() => box, () => {});
+    a();
+    expect(document.body.style.overflow).toBe("hidden");
+    b();
+    expect(document.body.style.overflow).toBe("scroll");
+    a(); // idempotent
+    expect(document.body.style.overflow).toBe("scroll");
   });
 });
 

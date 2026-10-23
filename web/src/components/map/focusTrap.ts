@@ -42,11 +42,57 @@ export function trapTab(e: KeyboardEvent, container: HTMLElement): void {
   }
 }
 
-/** Lock page scrolling (body overflow) and return the function that restores it. */
+let scrollLocks = 0;
+let overflowBeforeLock = "";
+
+/**
+ * Lock page scrolling (body overflow). Reference-counted: the first lock saves
+ * the original value, the last unlock restores it, whatever order the modals
+ * close in. Returns an idempotent unlock function.
+ */
 export function lockBodyScroll(): () => void {
-  const previous = document.body.style.overflow;
-  document.body.style.overflow = "hidden";
+  if (scrollLocks++ === 0) {
+    overflowBeforeLock = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
+  let released = false;
   return () => {
-    document.body.style.overflow = previous;
+    if (released) return;
+    released = true;
+    if (--scrollLocks === 0) document.body.style.overflow = overflowBeforeLock;
+  };
+}
+
+type ModalEntry = { container: () => HTMLElement | null; onEscape: () => void };
+const modalStack: ModalEntry[] = [];
+
+function onModalKeyDown(e: KeyboardEvent) {
+  // Only the topmost modal reacts; the ones below it stay inert.
+  const top = modalStack[modalStack.length - 1];
+  if (!top) return;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    top.onEscape();
+  } else {
+    const container = top.container();
+    if (container) trapTab(e, container);
+  }
+}
+
+/**
+ * Register an open modal: it gets Esc and Tab handling while it is the most
+ * recently opened one, and holds a page scroll lock. Returns the function that
+ * unregisters it (call it when the modal closes or unmounts).
+ */
+export function registerModal(container: () => HTMLElement | null, onEscape: () => void): () => void {
+  const entry: ModalEntry = { container, onEscape };
+  if (modalStack.length === 0) window.addEventListener("keydown", onModalKeyDown);
+  modalStack.push(entry);
+  const unlock = lockBodyScroll();
+  return () => {
+    const i = modalStack.indexOf(entry);
+    if (i >= 0) modalStack.splice(i, 1);
+    if (modalStack.length === 0) window.removeEventListener("keydown", onModalKeyDown);
+    unlock();
   };
 }

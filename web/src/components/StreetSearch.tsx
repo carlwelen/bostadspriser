@@ -3,11 +3,10 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchJson } from "./map/fetchJson";
-import { lockBodyScroll, trapTab } from "./map/focusTrap";
+import { registerModal } from "./map/focusTrap";
+import { soldWord } from "./map/format";
 import { districtName } from "@/lib/districts";
 import type { StreetsAllItem } from "@/lib/api-types";
-
-type StreetEntry = StreetsAllItem;
 
 const SEK = new Intl.NumberFormat("sv-SE");
 
@@ -20,10 +19,10 @@ function fold(s: string): string {
     .replace(/é/g, "e");
 }
 
-const hrefOf = (s: StreetEntry) => `/street/${s.district}/${s.slug}`;
+const hrefOf = (s: StreetsAllItem) => `/street/${s.district}/${s.slug}`;
 
 /**
- * Street search: a modal combobox. Arrow keys / Home / End move the active
+ * Street search: a modal combobox. Up/Down arrows move the active
  * option (aria-activedescendant), Enter opens it, Escape closes and returns
  * focus to the trigger, Tab stays inside, and the page behind does not scroll.
  */
@@ -31,7 +30,7 @@ export function StreetSearch() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [streets, setStreets] = useState<StreetEntry[] | null>(null);
+  const [streets, setStreets] = useState<StreetsAllItem[] | null>(null);
   const [error, setError] = useState(false);
   const [active, setActive] = useState(-1);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -40,16 +39,25 @@ export function StreetSearch() {
   const listboxId = useId();
   const optionId = useCallback((i: number) => `${listboxId}-opt-${i}`, [listboxId]);
 
+  // Whatever had focus when the search opened gets it back on close: the
+  // trigger normally, an element inside the address drawer when Cmd/Ctrl-K was
+  // pressed over it.
+  const openerRef = useRef<HTMLElement | null>(null);
+  const openSearch = useCallback(() => {
+    openerRef.current = document.activeElement as HTMLElement | null;
+    setOpen(true);
+  }, []);
   const close = useCallback(() => {
     setOpen(false);
-    triggerRef.current?.focus();
+    const back = openerRef.current && document.contains(openerRef.current) ? openerRef.current : triggerRef.current;
+    back?.focus();
   }, []);
 
   // Lazy-load the street index when the search is first opened.
   useEffect(() => {
     if (!open || streets) return;
     setError(false);
-    fetchJson<StreetEntry[]>("/api/streets/all")
+    fetchJson<StreetsAllItem[]>("/api/streets/all")
       .then(setStreets)
       .catch((err) => {
         console.error("street index fetch failed", err);
@@ -67,29 +75,22 @@ export function StreetSearch() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         if (open) close();
-        else setOpen(true);
+        else openSearch();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, close]);
+  }, [open, close, openSearch]);
 
-  // Escape and the scroll lock only exist while the search is open.
+  // Esc, Tab trapping and the scroll lock only exist while the search is open,
+  // and only the topmost modal reacts (see registerModal).
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    window.addEventListener("keydown", onKey);
-    const unlock = lockBodyScroll();
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      unlock();
-    };
+    return registerModal(() => dialogRef.current, close);
   }, [open, close]);
 
   const filtered = useMemo(() => {
-    if (!streets) return [] as StreetEntry[];
+    if (!streets) return [] as StreetsAllItem[];
     const q = fold(query.trim());
     if (!q) return streets.slice(0, 30);
     return streets
@@ -104,7 +105,7 @@ export function StreetSearch() {
     if (active >= 0) document.getElementById(optionId(active))?.scrollIntoView?.({ block: "nearest" });
   }, [active, optionId]);
 
-  const go = (s: StreetEntry) => {
+  const go = (s: StreetsAllItem) => {
     close();
     router.push(hrefOf(s));
   };
@@ -118,12 +119,6 @@ export function StreetSearch() {
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((i) => (i <= 0 ? n - 1 : i - 1));
-    } else if (e.key === "Home") {
-      e.preventDefault();
-      setActive(0);
-    } else if (e.key === "End") {
-      e.preventDefault();
-      setActive(n - 1);
     } else if (e.key === "Enter") {
       e.preventDefault();
       go(filtered[active >= 0 ? active : 0]);
@@ -141,7 +136,7 @@ export function StreetSearch() {
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={openSearch}
         aria-label="Sök gata"
         aria-haspopup="dialog"
         className="group inline-flex items-center gap-2 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 sm:px-3 text-sm font-medium text-zinc-700 transition-colors duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-900"
@@ -155,7 +150,7 @@ export function StreetSearch() {
 
       {open && (
         <div
-          className="backdrop-fade fixed inset-0 z-50 grid place-items-start bg-zinc-950/30 backdrop-blur-sm"
+          className="backdrop-fade fixed inset-0 z-[60] grid place-items-start bg-zinc-950/30 backdrop-blur-sm"
           onClick={close}
         >
           <div
@@ -165,7 +160,6 @@ export function StreetSearch() {
             aria-label="Sök gata"
             className="drawer-enter mx-auto mt-24 w-full max-w-xl overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-[0_24px_60px_-20px_rgb(15_23_42_/_0.18)]"
             onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => dialogRef.current && trapTab(e.nativeEvent, dialogRef.current)}
           >
             <div className="flex items-center gap-2 border-b border-zinc-200 px-4 py-3">
               <SearchIcon className="text-zinc-500" />
@@ -203,7 +197,7 @@ export function StreetSearch() {
               ) : streets === null ? (
                 <p className="px-4 py-6 text-sm text-zinc-500">Laddar gator…</p>
               ) : filtered.length === 0 ? (
-                <p className="px-4 py-6 text-sm text-zinc-500">Ingen träff på “{query}”.</p>
+                <p className="px-4 py-6 text-sm text-zinc-500">Ingen träff på ”{query}”.</p>
               ) : null}
               <ul
                 id={listboxId}
@@ -219,23 +213,21 @@ export function StreetSearch() {
                     role="option"
                     aria-selected={i === active}
                     onMouseMove={() => active !== i && setActive(i)}
-                    className={i === active ? "bg-zinc-100" : undefined}
+                    onClick={() => go(s)}
+                    className={
+                      "flex cursor-pointer items-center justify-between gap-3 px-4 py-2.5 text-sm hover:bg-zinc-50 " +
+                      (i === active ? "bg-zinc-100" : "")
+                    }
                   >
-                    <a
-                      href={hrefOf(s)}
-                      tabIndex={-1}
-                      className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm hover:bg-zinc-50"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-zinc-900">{s.street}</p>
-                        <p className="text-xs text-zinc-500">
-                          {districtName(s.district)} • {s.count} sålda
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-xs tabular-nums text-zinc-500">
-                        {SEK.format(s.meanPricePerSqm)} kr/m²
-                      </span>
-                    </a>
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-zinc-900">{s.street}</p>
+                      <p className="text-xs text-zinc-500">
+                        {districtName(s.district)} • {s.count} {soldWord(s.count)}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-xs tabular-nums text-zinc-500">
+                      {SEK.format(s.meanPricePerSqm)} kr/m²
+                    </span>
                   </li>
                 ))}
               </ul>
