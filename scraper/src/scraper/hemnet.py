@@ -184,6 +184,17 @@ def _extract_sale_cards(html: str) -> list[dict]:
     return [v for v in apollo.values() if isinstance(v, dict) and v.get("__typename") == "SaleCard"]
 
 
+def _parse_sold_at(card: dict) -> date | None:
+    """The sale date of a SaleCard, independent of any price/address rejection."""
+    sold_at_raw = card.get("soldAt")
+    if not sold_at_raw:
+        return None
+    try:
+        return datetime.fromtimestamp(float(sold_at_raw), tz=_STOCKHOLM).date()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
 def card_fields(card: dict, district: str) -> dict | None:
     """Derive the Listing columns that come from a SaleCard. None if unparseable.
 
@@ -191,13 +202,9 @@ def card_fields(card: dict, district: str) -> dict | None:
     inserts; `reparse` calls this directly to re-derive stored rows from `raw`.
     """
     listing_id = card.get("listingId") or card.get("id")
-    sold_at_raw = card.get("soldAt")
     addr = card.get("streetAddress") or ""
-    if not (listing_id and sold_at_raw and addr):
-        return None
-    try:
-        sold_at = datetime.fromtimestamp(float(sold_at_raw), tz=_STOCKHOLM).date()
-    except (TypeError, ValueError):
+    sold_at = _parse_sold_at(card)
+    if not (listing_id and sold_at and addr):
         return None
 
     # "Sankt Eriksgatan 10 B" → ("Sankt Eriksgatan", "10B")
@@ -310,19 +317,25 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
                 if not cards:
                     break
 
+                # Cards `_to_row` rejects (no price, blank address, ...) are
+                # skipped but must not end the crawl: only an explicit
+                # `soldAt < since`, or a page with no card dated >= since, does.
                 stop = False
-                yielded_on_page = 0
+                in_range_on_page = 0
                 for c in cards:
+                    sold_at = _parse_sold_at(c)
+                    if sold_at is None:
+                        continue
+                    if sold_at < since:
+                        stop = True
+                        break
+                    in_range_on_page += 1
                     row = _to_row(c, district)
                     if row is None:
                         continue
-                    if row["soldAt"] < since:
-                        stop = True
-                        break
                     yield row
-                    yielded_on_page += 1
 
-                if stop or yielded_on_page == 0:
+                if stop or in_range_on_page == 0:
                     break
                 page_num += 1
 

@@ -218,6 +218,27 @@ def _data_point_text(card: dict, predicate) -> str | None:
     return None
 
 
+def _parse_sold_at(card: dict) -> date | None:
+    """The sale date of a SoldProperty, independent of any price/address rejection.
+
+    Booli ships ISO dates ("2026-05-02"). Tolerate epoch seconds in case the
+    field shape changes: same Stockholm-zone behaviour as hemnet.py.
+    """
+    raw = card.get("soldDate")
+    if not raw:
+        return None
+    try:
+        if isinstance(raw, (int, float)) or (
+            isinstance(raw, str) and raw.replace(".", "", 1).isdigit()
+        ):
+            from zoneinfo import ZoneInfo
+
+            return datetime.fromtimestamp(float(raw), tz=ZoneInfo("Europe/Stockholm")).date()
+        return date.fromisoformat(str(raw)[:10])
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
 def card_fields(card: dict, district: str) -> dict | None:
     """Derive the Listing columns that come from a SoldProperty. None if unparseable.
 
@@ -225,24 +246,9 @@ def card_fields(card: dict, district: str) -> dict | None:
     inserts; `reparse` calls this directly to re-derive stored rows from `raw`.
     """
     booli_id = card.get("id") or card.get("booliId")
-    sold_date_raw = card.get("soldDate")
     addr = card.get("streetAddress") or ""
-    if not (booli_id and sold_date_raw and addr):
-        return None
-
-    # Booli ships ISO dates ("2026-05-02"). Tolerate epoch seconds in case the
-    # field shape changes — same Stockholm-zone behaviour as hemnet.py.
-    try:
-        if isinstance(sold_date_raw, (int, float)) or (
-            isinstance(sold_date_raw, str) and sold_date_raw.replace(".", "", 1).isdigit()
-        ):
-            from zoneinfo import ZoneInfo
-            sold_at = datetime.fromtimestamp(
-                float(sold_date_raw), tz=ZoneInfo("Europe/Stockholm")
-            ).date()
-        else:
-            sold_at = date.fromisoformat(str(sold_date_raw)[:10])
-    except (TypeError, ValueError):
+    sold_at = _parse_sold_at(card)
+    if not (booli_id and sold_at and addr):
         return None
 
     # "Sankt Eriksgatan 10 B" → ("Sankt Eriksgatan", "10B")
@@ -374,23 +380,32 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
                 if not cards:
                     break
 
+                # Cards we skip (other area, no price, blank address, ...) must not
+                # end the crawl: only an explicit `soldAt < since`, or a page with
+                # no card dated >= since, does. The date is parsed independently
+                # of those rejections.
                 stop = False
-                yielded_on_page = 0
+                in_range_on_page = 0
                 for c in cards:
+                    sold_at = _parse_sold_at(c)
+                    if sold_at is None:
+                        continue
                     # Drop cards that leaked across district boundaries — Booli's
                     # search radius occasionally pulls neighbours into the result set.
                     if c.get("descriptiveAreaName") not in allowed_areas:
+                        if sold_at >= since:
+                            in_range_on_page += 1
                         continue
+                    if sold_at < since:
+                        stop = True
+                        break
+                    in_range_on_page += 1
                     row = _to_row(c, district)
                     if row is None:
                         continue
-                    if row["soldAt"] < since:
-                        stop = True
-                        break
                     yield row
-                    yielded_on_page += 1
 
-                if stop or yielded_on_page == 0:
+                if stop or in_range_on_page == 0:
                     break
                 page_num += 1
 
