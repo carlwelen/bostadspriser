@@ -124,3 +124,24 @@ while the scraper does other work.
   composite index. It is already ~4 ms, so it was left alone.
 - If the data ever outgrows a full refresh (millions of rows), switch to
   incremental maintenance of a group-key column.
+
+## Heatmap payload (B25)
+
+`GET /api/heatmap` returns at most `HEATMAP_LIMIT` = 30,000 features, newest
+sales first, and a top-level `truncated: boolean` (a GeoJSON foreign member,
+ignored by Mapbox) that is true when older matching sales were cut.
+
+- Why 30,000: a feature is about 250 bytes of JSON, so the cap is ~7.5 MB raw
+  (roughly 1 MB gzipped) and about the most Mapbox GL takes comfortably as a
+  single GeoJSON source. The UI's default period (12 months) stays well below
+  it; "all time" over a large database is what reaches it, and dropping the
+  oldest sales is the least harmful way to cap.
+- Properties kept: `pricePerSqm`, `address`, `street`, `houseNumber`,
+  `district`, `soldAt`, `sources` (everything `HeatmapMap` reads for the
+  popup, hover list and address drawer). Dropped: `source` and `dedupKey`,
+  which nothing reads. Coordinates are rounded to 5 decimals (~1 m).
+- Compression: **`next start` does not gzip route-handler responses** (checked:
+  no `Content-Encoding` on a 36 KB response with `Accept-Encoding: gzip`, and
+  `compress` is on by default), so enable gzip/brotli at the reverse proxy or
+  CDN in front of the app (e.g. nginx `gzip on; gzip_types application/json;`).
+  The JSON is repetitive: a 37 KB fixture response gzips to 2 KB.

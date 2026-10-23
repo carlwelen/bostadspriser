@@ -641,8 +641,15 @@ export async function districtMomChange(
 
 // Queries behind the JSON API routes (moved out of the route handlers, B27).
 
-/** Upper bound on points returned for the map (revisit with B25). */
-export const HEATMAP_LIMIT = 50_000;
+/**
+ * Most points the map endpoint returns: the newest N sales matching the
+ * filters; `truncated` says when older ones were cut. A deliberate cap, not a
+ * safety net: 30,000 features are ~7 MB of JSON (about 1 MB gzipped) and the
+ * most Mapbox GL handles comfortably as one GeoJSON source. The UI's default
+ * period (12 months) stays well below it; "all time" over a big database is
+ * what hits it, and the newest sales are the ones people look at.
+ */
+export const HEATMAP_LIMIT = 30_000;
 
 export type HeatmapFilters = {
   districts?: DistrictSlug[];
@@ -665,16 +672,17 @@ export type HeatmapPoint = {
   houseNumber: string | null;
   district: DistrictSlug;
   soldAt: Date;
-  source: string;
   sources: string[];
-  dedupKey: string | null;
 };
 
-/** Geocoded, deduplicated sales matching `filters`, newest first. */
+/**
+ * Geocoded, deduplicated sales matching `filters`, newest first, at most
+ * `HEATMAP_LIMIT` of them (`truncated` is true when more matched).
+ */
 export async function heatmapPoints(
   filters: HeatmapFilters = {},
   asOf: Date = new Date()
-): Promise<HeatmapPoint[]> {
+): Promise<{ points: HeatmapPoint[]; truncated: boolean }> {
   const { districts, bbox, priceMin, priceMax, rooms, sinceDays } = filters;
   const conds: Prisma.Sql[] = [
     Prisma.sql`lat IS NOT NULL`,
@@ -709,16 +717,19 @@ export async function heatmapPoints(
     conds.push(Prisma.sql`"soldAt" >= (${stockholmToday(asOf)} - ${sinceDays}::int)`);
   }
 
-  return prisma.$queryRaw<HeatmapPoint[]>(Prisma.sql`
+  // One extra row tells us whether the cap cut anything.
+  const rows = await prisma.$queryRaw<HeatmapPoint[]>(Prisma.sql`
     SELECT lat, lng,
            "pricePerSqmSek"::int AS "pricePerSqm",
            street, "houseNumber", district::text AS district,
-           "soldAt", source, sources, "dedupKey"
+           "soldAt", sources
     FROM "DedupedListingMat"
     WHERE ${Prisma.join(conds, " AND ")}
     ORDER BY "soldAt" DESC
-    LIMIT ${HEATMAP_LIMIT}
+    LIMIT ${HEATMAP_LIMIT + 1}
   `);
+  const truncated = rows.length > HEATMAP_LIMIT;
+  return { points: truncated ? rows.slice(0, HEATMAP_LIMIT) : rows, truncated };
 }
 
 /** Every street with sales, busiest first (ties by name), across all districts. */

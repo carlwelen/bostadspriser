@@ -44,10 +44,8 @@ export type HeatmapFeatureProperties = {
   district: DistrictSlug;
   /** ISO date (YYYY-MM-DD), Stockholm-local day. */
   soldAt: string;
-  source: string;
   /** Every source that reported the sale, comma-joined (Mapbox stringifies arrays). */
   sources: string;
-  dedupKey: string | null;
 };
 
 export type HeatmapFeature = {
@@ -59,6 +57,11 @@ export type HeatmapFeature = {
 export type HeatmapResponse = {
   type: "FeatureCollection";
   features: HeatmapFeature[];
+  /**
+   * True when more sales matched than the cap (HEATMAP_LIMIT, newest first), so
+   * the oldest ones are missing. A GeoJSON "foreign member"; Mapbox ignores it.
+   */
+  truncated: boolean;
 };
 
 // GET /api/timeseries
