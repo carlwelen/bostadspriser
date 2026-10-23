@@ -4,11 +4,12 @@ Single source of truth for the hardening loop. A resumed session told "continue 
 
 ## Orchestration state
 
-- **Current phase:** Phase 1 (P0). Running: B (B1,B2,B3,B4,B10,B12,B11), C (B30,B6,B5,B8,B7,B9-schema), E (F1,F4,F26,F7-footer). Queued: D (F3,F2,F5,F6,F7-sidebar), then B9-python.
+- **Current phase:** Phase 1 (P0). Merged: E batch (F1, F4, F26, F7-E). C fixing B5 + B6 minors. B fixing B2/B3 + B35, then B9-python after C merge. D running (F3,F2,F5,F6,F7-sidebar, F30-D). Merge order constraint: D F30 before C B6.
 - **Gate:** `scripts/check.sh` (typecheck, lint with zero warnings, vitest unit + integration, production build, Playwright e2e desktop + mobile, ruff, pytest). Must be green after every merge to `main`.
 - **Process:** implementer agents (B scraper, C data/API, D map UI, E analytics UI) work in their own git worktrees, at most 3 at a time, one commit per backlog ID. A fresh reviewer (R) checks each task's diff and proving test. Only the orchestrator merges into `main`, one task at a time, re-running the gate after each merge. **Only the orchestrator edits this file**, so it never conflicts across worktrees; agents report status back to it.
 - **Per-worktree isolation:** each role uses its own test DB and e2e port: B → `TEST_DB_NAME=bostadspriser_test_b E2E_PORT=3102`, C → `_c`/3103, D → `_d`/3104, E → `_e`/3105, orchestrator on `main` → `bostadspriser_test` (default)/3100. Never the dev DB `bostadspriser`.
 - **Known-failing pins:** baseline bugs with a reproducing e2e test are marked `test.fail(...)` (or in `KNOWN_CONSOLE_ERRORS`) in `web/e2e/` with their ID. The fixing commit flips them to normal tests.
+- **Platform gotchas fixed on main:** hidden `.pth` files on macOS/Python 3.13 (pytest `pythonpath`, check.sh `chflags`); stale `.next/types` after route moves (check.sh drops them).
 - **Worktree note:** agent worktrees start from the initial commit; implementers fast-forward to `main` first (they did so in P1). Worktrees live in `.claude/worktrees/` (gitignored).
 - **Audit rounds completed:** 0 (stop condition needs two consecutive rounds with no new P0/P1).
 
@@ -29,23 +30,25 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 
 | ID | P | Owner | Status | Acceptance | Commit | Notes |
 |---|---|---|---|---|---|---|
-| B1 | P0 | B | review | `scraper update` MAX(soldAt) query works (no `:d::` bind bug); DB test covers it | | |
-| B2 | P0 | B | review | One `parse_street_address()` in normalize.py used by both sources; table test incl. `S:t Eriksgatan`, `Karlavägen 1 A`, `Ringvägen 12-14`, `Hornsgatan 64 1tr`, `Odengatan 5, lgh 1101` | | |
-| B3 | P0 | B | review | `scraper reparse [--dry-run]` re-derives street/house/rooms/area/prices/dedupKey from `raw`, batched, idempotent; backfill batched too | | Depends on B2 |
-| B4 | P0 | B | review | Rows without a final price are skipped (no `0` prices / `::0` dedup keys); Hemnet derives kr/m² from price/area when missing | | Decision: skip, don't make columns nullable |
-| B5 | P0 | C | review | `rooms=5` on /api/heatmap means `>= 5` ("5+"); integration test with a 6-room row | | |
-| B6 | P0 | C | review | Every API route validates params (400 + JSON error on bad/negative/huge input); DB errors → 500 JSON + server log; tests per bad input | | |
-| B7 | P0 | C | review | MoM uses the last two complete, adjacent months; `null` when either has < N sales | | |
-| B8 | P0 | C | review | `/api/address` applies the period to `addressSales` | | |
-| B9 | P0 | C→B | in-progress | Prisma migration adds `lastSeenAt` (C); scraper sets it on every upsert and the view tie-breaks on it (B) | | Schema half: C commit d82bd17 under review. Python half (set `lastSeenAt = now()` on every upsert incl. on-conflict) → B next batch |
-| B10 | P0 | B | review | Upsert keeps existing lat/lng/geocodedAt when incoming coords are NULL (DB test) | | |
-| B11 | P0 | B | review | probe scripts fixed or deleted; nothing imports `DISTRICT_URLS` | | |
-| B12 | P0 | B | review | `update` exits non-zero if any source/district fails and prints a summary table | | |
-| B30 | P0 | C | review | `isDistrictSlug` rejects prototype keys (`toString`, `constructor`, `__proto__`); unit test | | Found in Phase 0: `"toString" in SLUG_TO_NAME` is true, so it reaches the SQL enum cast → 500 |
+| B1 | P0 | B | review | `scraper update` MAX(soldAt) query works (no `:d::` bind bug); DB test covers it |  | R approved; merges with the B series after B2/B3 fixes |
+| B2 | P0 | B | in-progress | One `parse_street_address()` in normalize.py used by both sources; table test incl. `S:t Eriksgatan`, `Karlavägen 1 A`, `Ringvägen 12-14`, `Hornsgatan 64 1tr`, `Odengatan 5, lgh 1101` |  | R: changes requested (half-floor `1,5 tr`, prefix fallback, digit-only street) → B fixing |
+| B3 | P0 | B | in-progress | `scraper reparse [--dry-run]` re-derives street/house/rooms/area/prices/dedupKey from `raw`, batched, idempotent; backfill batched too |  | R: changes requested (re-derive soldAt for key consistency, quantize decimals, FOR UPDATE) → B fixing |
+| B4 | P0 | B | review | Rows without a final price are skipped (no `0` prices / `::0` dedup keys); Hemnet derives kr/m² from price/area when missing |  | R approved; merges with the B series after B2/B3 fixes |
+| B5 | P0 | C | in-progress | `rooms=5` on /api/heatmap means `>= 5` ("5+"); integration test with a 6-room row |  | R: changes requested (`rooms=6` alone → 500 from empty Prisma.join) → C fixing |
+| B6 | P0 | C | review | Every API route validates params (400 + JSON error on bad/negative/huge input); DB errors → 500 JSON + server log; tests per bad input |  | R approved; minors (priceMax=0, trailing comma, zero-width bbox) → C. MERGE ORDER: UI must check res.ok first (F30 D-part) or error JSON crashes drawer/map/search |
+| B7 | P0 | C | review | MoM uses the last two complete, adjacent months; `null` when either has < N sales |  | R approved; merges with the C series |
+| B8 | P0 | C | review | `/api/address` applies the period to `addressSales` |  | R approved; merges with the C series |
+| B9 | P0 | C→B | in-progress | Prisma migration adds `lastSeenAt` (C); scraper sets it on every upsert and the view tie-breaks on it (B) |  | Schema half d82bd17 R approved. Python half → B after C merge |
+| B10 | P0 | B | review | Upsert keeps existing lat/lng/geocodedAt when incoming coords are NULL (DB test) |  | R approved; merges with the B series after B2/B3 fixes |
+| B11 | P0 | B | review | probe scripts fixed or deleted; nothing imports `DISTRICT_URLS` |  | R approved; merges with the B series after B2/B3 fixes |
+| B12 | P0 | B | review | `update` exits non-zero if any source/district fails and prints a summary table |  | R approved; merges with the B series after B2/B3 fixes |
+| B30 | P0 | C | review | `isDistrictSlug` rejects prototype keys (`toString`, `constructor`, `__proto__`); unit test |  | R approved; merges with the C series |
 | B31 | P1 | B | todo | `db.engine()` pins session `timezone=UTC` so `timestamp(3)` columns don't depend on server TimeZone; test | | From B (P1 run) |
 | B32 | P1 | B | todo | Source iterators signal an incomplete crawl (page fetch failed mid-pagination) so `update` reports `partial` and exits non-zero | | From B (P1 run); overlaps B17/B18 |
 | B33 | P3 | B | todo | Unify Hemnet/Booli geocodedAt stamping (`is not None`) | | From B (P1 run); fold into B17 |
 | B34 | P1 | C | todo | `sinceDays`/period cut-offs (heatmap, address, topMovers) use Stockholm's current date explicitly, not the session `CURRENT_DATE` | | From C (P1 run) |
+| B35 | P0 | B | in-progress | Pagination doesn't stop on a page whose cards were all skipped (only on soldAt < since / empty page / no parseable date ≥ since); test both sources | | From R review of B4: p1/all-unpriced/p3 yields only p1 |
+| B36 | P2 | B | todo | Reviewed purge/flag for legacy rows reparse reports unparseable (e.g. `reparse --prune-unparseable`) | | From R review of B4 |
 | B13 | P1 | C+B | todo | Fuzzy cross-source matcher (same street+house, \|Δdate\| ≤ 3 d, price ±0.5%) assigns a cluster id; view groups on it; paired-fixture tests | | Schema (C) first |
 | B14 | P1 | B+C | todo | Ingest sanity bounds (area 10–400, kr/m² 20k–400k, rooms 1–15) reject + count; SQL exposes median + count everywhere; UI defaults to median | | |
 | B15 | P1 | B | todo | Check SaleCard for an area/location name and filter on it, or record that none exists | | |
@@ -68,13 +71,13 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 
 | ID | P | Owner | Status | Acceptance | Commit | Notes |
 |---|---|---|---|---|---|---|
-| F1 | P0 | E | review | Secondary pages scroll with real input; full-height/overflow lives in the map page wrapper | | Confirmed in P0: e2e "scrolls to the footer" pinned `test.fail` |
+| F1 | P0 | E | done | Secondary pages scroll with real input; full-height/overflow lives in the map page wrapper | 7257cab | R approved. Follow-ups: F32 (footer overflow on mobile), StreetSearch scroll lock → F21; `h-dvh` without fallback accepted |
 | F2 | P0 | D | todo | Deselecting every district shows the empty state (or the last can't be deselected), consistently | | |
 | F3 | P0 | D | todo | Map popups never inject scraped strings as HTML; test with a malicious address | | |
-| F4 | P0 | E | review | `<html lang="sv">` | | |
+| F4 | P0 | E | done | `<html lang="sv">` | 6d1773c |  |
 | F5 | P0 | D | todo | Hex layer handlers registered once (no pile-up across mode switches) | | |
 | F6 | P0 | D | todo | Missing Mapbox token → clear in-app message; remove the F6 entry from `KNOWN_CONSOLE_ERRORS` | | |
-| F7 | P0 | E/D | in-progress | Copy reflects Booli + selected period; footer uses `DISTRICTS` display names | | Sidebar copy lives in page.tsx (D) |
+| F7 | P0 | E/D | in-progress | Copy reflects Booli + selected period; footer uses `DISTRICTS` display names | 384d821 | E footer/insights part done; D sidebar part in progress |
 | F8 | P1 | E | todo | Månad/År toggle on every time-series chart, in URL (`?g=year`), year buckets formatted `2025` | | |
 | F9 | P1 | E | todo | Compare builder: add-series combobox (streets + districts), removable chips, "Jämför" buttons, dedupe, shared palette | | |
 | F10 | P1 | E | todo | House page shows address vs street vs district | | |
@@ -86,17 +89,18 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | F16 | P1 | E(+C) | todo | Room/size segmentation chips on district + street pages | | |
 | F17 | P1 | D(+C) | todo | Data-driven quantile price legend; ramp + legend in one module | | |
 | F18 | P1 | E | todo | "Senast uppdaterad …" + per-source coverage | | Depends on B18 |
-| F30 | P1 | D/E | todo | UI fetches check `res.ok` and handle `ApiErrorBody`; consume `@/lib/api-types` instead of local shapes (AddressDrawer, HeatmapMap, StreetSearch, compare) | | From C (P1 run); pairs with F19 |
-| F31 | P1 | E | todo | District MoM card shows "för få affärer" when `pctChange` is null (use `currentCount`/`previousCount`) | | From C B7 |
+| F30 | P1 | D/E | in-progress | UI fetches check `res.ok` and handle `ApiErrorBody`; consume `@/lib/api-types` instead of local shapes (AddressDrawer, HeatmapMap, StreetSearch, compare) |  | D-part (AddressDrawer, HeatmapMap, StreetSearch) added to D batch; must merge before B6. From C/R |
+| F31 | P1 | E | todo | District MoM card shows "för få affärer" when `pctChange` is null (use `currentCount`/`previousCount`) |  | From C B7 + R: hide "prev → cur" hint or show months/counts when pctChange is null |
 | F19 | P1 | E/D | todo | error.tsx per segment, inline retry (drawer, map, search), loading.tsx for insights/compare/house | | |
-| F26 | P1 | E | review | Unknown district/street/house responds HTTP 404 (not a streamed 200); flip the pinned e2e test | | Found in P0: `district/[slug]/loading.tsx` starts streaming before `notFound()`. E commit 9e6f889 under review |
+| F26 | P1 | E | done | Unknown district/street/house responds HTTP 404 (not a streamed 200); flip the pinned e2e test | 23a5ba3 | R approved. Layout-level validation + `(overview)` route group + `resolveStreet.ts` cache(). Nit: house page still runs its queries on 404 (→ B22) |
 | F20 | P2 | D | todo | Mobile layout for `/` (bottom sheet/drawer below md; mobile nav) | | |
-| F21 | P2 | D/E | todo | aria-pressed toggles, drawer focus trap/return/aria-modal, StreetSearch combobox, SVG icon, contrast | | |
+| F21 | P2 | D/E | todo | aria-pressed toggles, drawer focus trap/return/aria-modal, StreetSearch combobox, SVG icon, contrast |  | + StreetSearch modal should lock body scroll (R review of F1) |
 | F22 | P2 | E | todo | One chart colour token source; colour-blind-safe district colours, identical everywhere | | |
 | F23 | P2 | E | todo | Per-page metadata, OG defaults, `metadataBase`, `/insights` in sitemap | | |
 | F27 | P2 | E | todo | Recent-sales table doesn't clip horizontally on mobile (scroll container or stacked rows) | | Found in P0 screenshot of /district/ostermalm at Pixel 7 width |
 | F28 | P2 | E | todo | Recharts `ResponsiveContainer` SSR warnings ("width(-1) and height(-1)") gone from server logs (initialDimension/minHeight) in PriceChart, Histogram, PriceAreaScatter | | From E (P1 run) |
 | F29 | P2 | E | todo | Insights subtitle "Allt räknas i SQL — inga sammanfattningar i frontend" is developer copy; rewrite for end users (Swedish) | | From E (P1 run) |
+| F32 | P1 | E | todo | No horizontal page overflow on mobile secondary pages (footer nav `flex-wrap`); e2e asserts `scrollWidth <= clientWidth` at Pixel 7 | | From R review of F1 |
 | F24 | P3 | D | todo | Hex click → sales list; shared-coordinate popups list all sales | | |
 | F25 | P3 | E | todo | Optional dark mode via F22 tokens | | |
 
