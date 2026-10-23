@@ -81,6 +81,43 @@ describe("/api/heatmap validation", () => {
     expect((await empty.json()).features).toHaveLength(FIXTURE_COUNTS.withCoords);
   });
 
+  it("treats a price bound of 0 as not given", async () => {
+    const all = (await (await heatmapGET(req("/api/heatmap"))).json()).features.length;
+    const count = async (qs: string) => {
+      const res = await heatmapGET(req(`/api/heatmap?${qs}`));
+      expect(res.status, qs).toBe(200);
+      return (await res.json()).features.length;
+    };
+    expect(await count("priceMax=0")).toBe(all);
+    expect(await count("priceMin=0")).toBe(all);
+    // priceMin above a priceMax of 0 is not a contradiction: 0 means "no limit".
+    expect(await count("priceMin=200000&priceMax=0")).toBe(await count("priceMin=200000"));
+    expect(await count("priceMin=0&priceMax=0")).toBe(all);
+  });
+
+  it("ignores empty items in comma-separated lists", async () => {
+    const count = async (qs: string) => {
+      const res = await heatmapGET(req(`/api/heatmap?${qs}`));
+      expect(res.status, qs).toBe(200);
+      return (await res.json()).features.length;
+    };
+    const ostermalm = await count("districts=ostermalm");
+    expect(await count("districts=ostermalm,")).toBe(ostermalm);
+    expect(await count("districts=,ostermalm,,")).toBe(ostermalm);
+    expect(await count("districts=,")).toBe(await count(""));
+    expect(await count("rooms=2,")).toBe(await count("rooms=2"));
+    expect(await count("rooms=,")).toBe(await count(""));
+  });
+
+  it("accepts a zero-width bbox (BETWEEN is inclusive)", async () => {
+    // Exactly one fixture point: Östermalm centroid (59.3378, 18.0805).
+    const res = await heatmapGET(req("/api/heatmap?bbox=18.0805,59.3378,18.0805,59.3378"));
+    expect(res.status).toBe(200);
+    expect((await res.json()).features.length).toBeGreaterThan(0);
+    expect((await heatmapGET(req("/api/heatmap?bbox=18,59,18,60"))).status).toBe(200);
+    expect((await heatmapGET(req("/api/heatmap?bbox=17,59.5,18,59.5"))).status).toBe(200);
+  });
+
   it("accepts the documented bounds exactly", async () => {
     expect((await heatmapGET(req("/api/heatmap?sinceDays=1"))).status).toBe(200);
     expect((await heatmapGET(req("/api/heatmap?sinceDays=3650"))).status).toBe(200);

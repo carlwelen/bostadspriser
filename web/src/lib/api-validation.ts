@@ -60,11 +60,18 @@ const decimalSchema = z
   .regex(/^-?\d+(\.\d+)?$/, "must be a number")
   .transform(Number);
 
-/** Comma-separated list; each item is validated by `item`. */
-function listSchema<T extends z.ZodType<unknown, string>>(item: T, maxItems: number) {
+/**
+ * Comma-separated list; each item is validated by `item`. With `dropEmpty`,
+ * empty items (`a,,b`, trailing comma) are skipped instead of being invalid.
+ */
+function listSchema<T extends z.ZodType<unknown, string>>(
+  item: T,
+  maxItems: number,
+  dropEmpty = false
+) {
   return z
     .string()
-    .transform((s) => s.split(","))
+    .transform((s) => (dropEmpty ? s.split(",").filter((x) => x !== "") : s.split(",")))
     .pipe(z.array(item).max(maxItems, `at most ${maxItems} values`));
 }
 
@@ -86,17 +93,25 @@ const bboxSchema = listSchema(decimalSchema, 4)
     ([w, s, e, n]) => w >= -180 && e <= 180 && s >= -90 && n <= 90,
     "longitude must be within -180..180 and latitude within -90..90"
   )
-  .refine(([w, s, e, n]) => w < e && s < n, "west must be < east and south must be < north")
+  // `<=`: a zero-width box is a valid (if tiny) BETWEEN range.
+  .refine(([w, s, e, n]) => w <= e && s <= n, "west must be <= east and south must be <= north")
   .transform((p) => p as [number, number, number, number]);
 
 export const heatmapQuery = z
   .object({
-    districts: listSchema(districtSchema, 20).transform(uniq).optional(),
+    // An empty list (`districts=,`) means "all districts", like an absent one.
+    districts: listSchema(districtSchema, 20, true).transform(uniq).optional(),
     /** west,south,east,north in degrees. Boxes crossing the antimeridian are not supported. */
     bbox: bboxSchema.optional(),
-    priceMin: intSchema(LIMITS.pricePerSqm.min, LIMITS.pricePerSqm.max).optional(),
-    priceMax: intSchema(LIMITS.pricePerSqm.min, LIMITS.pricePerSqm.max).optional(),
-    rooms: listSchema(intSchema(LIMITS.rooms.min, LIMITS.rooms.max), LIMITS.rooms.max)
+    // 0 means "no bound" (the map UI sends nothing, older clients sent 0), so it
+    // is normalised to undefined rather than filtering on `<= 0`.
+    priceMin: intSchema(LIMITS.pricePerSqm.min, LIMITS.pricePerSqm.max)
+      .transform((v) => (v === 0 ? undefined : v))
+      .optional(),
+    priceMax: intSchema(LIMITS.pricePerSqm.min, LIMITS.pricePerSqm.max)
+      .transform((v) => (v === 0 ? undefined : v))
+      .optional(),
+    rooms: listSchema(intSchema(LIMITS.rooms.min, LIMITS.rooms.max), LIMITS.rooms.max, true)
       .transform((xs) => uniq(xs).sort((a, b) => a - b))
       .optional(),
     sinceDays: intSchema(LIMITS.sinceDays.min, LIMITS.sinceDays.max).optional(),

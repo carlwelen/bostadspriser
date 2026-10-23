@@ -159,9 +159,10 @@ describe("districtMomChange without asOf", () => {
     await seed(prisma);
   });
 
-  it("uses the current date and does not throw", async () => {
-    const mom = await districtMomChange("ostermalm");
-    // Fixture sales are all more than a month old or from the last few days.
-    expect(mom === null || typeof mom.pctChange !== "undefined").toBe(true);
+  it("defaults asOf to the current time", async () => {
+    // (Racy only if the test straddles a month boundary in Stockholm.)
+    for (const d of ["ostermalm", "vasastan"] as const) {
+      expect(await districtMomChange(d)).toEqual(await districtMomChange(d, new Date()));
+    }
   });
 });
