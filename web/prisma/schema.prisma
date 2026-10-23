@@ -35,6 +35,10 @@ model Listing {
   lng            Float?
   raw            Json
   scrapedAt      DateTime  @default(now())
+  // When a scraper last saw this sale (set on insert, refreshed by every
+  // upsert). `scrapedAt` is only the first insert. DedupedListing's final
+  // tie-breaker.
+  lastSeenAt     DateTime  @default(now())
   geocodedAt     DateTime?
 
   @@unique([source, sourceId])
