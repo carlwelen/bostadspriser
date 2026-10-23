@@ -13,6 +13,9 @@ const { testDatabaseUrl } = createRequire(import.meta.url)("./scripts/test-db.cj
 //                  serially because each one reseeds the same database.
 export default defineConfig({
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  // tsconfig says jsx: "preserve" (Next compiles it); tests need it compiled.
+  // (Vite 8 transforms with Oxc, hence `oxc` and not `esbuild`.)
+  oxc: { jsx: { runtime: "automatic" } },
   test: {
     coverage: {
       provider: "v8",

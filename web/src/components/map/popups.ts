@@ -37,8 +37,8 @@ function sourceChips(sourcesCsv: string): HTMLElement {
     .split(",")
     .filter(Boolean)
     .forEach((s, i) => {
-      // Non-breaking spaces (U+00A0) around the plus so the chip never wraps there.
-      if (i > 0) chip.appendChild(el("span", "color:#a1a1aa;white-space:nowrap", " + "));
+      // U+00A0 around the plus so the chip never wraps there.
+      if (i > 0) chip.appendChild(el("span", "color:#a1a1aa", "\u00a0+\u00a0"));
       chip.appendChild(
         el(
           "span",

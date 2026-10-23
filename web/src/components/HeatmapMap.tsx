@@ -392,8 +392,10 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
       {!MAPBOX_TOKEN && (
         <div role="status" className="absolute inset-x-3 top-3 z-20 flex justify-center">
           <p className="max-w-full break-words rounded-xl bg-amber-50 px-4 py-2.5 text-center text-sm text-amber-900 shadow-md ring-1 ring-amber-200">
-            Kartan kunde inte laddas: Mapbox-token saknas (
-            <code className="inline-block break-all">NEXT_PUBLIC_MAPBOX_TOKEN</code>).
+            Kartan kunde inte laddas: Mapbox-token saknas{" "}
+            <span className="inline-block">
+              (<code className="break-all">NEXT_PUBLIC_MAPBOX_TOKEN</code>).
+            </span>
           </p>
         </div>
       )}

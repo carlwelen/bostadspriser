@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Area,
   CartesianGrid,
@@ -63,6 +63,7 @@ export function AddressDrawer({
 }) {
   const [period, setPeriod] = useState<Period>("12mo");
   const { data, loading, error, reload } = useAddressData(selection, period);
+  const panelRef = useRef<HTMLElement | null>(null);
 
   // Esc closes the drawer.
   useEffect(() => {
@@ -119,9 +120,11 @@ export function AddressDrawer({
         onClick={onClose}
       />
       <aside
+        ref={panelRef}
+        tabIndex={-1}
         role="dialog"
         aria-label={`Detaljer för ${selection.address}`}
-        className="drawer-enter fixed right-3 top-3 bottom-3 z-50 flex w-[min(440px,92vw)] flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_24px_60px_-20px_rgb(15_23_42_/_0.18)]"
+        className="drawer-enter fixed right-3 focus:outline-none top-3 bottom-3 z-50 flex w-[min(440px,92vw)] flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_24px_60px_-20px_rgb(15_23_42_/_0.18)]"
       >
         <header className="relative border-b border-zinc-200 bg-white px-5 pb-4 pt-5">
           <div className="flex items-start justify-between gap-3">
@@ -193,7 +196,12 @@ export function AddressDrawer({
                 >
                   Kunde inte hämta data.
                   <button
-                    onClick={reload}
+                    type="button"
+                    onClick={() => {
+                      reload();
+                      // The button disappears while loading; keep focus in the drawer.
+                      panelRef.current?.focus();
+                    }}
                     className="rounded-md border border-red-200 bg-white px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
                   >
                     Försök igen

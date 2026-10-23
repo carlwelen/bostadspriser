@@ -10,18 +10,20 @@ const PAYLOADS = [
   "</strong><iframe src=javascript:alert(1)></iframe>",
 ];
 
-describe("regression proof for F3", () => {
-  // The pre-fix popup: Mapbox's setHTML parses the string as HTML.
-  const oldTemplate = (address: string) =>
-    `<div><strong>${address}</strong></div>`;
+// Documents the hazard behind F3, it is not a regression test of the old
+// code: interpolating scraped text into an HTML string (what `setHTML` parses)
+// creates elements, which the DOM builder below never does.
+describe("why popups are built from DOM nodes (F3)", () => {
+  const htmlTemplate = (address: string) => `<div><strong>${address}</strong></div>`;
 
-  it("the old setHTML-style template materialises the injected element", () => {
+  it("an HTML string template would materialise the injected element", () => {
     const host = document.createElement("div");
-    host.innerHTML = oldTemplate(PAYLOADS[0]);
+    host.innerHTML = htmlTemplate(PAYLOADS[0]);
     expect(host.querySelector("img")?.getAttribute("onerror")).toBe("alert(1)");
   });
 
   it("the DOM builder does not", () => {
+    // (the real proof is the per-payload tests below)
     const host = document.createElement("div");
     host.appendChild(buildPricePopup({ ...base, address: PAYLOADS[0] }));
     expect(host.querySelector("img")).toBeNull();
@@ -32,7 +34,9 @@ describe("regression proof for F3", () => {
 describe("buildPricePopup", () => {
   it("joins several sources with non-breaking spaces so the chip cannot wrap at the plus", () => {
     const el = buildPricePopup({ ...base, address: "Gatan 1" });
-    expect(el.textContent).toContain("H + B");
+    // Pin the code points: U+00A0 on both sides of the plus.
+    const sep = el.textContent!.match(/H(.+)B/)![1];
+    expect([...sep].map((c) => c.codePointAt(0))).toEqual([0xa0, 0x2b, 0xa0]);
   });
 
   it("renders the address, price, date and source chips", () => {

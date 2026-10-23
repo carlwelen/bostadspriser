@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // Drives the real mapbox-gl Map.prototype.on/off (no WebGL: everything else is
-// stubbed) to show that layer-scoped handlers pile up with the old per-re-add
-// registration and stay single with createHexHandlers.
+// stubbed). The first test documents the hazard (layer-scoped listeners stack
+// when registered again on every layer re-add); it is not a run of the old
+// component code. The other two test createHexHandlers.
 import { describe, expect, it } from "vitest";
 import { createHexHandlers, type HexMapLike, type HexPopupLike } from "./hexHandlers";
 
@@ -49,7 +50,7 @@ function countingPopup() {
 const SWITCHES = 3;
 
 describe("hex handlers against the real mapbox-gl event system", () => {
-  it("the old pattern (register on every layer re-add) fires once per registration", () => {
+  it("hazard: registering again on every layer re-add stacks one listener set per registration", () => {
     const layers = new Set<string>();
     const map = stubMap(layers);
     const { popup, counter } = countingPopup();
