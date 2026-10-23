@@ -69,6 +69,12 @@ describe("/api/streets", () => {
     expect((await streetsGET(req("/api/streets?district=gamla-stan"))).status).toBe(400);
   });
 
+  it("rejects prototype keys as district (B30)", async () => {
+    const res = await streetsGET(req("/api/streets?district=toString"));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toHaveProperty("error");
+  });
+
   it("lists streets for a district", async () => {
     const res = await streetsGET(req("/api/streets?district=norrmalm"));
     const body = await res.json();

@@ -17,6 +17,12 @@ describe("districts", () => {
     expect(isDistrictSlug("")).toBe(false);
   });
 
+  it("rejects Object.prototype keys", () => {
+    for (const key of ["toString", "constructor", "__proto__", "hasOwnProperty", "valueOf"]) {
+      expect(isDistrictSlug(key)).toBe(false);
+    }
+  });
+
   it("maps slugs to Swedish display names", () => {
     expect(districtName("ostermalm")).toBe("Östermalm");
     expect(districtName("sodermalm")).toBe("Södermalm");
