@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 import click
@@ -106,26 +108,63 @@ def update(districts: tuple[str, ...], sources: tuple[str, ...], lookback_days: 
     the source so a fresh Booli backfill doesn't piggyback on Hemnet's cutoff.
     """
     overlap = timedelta(days=7)
-    for source in sources:
-        iter_district = _SOURCE_ITER[source]
-        for d in districts:
-            async def _run() -> int:
-                n = 0
-                async for r in iter_district(d, since):
-                    upsert_listing(r)
-                    n += 1
-                return n
+    results = [
+        _refresh(source, d, overlap, lookback_days) for source in sources for d in districts
+    ]
+    click.echo(_format_results(results))
+    failed = [r for r in results if r.error is not None]
+    if failed:
+        click.echo(f"{len(failed)} of {len(results)} failed", err=True)
+        sys.exit(1)
+    click.echo(f"{len(results)} of {len(results)} ok")
 
-            try:
-                latest = latest_sold_at(source, d)
-                since = (
-                    (latest - overlap) if latest else (date.today() - timedelta(days=lookback_days))
-                )
-                click.echo(f"{source}/{d}: refreshing since {since.isoformat()}")
-                n = asyncio.run(_run())
-                click.echo(f"  upserted {n} for {source}/{d}")
-            except Exception as e:  # noqa: BLE001
-                click.echo(f"  {source}/{d} failed: {e}", err=True)
+
+@dataclass
+class UpdateResult:
+    source: str
+    district: str
+    since: date | None = None
+    upserted: int = 0
+    error: str | None = None
+
+
+def _refresh(source: str, district: str, overlap: timedelta, lookback_days: int) -> UpdateResult:
+    """Refresh one source/district. Never raises: failures land in the result."""
+    result = UpdateResult(source, district)
+    iter_district = _SOURCE_ITER[source]
+
+    async def _run() -> None:
+        assert result.since is not None
+        async for r in iter_district(district, result.since):
+            upsert_listing(r)
+            result.upserted += 1
+
+    try:
+        latest = latest_sold_at(source, district)
+        result.since = (
+            (latest - overlap) if latest else (date.today() - timedelta(days=lookback_days))
+        )
+        click.echo(f"{source}/{district}: refreshing since {result.since.isoformat()}")
+        asyncio.run(_run())
+        click.echo(f"  upserted {result.upserted} for {source}/{district}")
+    except Exception as e:  # noqa: BLE001
+        result.error = " ".join(f"{type(e).__name__}: {e}".split())
+        click.echo(f"  {source}/{district} failed: {result.error}", err=True)
+    return result
+
+
+def _format_results(results: list[UpdateResult]) -> str:
+    """Fixed-width summary table, one line per source/district."""
+    header = f"{'source':8} {'district':10} {'since':10} {'upserted':>8} {'status':6} error"
+    lines = ["", header]
+    for r in results:
+        since = r.since.isoformat() if r.since else "-"
+        status = "ok" if r.error is None else "FAILED"
+        error = (r.error or "")[:150]
+        lines.append(
+            f"{r.source:8} {r.district:10} {since:10} {r.upserted:>8} {status:6} {error}".rstrip()
+        )
+    return "\n".join(lines)
 
 
 @cli.command()
