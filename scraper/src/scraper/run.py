@@ -19,15 +19,18 @@ from . import crawl_state, scrape_run
 from .db import DEFAULT_BATCH_SIZE, engine, upsert_listings
 from .errors import CrawlIncomplete
 from .geocode import MAX_ATTEMPTS as MAX_GEOCODE_ATTEMPTS
-from .geocode import geocode_pending, mark_inline_pending
+from .geocode import GeocodeConfigError, geocode_pending, mark_inline_pending
 from .hemnet import DISTRICT_LOCATION_IDS
 from .hemnet import iter_district as _hemnet_iter
+from .lock import EXIT_BUSY as EXIT_TEMPFAIL
 from .lock import exclusive
 from .reparse import format_summary, reparse
 from .source_base import MAX_PAGES, CrawlProgress
 
 # Both sources cover the same four districts; the CLI accepts the union of slugs.
 _ALL_DISTRICTS = sorted(set(DISTRICT_LOCATION_IDS) | set(_BOOLI_DISTRICTS))
+
+EXIT_CONFIG = 78  # EX_CONFIG: missing or rejected credentials
 
 # Source slug -> async district iterator. New sources slot in here.
 _SOURCE_ITER = {
@@ -129,7 +132,9 @@ def cli(log_level: str) -> None:
     share an exclusive lock on update.lock (next to storageState.json, in
     scraper/.state/). A second run exits with code 75 (EX_TEMPFAIL) and a message
     naming the lock; the lock is released when the process ends, so a leftover
-    file never blocks. Exit code 1 means the run failed or was incomplete.
+    file never blocks. Exit codes: 0 ok; 1 failed or incomplete; 75 (EX_TEMPFAIL) busy
+    or, for geocode, rate-limited/unavailable (try again later); 78 (EX_CONFIG) the
+    Mapbox token is missing or rejected.
 
     \b
     Because of that lock, a ScrapeRun row still `running` when a new run starts
@@ -493,22 +498,34 @@ def _format_results(results: list[UpdateResult]) -> str:
 def geocode(limit: int, max_attempts: int) -> None:
     """Geocode listings missing lat/lng via Mapbox (pending and previously failed rows).
 
-    Takes the same single-instance lock as scrape/update (exit code 75 when another
-    run holds it). Exits 1 if Mapbox rate-limited the pass or was unavailable
-    (3 rows in a row failing on 5xx/network errors); rows not reached keep their
-    attempt budget.
+    Takes the same single-instance lock as scrape/update. Exit codes: 0 done;
+    75 (EX_TEMPFAIL) another run holds the lock, Mapbox rate-limited the pass, or
+    Mapbox/the network was unavailable (nothing was charged, rows keep their attempt
+    budget; run again later); 78 (EX_CONFIG) the Mapbox token is missing or rejected;
+    1 an unexpected internal error repeated on several rows (nothing charged).
     """
-    summary = geocode_pending(limit=limit, max_attempts=max_attempts)
+    try:
+        summary = geocode_pending(limit=limit, max_attempts=max_attempts)
+    except GeocodeConfigError as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(EXIT_CONFIG)
     click.echo(
         f"geocoded: ok {summary.ok}, not found {summary.not_found}, failed {summary.failed}"
     )
     if summary.rate_limited:
         click.echo("rate limited by Mapbox: pass stopped early; run again later", err=True)
-        sys.exit(1)
+        sys.exit(EXIT_TEMPFAIL)
     if summary.unavailable:
         click.echo(
             "Mapbox unavailable (repeated 5xx/network errors): pass stopped early, "
             "no attempts were charged; run again later",
+            err=True,
+        )
+        sys.exit(EXIT_TEMPFAIL)
+    if summary.internal_error:
+        click.echo(
+            "internal error on several rows in a row: pass stopped early, no attempts "
+            "were charged (see the log)",
             err=True,
         )
         sys.exit(1)
