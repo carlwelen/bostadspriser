@@ -30,7 +30,7 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 
 | ID | P | Owner | Status | Acceptance | Commit | Notes |
 |---|---|---|---|---|---|---|
-| B1 | P0 | B | review | `scraper update` MAX(soldAt) query works (no `:d::` bind bug); DB test covers it |  | R approved; merges with the B series after B2/B3 fixes |
+| B1 | P0 | B | done | `scraper update` MAX(soldAt) query works (no `:d::` bind bug); DB test covers it | f10d9d2 | R approved |
 | B2 | P0 | B | review | One `parse_street_address()` in normalize.py used by both sources; table test incl. `S:t Eriksgatan`, `Karlavägen 1 A`, `Ringvägen 12-14`, `Hornsgatan 64 1tr`, `Odengatan 5, lgh 1101` |  | Fix 1d836ff (prefix match, decimal-comma floors, letter ranges → first letter, letterless streets rejected) in re-review |
 | B3 | P0 | B | review | `scraper reparse [--dry-run]` re-derives street/house/rooms/area/prices/dedupKey from `raw`, batched, idempotent; backfill batched too |  | Fix 53b7e56 (soldAt re-derived, round_1dp, FOR UPDATE) in re-review |
 | B4 | P0 | B | review | Rows without a final price are skipped (no `0` prices / `::0` dedup keys); Hemnet derives kr/m² from price/area when missing |  | R approved; merges with the B series after B2/B3 fixes |
