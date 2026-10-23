@@ -73,7 +73,8 @@ export function StreetSearch() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="group inline-flex items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-900"
+        aria-label="Sök gata"
+        className="group inline-flex items-center gap-2 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 sm:px-3 text-sm font-medium text-zinc-700 transition-colors duration-200 ease-out hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-900"
       >
         <svg
           aria-hidden
@@ -90,7 +91,7 @@ export function StreetSearch() {
           <circle cx="11" cy="11" r="7" />
           <path d="m20 20-3.5-3.5" />
         </svg>
-        Sök gata
+        <span className="hidden sm:inline">Sök gata</span>
         <kbd className="hidden rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-500 sm:inline">
           ⌘K
         </kbd>

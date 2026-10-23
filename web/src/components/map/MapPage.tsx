@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { HeatmapMap, type HeatmapFilters } from "@/components/HeatmapMap";
 import { BrandMark } from "@/components/BrandMark";
@@ -114,18 +114,18 @@ export function MapPage() {
 function TopNav() {
   return (
     <div className="px-3 pt-3">
-      <nav className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-5 py-3">
+      <nav className="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-3 sm:px-5">
         <BrandMark />
-        <div className="flex items-center gap-1 text-sm">
+        <div className="flex shrink-0 items-center gap-0.5 text-sm sm:gap-1">
           <Link
             href="/insights"
-            className="rounded-md px-3 py-1.5 text-zinc-600 transition-colors duration-200 ease-out hover:bg-zinc-100 hover:text-zinc-900"
+            className="rounded-md px-2 py-1.5 text-zinc-600 transition-colors duration-200 ease-out hover:bg-zinc-100 hover:text-zinc-900 sm:px-3"
           >
             Insikter
           </Link>
           <Link
             href="/compare"
-            className="rounded-md px-3 py-1.5 text-zinc-600 transition-colors duration-200 ease-out hover:bg-zinc-100 hover:text-zinc-900"
+            className="rounded-md px-2 py-1.5 text-zinc-600 transition-colors duration-200 ease-out hover:bg-zinc-100 hover:text-zinc-900 sm:px-3"
           >
             Jämför
           </Link>
@@ -165,8 +165,29 @@ function Sidebar({
   onSetPeriod,
   priceBreaks,
 }: SidebarProps) {
+  // Phones show only a slice of the sidebar; fade + label say there is more.
+  const asideRef = useRef<HTMLElement | null>(null);
+  const [moreBelow, setMoreBelow] = useState(false);
+  const measure = useCallback(() => {
+    const el = asideRef.current;
+    if (el) setMoreBelow(el.scrollTop + el.clientHeight < el.scrollHeight - 4);
+  }, []);
+  useEffect(() => {
+    measure();
+    const el = asideRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [measure]);
+
   return (
-    <aside className="flex max-h-[45%] w-full shrink-0 flex-col gap-5 overflow-y-auto md:max-h-none md:w-80 rounded-xl border border-zinc-200 bg-white p-5">
+    <div className="relative flex max-h-[45%] w-full shrink-0 md:max-h-none md:w-80">
+    <aside
+      ref={asideRef}
+      onScroll={measure}
+      className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-5"
+    >
       <section>
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
@@ -293,6 +314,18 @@ function Sidebar({
         Stockholms innerstad.
       </p>
     </aside>
+    {moreBelow && (
+      <div
+        data-testid="sidebar-more"
+        aria-hidden
+        className="pointer-events-none absolute inset-x-px bottom-px flex h-14 items-end justify-center rounded-b-xl bg-gradient-to-t from-white via-white/90 to-transparent pb-1.5"
+      >
+        <span className="rounded-full bg-zinc-900 px-2.5 py-0.5 text-[11px] font-medium text-white shadow-sm">
+          Fler filter ↓
+        </span>
+      </div>
+    )}
+    </div>
   );
 }
 

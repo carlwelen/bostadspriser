@@ -196,6 +196,60 @@ test("filter changes keep unrelated parameters and the hash; junk is cleaned up 
   expect(new URL(page.url()).hash).toBe("#karta");
 });
 
+// F20: the landing page works at phone width.
+test("nothing on the landing page overflows the viewport horizontally", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("map-container")).toBeVisible();
+  const overflowing = await page.evaluate(() => {
+    const vw = document.documentElement.clientWidth;
+    const bad: string[] = [];
+    for (const el of document.querySelectorAll("nav *, aside *, main")) {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      // Descendants of the scrolling sidebar are clipped by it; only horizontal bounds matter.
+      if (r.left < -0.5 || r.right > vw + 0.5) {
+        bad.push(`${el.tagName.toLowerCase()} "${(el.textContent ?? "").trim().slice(0, 24)}" ${Math.round(r.left)}..${Math.round(r.right)} of ${vw}`);
+      }
+    }
+    return bad;
+  });
+  expect(overflowing).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("every top nav target is reachable on the landing page", async ({ page }) => {
+  await page.goto("/");
+  const nav = page.getByRole("navigation");
+  const targets = [
+    nav.getByRole("link", { name: "Insikter" }),
+    nav.getByRole("link", { name: "Jämför" }),
+    nav.getByRole("button", { name: /Sök gata/ }),
+    nav.getByRole("link", { name: /Bostadspriser/ }),
+  ];
+  const vw = page.viewportSize()!.width;
+  for (const t of targets) {
+    await expect(t).toBeVisible();
+    const box = (await t.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(vw);
+    // Big enough to tap.
+    expect(box.height).toBeGreaterThanOrEqual(28);
+  }
+  await nav.getByRole("link", { name: "Insikter" }).click();
+  await expect(page).toHaveURL(/\/insights$/);
+});
+
+test("the sidebar hints at more filters below and the source note is reachable", async ({ page }) => {
+  await page.goto("/");
+  const aside = page.getByRole("complementary");
+  const scrolls = await aside.evaluate((el) => el.scrollHeight > el.clientHeight + 1);
+  expect(scrolls).toBe(true); // true at both the desktop and the Pixel 7 viewport
+  await expect(page.getByTestId("sidebar-more")).toBeVisible();
+  await aside.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await expect(page.getByTestId("source-note")).toBeInViewport();
+  await expect(page.getByTestId("sidebar-more")).toBeHidden();
+});
+
 // F34: the count pill agrees with its number.
 test("the map status pill uses the singular for exactly one sale", async ({ page }) => {
   await page.route("**/api/heatmap*", (route) =>
