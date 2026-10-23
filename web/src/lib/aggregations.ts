@@ -260,24 +260,38 @@ export async function recentSales(
 export const MIN_MOVER_RECENT_SALES = 5;
 /** ...and at least this many in the prior window it is compared with. */
 export const MIN_MOVER_PRIOR_SALES = 10;
-/** The "recent" window is the last 90 days. */
+/**
+ * The "recent" window is `soldAt >= today - 90`, like `sinceDays=90` elsewhere:
+ * today plus the 90 days before it, i.e. 91 calendar days.
+ */
 const MOVER_RECENT_DAYS = 90;
-/** The "prior" window is the 12 months (365 days) before the recent one. */
+/**
+ * The "prior" window is the 365 days right before the recent one:
+ * `today - 455 <= soldAt < today - 90`. Disjoint from the recent window.
+ */
 const MOVER_PRIOR_DAYS = 365;
 
 export type StreetMover = {
   street: string;
   slug: string;
   district: DistrictSlug;
-  /** Sales in both windows together (legacy; see recentCount/priorCount). */
+  /**
+   * Sales in the two windows together (recentCount + priorCount, the last 455
+   * days). Before B26 this was the street's all-time count.
+   */
   count: number;
-  /** Mean kr/m² over both windows (legacy). */
+  /**
+   * Mean kr/m² over those same sales (both windows, last 455 days). Before B26
+   * this was the all-time mean.
+   */
   meanPricePerSqm: number;
-  /** Mean kr/m² in the recent window (legacy; the change is median-based). */
+  /** Mean kr/m² in the recent window only (same meaning as before; the change itself is median-based). */
   windowMeanPricePerSqm: number;
-  /** Change of the median kr/m², recent vs prior window, in percent. */
+  /** (recentMedian - priorMedian) / priorMedian in percent: medians, not means. */
   pctChange: number;
+  /** Sales in the recent window (today and the 90 days before it). */
   recentCount: number;
+  /** Sales in the prior window (the 365 days before the recent one). */
   priorCount: number;
   recentMedianPricePerSqm: number;
   priorMedianPricePerSqm: number;
@@ -342,7 +356,7 @@ export async function topMovers(
     WHERE recent_n >= ${MIN_MOVER_RECENT_SALES}
       AND prior_n  >= ${MIN_MOVER_PRIOR_SALES}
       AND prior_median > 0
-    ORDER BY pct ${op}, street ASC
+    ORDER BY pct ${op}, district ASC, street ASC
     LIMIT ${limit}
   `);
 

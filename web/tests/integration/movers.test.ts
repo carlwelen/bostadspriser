@@ -137,6 +137,20 @@ describe("medians over disjoint windows", () => {
     expect((await topMovers("up", 1, AS_OF)).map((m) => m.street)).toEqual(["Up50"]);
   });
 
+  it("breaks ties by district (enum order) and then street", async () => {
+    await seed(prisma, [
+      ...street("Samma", 10, 100_000, 5, 110_000, "sodermalm"),
+      ...street("Samma", 10, 100_000, 5, 110_000, "norrmalm"),
+      ...street("Samma", 10, 100_000, 5, 110_000, "vasastan"),
+      ...street("Aaa", 10, 100_000, 5, 110_000, "vasastan"),
+    ]);
+    const key = (ms: Awaited<ReturnType<typeof topMovers>>) => ms.map((m) => `${m.district}/${m.street}`);
+    const expected = ["vasastan/Aaa", "vasastan/Samma", "norrmalm/Samma", "sodermalm/Samma"];
+    expect(key(await topMovers("up", 10, AS_OF))).toEqual(expected);
+    expect(key(await topMovers("down", 10, AS_OF))).toEqual(expected);
+    expect(key(await topMovers("up", 2, AS_OF))).toEqual(expected.slice(0, 2));
+  });
+
   it("returns nothing on an empty database", async () => {
     await seed(prisma, []);
     expect(await topMovers("up", 5, AS_OF)).toEqual([]);
