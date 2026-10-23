@@ -20,6 +20,13 @@ for (const { path, heading } of PAGES) {
   });
 }
 
+for (const { path } of PAGES) {
+  test(`${path} declares the Swedish document language`, async ({ page }) => {
+    await page.goto(path);
+    await expect(page.locator("html")).toHaveAttribute("lang", "sv");
+  });
+}
+
 test("the landing page renders the map container", async ({ page, consoleErrors }) => {
   await page.goto("/");
   await expect(page.getByTestId("map-container")).toBeVisible();
