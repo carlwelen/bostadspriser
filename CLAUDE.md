@@ -63,11 +63,14 @@ macOS (darwin/arm64), Node 26, pnpm 12, uv, Python 3.12. The docker CLI lives at
 ### Schema
 - `Listing` is the single primary table: one row per sold listing per source, with `(source, sourceId)` as the natural key for idempotent re-scrapes. Indexes: `(district, soldAt)`, `(street, houseNumber, soldAt)`, `(lat, lng)`, `(dedupKey)`.
 - `dedupKey` = blake2b of normalized address + soldAt + price (`normalize.dedup_key`); it collapses the same sale seen via Hemnet and Booli.
-- **All reads go through the `"DedupedListing"` view**: `DISTINCT ON (COALESCE(dedupKey, id))`, preferring rows with coordinates, then Hemnet, then the latest `scrapedAt`; it adds a `sources text[]` column.
+- **All reads go through the `"DedupedListing"` view**: `DISTINCT ON` the sale's group key (`dedupKey`, falling back to `id`), preferring priced rows, then rows with coordinates, then Hemnet, then the latest `lastSeenAt`, then `id`; it adds a `sources text[]` column. Recreating the view is needed whenever `Listing` gains a column (`l.*` is frozen at creation).
+- Other tables: `ScrapeRun` (one row per source/district crawl; written by the scraper, read by `latestScrapeRuns()`/`sourceFreshness()`). `Listing.geocodeStatus`/`geocodeAttempts` track geocoding, `Listing.lastSeenAt` is bumped on every upsert.
 - Prisma's `@default(uuid())` is a client-side default. SQLAlchemy reflection doesn't see it, so the scraper generates `id = str(uuid.uuid4())` per row in `_to_row`.
 
 ### Aggregations live in SQL
-`web/src/lib/aggregations.ts` is the home for `AVG`, `date_trunc`, `GROUP BY` queries used by API routes and server-rendered pages. Don't pull listings into memory and reduce. (Some routes still inline SQL; moving it is backlog item B27.)
+`web/src/lib/aggregations.ts` is the home for every query used by API routes and server-rendered pages (means, medians via `percentile_cont`, `date_trunc` buckets). Don't pull listings into memory and reduce. Routes stay thin: parse with the zod schemas in `web/src/lib/api-validation.ts` (400 JSON on bad input, `withApiErrors` → 500 JSON + server log), call an aggregation, shape the response. Response types live in `web/src/lib/api-types.ts`; UI code imports them.
+
+Date cut-offs ("last N days", "current month") must use `stockholmToday(asOf)` and take an `asOf` parameter so tests can pin time; never `CURRENT_DATE`/`now()`, which follow the DB session's time zone.
 
 ### Scrapers
 Both sites render server-side and ship data in `__NEXT_DATA__.props.pageProps.__APOLLO_STATE__`: Hemnet as `__typename == "SaleCard"`, Booli as `"SoldProperty"`. See `.claude/agent-memory/backend-architect/booli_scraper.md` for Booli specifics (area IDs, `descriptiveAreaName` district filter).
@@ -88,7 +91,7 @@ The landing page (`/`) toggles between two visualizations:
 - **Pris**: color-by-`pricePerSqm` heatmap layer + circle dots with hover popups. Flat camera.
 - **Frekvens**: h3-js client-side aggregation at **resolution 9** (~175 m edge), rendered as `fill-extrusion` keyed off the count; camera tilts to 55°.
 
-Both read `/api/heatmap` GeoJSON. The query currently caps at **50,000** features (B25 will pick a deliberate cap) and supports `districts`, `bbox`, `rooms`, `priceMin`/`priceMax`, `sinceDays`.
+Both read `/api/heatmap` GeoJSON. The query currently caps at **50,000** features (B25 will pick a deliberate cap) and supports `districts`, `bbox`, `rooms` (`5` = 5 or more), `priceMin`/`priceMax` (0 = no bound), `sinceDays`. Popups are built from DOM nodes (`web/src/components/map/popups.ts`); never `setHTML`/`innerHTML` with scraped strings.
 
 ## Routes
 
