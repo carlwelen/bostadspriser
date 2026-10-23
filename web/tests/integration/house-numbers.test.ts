@@ -68,6 +68,11 @@ describe("listHouseNumbers ordering, harder cases", () => {
     expect(await order()).toEqual(["8", "9 ", " 10", "10-11", "10–12"]);
   });
 
+  it("treats non-breaking spaces like spaces (leading, trailing and before a letter)", async () => {
+    await seedHouses([" 10", "9 ", "3 B", "3 A", "10 – 12"]);
+    expect(await order()).toEqual(["3 A", "3 B", "9 ", " 10", "10 – 12"]);
+  });
+
   it("does not overflow on absurdly long digit runs", async () => {
     await seedHouses(["99999999999999999999", "7"]);
     expect(await order()).toEqual(["7", "99999999999999999999"]);

@@ -176,6 +176,9 @@ export async function listStreets(
   }));
 }
 
+/** The house number without surrounding spaces, tabs or non-breaking spaces (btrim alone only strips ' '). */
+const HN_TRIMMED = Prisma.sql`btrim("houseNumber", ' \t\u00a0')`;
+
 /**
  * Natural order for house numbers: numeric prefix, then letter ("3" before
  * "3A"), then the end of a range ("10" before "10-12"). Unparseable values
@@ -183,9 +186,9 @@ export async function listStreets(
  * `\d`, because Prisma.sql reads the cooked template string.
  */
 const HOUSE_NUMBER_ORDER = Prisma.sql`
-  NULLIF(substring(btrim("houseNumber") from '^[0-9]{1,9}'), '')::int ASC NULLS LAST,
-  upper(substring(btrim("houseNumber") from '^[0-9]+[[:space:]]*([[:alpha:]])')) ASC NULLS FIRST,
-  NULLIF(substring(btrim("houseNumber") from '^[0-9]+[[:space:]]*[[:alpha:]]?[[:space:]]*[-–][[:space:]]*([0-9]{1,9})'), '')::int ASC NULLS FIRST,
+  NULLIF(substring(${HN_TRIMMED} from '^[0-9]{1,9}'), '')::int ASC NULLS LAST,
+  upper(substring(${HN_TRIMMED} from '^[0-9]+[[:space:]\u00a0]*([[:alpha:]])')) ASC NULLS FIRST,
+  NULLIF(substring(${HN_TRIMMED} from '^[0-9]+[[:space:]\u00a0]*[[:alpha:]]?[[:space:]\u00a0]*[-–][[:space:]\u00a0]*([0-9]{1,9})'), '')::int ASC NULLS FIRST,
   "houseNumber" ASC`;
 
 /** Houses with at least one priced sale; count, mean and median are over priced sales (as in listStreets). */
