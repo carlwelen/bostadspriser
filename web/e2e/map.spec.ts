@@ -160,6 +160,46 @@ test("/?districts= opens the empty state without a request", async ({ page }) =>
   expect(reqs).toHaveLength(0);
 });
 
+// F17: the price legend follows the points on screen.
+test("the price legend is computed from the displayed points", async ({ page }) => {
+  const features = Array.from({ length: 50 }, (_, i) => ({
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [18.07, 59.33] },
+    properties: {
+      pricePerSqm: 50_000 + i * 1000,
+      address: `Testgatan ${i + 1}`,
+      street: "Testgatan",
+      houseNumber: String(i + 1),
+      district: "ostermalm",
+      soldAt: "2025-06-02",
+      source: "hemnet",
+      sources: "hemnet",
+      dedupKey: null,
+    },
+  }));
+  await page.route("**/api/heatmap*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ type: "FeatureCollection", features }),
+    })
+  );
+  await page.goto("/");
+  const legend = page.getByTestId("price-legend");
+  await expect(legend.locator("span")).toHaveText(["52k", "62k", "75k", "87k", "97k+"]);
+});
+
+test("the price legend shows the default scale when there is no data", async ({ page }) => {
+  await page.goto("/?districts=");
+  await expect(page.getByTestId("price-legend").locator("span")).toHaveText([
+    "80k",
+    "120k",
+    "150k",
+    "180k",
+    "220k+",
+  ]);
+});
+
 // F7: the sidebar note names both sources and follows the selected period.
 test("the sidebar source note names Hemnet and Booli and follows the period", async ({ page }) => {
   await page.goto("/");

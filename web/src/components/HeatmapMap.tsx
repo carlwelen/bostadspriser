@@ -10,6 +10,7 @@ import type { DistrictSlug } from "@/lib/districts";
 import { fetchJson } from "./map/fetchJson";
 import { createHexHandlers, type HexMapLike } from "./map/hexHandlers";
 import { buildPricePopup } from "./map/popups";
+import { DEFAULT_PRICE_BREAKS, computePriceBreaks, priceColorExpression } from "./map/priceRamp";
 
 export type HeatmapMode = "price" | "frequency";
 
@@ -25,6 +26,8 @@ type Props = {
   showHeatmap: boolean;
   mode: HeatmapMode;
   filters?: HeatmapFilters;
+  /** Reports the price breaks the map currently colours with (for the legend). */
+  onPriceBreaks?: (breaks: number[]) => void;
 };
 
 const STOCKHOLM_INNER_CITY: [number, number] = [18.07, 59.335];
@@ -59,16 +62,6 @@ type HexFeature = GeoJSON.Feature<GeoJSON.Polygon, { count: number }>;
 type HexFC = GeoJSON.FeatureCollection<GeoJSON.Polygon, { count: number }>;
 
 const expr = (e: unknown) => e as mapboxgl.ExpressionSpecification;
-
-// Price/m² → green-yellow-red ramp.
-const PRICE_COLOR_RAMP = expr([
-  "interpolate", ["linear"], ["get", "pricePerSqm"],
-  80_000, "#1a9850",
-  120_000, "#a6d96a",
-  150_000, "#fee08b",
-  180_000, "#fdae61",
-  220_000, "#d73027",
-]);
 
 // Hex count → sequential single-hue blue ramp tuned to the new accent.
 // Pale at low counts so the basemap is still readable; darker at high counts
@@ -106,7 +99,7 @@ function pointsToHexFC(points: PointFC): HexFC {
 // Inlined at build time, so server and client agree on it.
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
-export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
+export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreaks }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const hexHandlersRef = useRef<ReturnType<typeof createHexHandlers> | null>(null);
@@ -189,6 +182,19 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
     };
   }, [districts, filters?.priceMin, filters?.priceMax, filters?.rooms, filters?.sinceDays]);
 
+  // Colour breaks follow the points on screen (quantiles, so a few outliers
+  // can't flatten the ramp). The legend gets the same numbers.
+  const priceBreaks = useMemo(
+    () =>
+      points
+        ? computePriceBreaks(points.features.map((f) => f.properties.pricePerSqm))
+        : DEFAULT_PRICE_BREAKS,
+    [points]
+  );
+  useEffect(() => {
+    onPriceBreaks?.(priceBreaks);
+  }, [priceBreaks, onPriceBreaks]);
+
   // Aggregate to hex grid only when we actually need it.
   const hexes = useMemo(
     () => (points && mode === "frequency" ? pointsToHexFC(points) : null),
@@ -241,7 +247,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
             14, 0.25,
             16, 0,
           ]),
-          "circle-color": PRICE_COLOR_RAMP,
+          "circle-color": expr(priceColorExpression(priceBreaks)),
           "circle-opacity": expr([
             "interpolate", ["linear"], ["zoom"],
             10, 0.18,
@@ -291,7 +297,8 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
         });
       });
     }
-  }, [points, styleReady]);
+    map.setPaintProperty(PRICE_POINT_LAYER, "circle-color", expr(priceColorExpression(priceBreaks)));
+  }, [points, styleReady, priceBreaks]);
 
   // (Re)build hex layer when frequency data changes.
   useEffect(() => {

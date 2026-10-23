@@ -1,10 +1,12 @@
 "use client";
 
-import { Suspense, useMemo, useRef } from "react";
+import { Suspense, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { HeatmapMap, type HeatmapFilters } from "@/components/HeatmapMap";
 import { BrandMark } from "@/components/BrandMark";
 import { StreetSearch } from "@/components/StreetSearch";
+import { PriceLegend } from "@/components/map/PriceLegend";
+import { DEFAULT_PRICE_BREAKS } from "@/components/map/priceRamp";
 import Link from "next/link";
 import { DISTRICTS, type DistrictSlug } from "@/lib/districts";
 import {
@@ -60,6 +62,7 @@ function MapPage() {
     update({ rooms: cur.includes(n) ? cur.filter((r) => r !== n) : [...cur, n] });
   };
 
+  const [priceBreaks, setPriceBreaks] = useState(DEFAULT_PRICE_BREAKS);
   const sinceDays = periodToSinceDays(state.period);
   const filters: HeatmapFilters = useMemo(
     () => ({
@@ -82,6 +85,7 @@ function MapPage() {
             showHeatmap={state.showHeatmap}
             mode={state.mode}
             filters={filters}
+            onPriceBreaks={setPriceBreaks}
           />
         </main>
         <Sidebar
@@ -96,6 +100,7 @@ function MapPage() {
           onClearRooms={() => update({ rooms: [] })}
           period={state.period}
           onSetPeriod={(period) => update({ period })}
+          priceBreaks={priceBreaks}
         />
       </div>
     </div>
@@ -139,6 +144,7 @@ type SidebarProps = {
   onClearRooms: () => void;
   period: MapPeriod;
   onSetPeriod: (p: MapPeriod) => void;
+  priceBreaks: number[];
 };
 
 function Sidebar({
@@ -153,6 +159,7 @@ function Sidebar({
   onClearRooms,
   period,
   onSetPeriod,
+  priceBreaks,
 }: SidebarProps) {
   return (
     <aside className="flex max-h-[45%] w-full shrink-0 flex-col gap-5 overflow-y-auto md:max-h-none md:w-80 rounded-xl border border-zinc-200 bg-white p-5">
@@ -274,7 +281,7 @@ function Sidebar({
             className="h-4 w-4 accent-zinc-900"
           />
         </label>
-        {mode === "price" ? <PriceLegend /> : <FrequencyLegend />}
+        {mode === "price" ? <PriceLegend breaks={priceBreaks} /> : <FrequencyLegend />}
       </section>
 
       <p data-testid="source-note" className="mt-auto pt-3 text-[11px] text-zinc-500">
@@ -319,31 +326,6 @@ function ModeSwitch({
             </button>
           );
         })}
-      </div>
-    </div>
-  );
-}
-
-function PriceLegend() {
-  const stops: Array<[string, string]> = [
-    ["#1a9850", "80k"],
-    ["#a6d96a", "120k"],
-    ["#fee08b", "150k"],
-    ["#fdae61", "180k"],
-    ["#d73027", "220k+"],
-  ];
-  return (
-    <div className="text-xs">
-      <p className="text-zinc-500">Pris/m² (kr)</p>
-      <div className="mt-1.5 flex h-2 w-full overflow-hidden rounded-full">
-        {stops.map(([color]) => (
-          <div key={color} style={{ background: color }} className="flex-1" />
-        ))}
-      </div>
-      <div className="mt-1 flex justify-between text-[10px] text-zinc-500">
-        {stops.map(([, label]) => (
-          <span key={label}>{label}</span>
-        ))}
       </div>
     </div>
   );
