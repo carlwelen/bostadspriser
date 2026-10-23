@@ -350,7 +350,8 @@ def test_progress_reports_pages_rejections_oldest_date_and_last_completed_page(s
     assert progress.pages == 2  # pages fetched
     assert progress.last_completed_page == 2
     assert progress.rejected == 2  # the two unpriced cards (the old card ends the crawl, it isn't rejected)
-    assert progress.oldest_sold_at == date(2026, 4, 24)
+    # The stop card (2026-04-24, older than `since`) does not drag coverage back.
+    assert progress.oldest_sold_at == date(2026, 5, 2)
 
 
 @pytest.mark.parametrize("source", SOURCES)
@@ -360,3 +361,26 @@ def test_progress_after_a_failure_points_at_the_failed_page(source, monkeypatch)
     progress = source_base.CrawlProgress()
     _run_crawl(module, monkeypatch, extract, pages, fail_pages=(3,), progress=progress)
     assert progress.pages == 2 and progress.last_completed_page == 2  # resume at page 3
+
+
+def test_progress_oldest_ignores_cards_of_other_districts(monkeypatch) -> None:
+    """A rejected neighbour-district card must not claim we covered its (older) date."""
+    pages = {
+        1: [_booli_card("p1", sold="2026-05-10"), _booli_card("n1", area="Kungsholmen", sold="2026-05-02")],
+        2: [],
+    }
+    progress = source_base.CrawlProgress()
+    ids, _ = _run_crawl(booli, monkeypatch, "_extract_sold_properties", pages, progress=progress)
+    assert ids == ["p1"]
+    assert progress.oldest_sold_at == date(2026, 5, 10)
+    assert progress.rejected == 1  # the neighbour card is still counted as rejected
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_progress_oldest_counts_in_range_cards_the_source_rejects_for_price(source, monkeypatch) -> None:
+    """A priceless sale inside the window is still a sale we looked at."""
+    module, card, extract = SOURCES[source]
+    pages = {1: [card("p1"), card("u1", priced=False)], 2: []}
+    progress = source_base.CrawlProgress()
+    _run_crawl(module, monkeypatch, extract, pages, progress=progress)
+    assert progress.oldest_sold_at == date(2026, 5, 2)

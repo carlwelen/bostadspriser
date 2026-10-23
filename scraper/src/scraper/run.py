@@ -130,6 +130,11 @@ def cli(log_level: str) -> None:
     scraper/.state/). A second run exits with code 75 (EX_TEMPFAIL) and a message
     naming the lock; the lock is released when the process ends, so a leftover
     file never blocks. Exit code 1 means the run failed or was incomplete.
+
+    \b
+    Because of that lock, a ScrapeRun row still `running` when a new run starts
+    belongs to a run that died; the new run marks it failed with error
+    'interrupted'.
     """
     configure_logging(log_level)
 
@@ -147,6 +152,9 @@ class RunReport:
     progress: CrawlProgress
     error: str | None = None
     partial: bool = False  # some rows landed before the crawl ended early
+    # last_completed_page as of the last *committed* batch. Pages are marked complete
+    # when their cards are yielded, which can be ahead of what the database holds.
+    committed_page: int = 0
 
 
 def _run_recorded(
@@ -161,6 +169,7 @@ def _run_recorded(
 
     def _count(n: int) -> None:
         report.upserted += n
+        report.committed_page = progress.last_completed_page
         scrape_run.bump(
             run_id,
             pages=progress.pages,
@@ -251,6 +260,7 @@ def backfill(district: str, since: date, source: str, resume: bool, max_pages: i
     the `update` cutoff.
     """
     start_page = 1
+    base_next = 1  # the resume point recorded so far (a failed run must never move it back)
     if resume:
         try:
             saved = crawl_state.backfill_progress(source, district)
@@ -264,11 +274,15 @@ def backfill(district: str, since: date, source: str, resume: bool, max_pages: i
                 f"recorded progress is for a different --since ({saved['since']}); starting at page 1"
             )
         else:
-            start_page = saved["next_page"]
-            click.echo(f"resuming {source}/{district} at page {start_page}")
+            base_next = saved["next_page"]
+            # One page of overlap: rows tied on soldAt have no stable order and
+            # delistings shift pages up, so the recorded page may start mid-way.
+            start_page = max(1, base_next - 1)
+            click.echo(f"resuming {source}/{district} at page {start_page} (recorded: {base_next})")
     report = _run_recorded(source, district, since, start_page=start_page, max_pages=max_pages)
     click.echo(f"upserted {report.upserted} listings for {district} from {source}")
-    next_page = max(start_page, report.progress.last_completed_page + 1)
+    # Only pages whose rows were committed count (not merely yielded).
+    next_page = max(base_next, report.committed_page + 1)
     try:
         if report.error is None:
             crawl_state.clear_backfill_progress(source, district)

@@ -50,7 +50,7 @@ class CrawlProgress:
     pages: int = 0  # pages fetched this run
     last_completed_page: int = 0  # highest page whose cards were all processed (resume point - 1)
     rejected: int = 0  # in-range cards the source refused (no price, other area, ...)
-    oldest_sold_at: date | None = None  # oldest sale date seen on any card
+    oldest_sold_at: date | None = None  # oldest sale date of an accepted, in-range card
 
 
 @dataclass(frozen=True)
@@ -298,8 +298,6 @@ async def crawl(
                     sold_at = source.parse_sold_at(c)
                     if sold_at is None:
                         continue
-                    if progress.oldest_sold_at is None or sold_at < progress.oldest_sold_at:
-                        progress.oldest_sold_at = sold_at
                     # Drop cards that leaked across district boundaries.
                     if source.accept_card is not None and not source.accept_card(c, district):
                         if sold_at >= since:
@@ -310,6 +308,11 @@ async def crawl(
                         stop = True
                         break
                     in_range_on_page += 1
+                    # Coverage claim: only cards of this district inside the window.
+                    # The stop card (older than `since`) and rejected neighbour-district
+                    # cards must not drag the "oldest sale reached" back.
+                    if progress.oldest_sold_at is None or sold_at < progress.oldest_sold_at:
+                        progress.oldest_sold_at = sold_at
                     row = source.to_row(c, district)
                     if row is None:
                         progress.rejected += 1

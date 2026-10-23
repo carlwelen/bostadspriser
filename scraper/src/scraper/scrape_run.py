@@ -20,11 +20,27 @@ log = logging.getLogger("scraper.scrape_run")
 FINAL_STATUSES = ("ok", "partial", "failed")
 
 
+def _close_stale(s, t) -> None:
+    """Mark every still-`running` row as interrupted.
+
+    scrape/update/backfill hold the single-instance lock while they run, so a row
+    that is still `running` when a new run starts belongs to a process that died
+    (Ctrl-C, SIGKILL, power loss) before it could close its row.
+    """
+    s.execute(
+        update(t)
+        .where(t.c.status == "running")
+        .values(status="failed", finishedAt=func.now(), error="interrupted")
+    )
+
+
 def start_run(source: str, district: str) -> str | None:
-    """Insert a `running` row; returns its id, or None if recording failed."""
+    """Close stale `running` rows (see _close_stale), then insert a new `running`
+    row; returns its id, or None if recording failed."""
     try:
         t = table("ScrapeRun")
         with session() as s:
+            _close_stale(s, t)
             run_id = s.execute(
                 insert(t).values(source=source, district=district, status="running").returning(t.c.id)
             ).scalar_one()

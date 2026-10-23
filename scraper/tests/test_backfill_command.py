@@ -10,7 +10,7 @@ goes to conftest's in-memory ScrapeRun recorder; the progress file is in the tem
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from click.testing import CliRunner
@@ -41,7 +41,7 @@ class Crawler:
                 yield {"source": "hemnet", "district": district, "soldAt": date(2026, 6, 1), "page": page}
                 progress.pages += 1
                 progress.last_completed_page = page
-                progress.oldest_sold_at = date(2026, 6, 10 - page)
+                progress.oldest_sold_at = date(2026, 6, 28) - timedelta(days=page)
 
         return it
 
@@ -81,7 +81,7 @@ def test_a_failed_backfill_records_where_to_resume(crawler, scrape_runs) -> None
     result = CliRunner().invoke(run.cli, BASE)
     assert result.exit_code == 1, result.output
     assert _state()["backfill/hemnet/ostermalm"] == {
-        "since": SINCE, "next_page": 4, "oldest_sold_at": "2026-06-07",
+        "since": SINCE, "next_page": 4, "oldest_sold_at": "2026-06-25",
     }
     (r,) = scrape_runs.runs
     assert r["status"] == "partial" and r["rows_upserted"] == 3 and "page 4 failed" in r["error"]
@@ -102,8 +102,9 @@ def test_resume_continues_from_the_recorded_page_and_clears_it_on_success(crawle
     crawler.fail_at = None
     result = CliRunner().invoke(run.cli, [*BASE, "--resume"])
     assert result.exit_code == 0, result.output
-    assert [c["start_page"] for c in crawler.calls] == [1, 4]
-    assert [r["page"] for r in crawler.upserted] == [1, 2, 3, 4, 5, 6]  # pages 1-3 once, then 4-6
+    # One page of overlap: ties on soldAt have no stable order and delistings shift pages up.
+    assert [c["start_page"] for c in crawler.calls] == [1, 3]
+    assert [r["page"] for r in crawler.upserted] == [1, 2, 3, 3, 4, 5, 6]
     assert "backfill/hemnet/ostermalm" not in (_state() if crawl_state.state_path().exists() else {})
     assert [r["status"] for r in scrape_runs.runs] == ["partial", "ok"]
 
@@ -117,6 +118,7 @@ def test_resume_can_fail_again_further_on(crawler) -> None:
     crawler.fail_at = 5  # fails immediately on the first page of the resumed run
     CliRunner().invoke(run.cli, [*BASE, "--resume"])
     assert _state()["backfill/hemnet/ostermalm"]["next_page"] == 5  # no progress made, same resume point
+    assert [c["start_page"] for c in crawler.calls] == [1, 2, 4]  # overlap does not creep further back
 
 
 def test_resume_without_progress_or_with_another_since_starts_at_page_one(crawler) -> None:
@@ -183,3 +185,40 @@ def test_scrape_command_records_a_run_too(crawler, scrape_runs) -> None:
     crawler.fail_at = 3
     CliRunner().invoke(run.cli, ["scrape", "--district", "ostermalm", "--since", SINCE])
     assert scrape_runs.runs[1]["status"] == "partial"
+
+
+def test_probe_db_failure_mid_backfill_does_not_skip_on_resume(crawler, monkeypatch) -> None:
+    """The resume point only advances past pages whose rows were actually committed."""
+
+    async def it(district, since, *, progress=None, max_pages=None, start_page=1, **kw):
+        for page in range(start_page, 251):
+            yield {"source": "hemnet", "district": district, "soldAt": date(2026, 6, 1), "page": page}
+            progress.pages += 1
+            progress.last_completed_page = page
+
+    monkeypatch.setitem(run._SOURCE_ITER, "hemnet", it)
+    calls = {"n": 0}
+
+    def flaky(rows, **kw):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("db down")
+        crawler.upserted.extend(rows)
+        return len(rows)
+
+    monkeypatch.setattr(run, "upsert_listings", flaky)
+    r = CliRunner().invoke(run.cli, BASE)
+    assert r.exit_code == 1
+    stored = {row["page"] for row in crawler.upserted}
+    nxt = crawl_state.backfill_progress("hemnet", "ostermalm")["next_page"]
+    assert [p for p in range(1, nxt) if p not in stored] == []
+    assert nxt > 1  # and it did record real progress
+
+
+def test_a_failed_commit_of_the_final_flush_is_not_counted_as_progress(crawler, monkeypatch) -> None:
+    """The iterator fails on page 4; the flush of its buffered rows then fails too."""
+    crawler.fail_at = 4
+    monkeypatch.setattr(run, "upsert_listings", lambda rows, **kw: (_ for _ in ()).throw(RuntimeError("db down")))
+    result = CliRunner().invoke(run.cli, BASE)
+    assert result.exit_code == 1
+    assert crawl_state.backfill_progress("hemnet", "ostermalm")["next_page"] == 1  # nothing was stored

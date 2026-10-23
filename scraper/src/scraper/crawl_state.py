@@ -20,13 +20,15 @@ human fixes or deletes it. A ScrapeRun table (B18/B19) is the proper long-term h
 from __future__ import annotations
 
 import json
+import logging
 import os
-import sys
 import tempfile
 from datetime import date
 from pathlib import Path
 
 from .config import load_config
+
+log = logging.getLogger("scraper.crawl_state")
 
 
 class CorruptCrawlState(Exception):
@@ -67,7 +69,7 @@ def complete_through(source: str, district: str) -> date | None:
     try:
         value = _read().get(_key(source, district))
     except CorruptCrawlState as e:
-        print(f"warning: ignoring crawl state, {e}; falling back to MAX(soldAt)", file=sys.stderr)
+        log.warning("ignoring crawl state, %s; falling back to MAX(soldAt)", e)
         return None
     try:
         return date.fromisoformat(value) if isinstance(value, str) else None

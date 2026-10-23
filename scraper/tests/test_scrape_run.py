@@ -72,3 +72,26 @@ def test_recorder_failures_never_raise_and_are_logged(db, monkeypatch, caplog) -
     scrape_run.bump(None, pages=1, rows_upserted=1, rows_rejected=0, oldest_sold_at=None)  # no-ops
     scrape_run.finish_run(None, "ok", pages=1, rows_upserted=1, rows_rejected=0, oldest_sold_at=None)
     assert any("scrape run" in r.getMessage() and r.levelname == "WARNING" for r in caplog.records)
+
+
+def test_a_new_run_marks_stale_running_rows_as_interrupted(db) -> None:
+    """Commands hold the single-instance lock, so a row still `running` at start belongs
+    to a process that died (Ctrl-C, SIGKILL, power loss)."""
+    stale_a = scrape_run.start_run("hemnet", "ostermalm")
+    stale_b = scrape_run.start_run("booli", "vasastan")  # also closes stale_a
+    done = scrape_run.start_run("hemnet", "norrmalm")
+    scrape_run.finish_run(done, "ok", pages=1, rows_upserted=1, rows_rejected=0, oldest_sold_at=None)
+    fresh = scrape_run.start_run("hemnet", "sodermalm")
+    by_id = {r["id"]: r for r in _runs(db)}
+    for stale in (stale_a, stale_b):
+        assert by_id[stale]["status"] == "failed" and by_id[stale]["error"] == "interrupted"
+        assert by_id[stale]["finishedAt"] is not None
+    assert by_id[done]["status"] == "ok" and by_id[done]["error"] is None  # finished rows are untouched
+    assert by_id[fresh]["status"] == "running"  # the new run itself
+
+
+def test_start_run_still_works_when_closing_stale_rows_fails(db, monkeypatch) -> None:
+    run_id = scrape_run.start_run("hemnet", "ostermalm")
+    monkeypatch.setattr(scrape_run, "_close_stale", lambda session_, t: (_ for _ in ()).throw(RuntimeError("x")))
+    assert scrape_run.start_run("hemnet", "ostermalm") is None  # best-effort recording: no crash
+    assert run_id
