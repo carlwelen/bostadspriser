@@ -8,7 +8,7 @@ from datetime import date, timedelta
 import pytest
 from click.testing import CliRunner
 
-from scraper import run
+from scraper import crawl_state, run
 from scraper.errors import CrawlIncomplete
 
 
@@ -34,7 +34,10 @@ def fake_world(monkeypatch):
     monkeypatch.setattr(
         run, "latest_sold_at", lambda source, district: date(2026, 5, 10) if source == "hemnet" else None
     )
-    return upserted, since_seen
+    # `update` persists a crawl-state file next to the (temp) storage state; start clean.
+    crawl_state.state_path().unlink(missing_ok=True)
+    yield upserted, since_seen
+    crawl_state.state_path().unlink(missing_ok=True)
 
 
 def test_update_exits_nonzero_and_prints_summary_when_any_combination_fails(fake_world) -> None:

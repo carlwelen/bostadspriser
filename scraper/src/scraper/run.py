@@ -14,6 +14,7 @@ from sqlalchemy import text
 from .backfill import backfill_dedup_keys
 from .booli import DISTRICT_AREA_IDS as _BOOLI_DISTRICTS
 from .booli import iter_district as _booli_iter
+from . import crawl_state
 from .db import DEFAULT_BATCH_SIZE, engine, upsert_listings
 from .errors import CrawlIncomplete
 from .geocode import geocode_pending
@@ -143,11 +144,13 @@ def scrape(district: str, since: date, source: str) -> None:
     help="Floor for the since cutoff when no rows exist for the district yet.",
 )
 def update(districts: tuple[str, ...], sources: tuple[str, ...], lookback_days: int) -> None:
-    """Incrementally refresh: scrape from MAX(soldAt) - 7d per district per source.
+    """Incrementally refresh: scrape from (newest complete date - 7d) per district per source.
 
     Designed to run from cron daily/weekly. Idempotent — re-scrapes about a week
-    of overlap to catch late-listed sales. The MAX(soldAt) lookup is scoped to
-    the source so a fresh Booli backfill doesn't piggyback on Hemnet's cutoff.
+    of overlap to catch late-listed sales. The cutoff is scoped to the source so a
+    fresh Booli backfill doesn't piggyback on Hemnet's, and it only advances after a
+    crawl that finished (see crawl_state.py): partial/failed crawls are retried from
+    the same cutoff. Without recorded state it falls back to MAX(soldAt).
     """
     overlap = timedelta(days=7)
     results = [
@@ -189,13 +192,21 @@ def _refresh(source: str, district: str, overlap: timedelta, lookback_days: int)
         await _ingest(iter_district(district, result.since), on_batch=_count)
 
     try:
-        latest = latest_sold_at(source, district)
+        # The cutoff comes from the last *finished* crawl (B39), not MAX(soldAt):
+        # a partial crawl upserts the newest rows first and would otherwise hide
+        # its own failed tail. Without recorded state, fall back to the DB max.
+        recorded = crawl_state.complete_through(source, district)
+        latest = recorded or latest_sold_at(source, district)
         result.since = (
             (latest - overlap) if latest else (date.today() - timedelta(days=lookback_days))
         )
         click.echo(f"{source}/{district}: refreshing since {result.since.isoformat()}")
         asyncio.run(_run())
         click.echo(f"  upserted {result.upserted} for {source}/{district}")
+        # Finished without error: everything newer than `since` is now stored.
+        newest = latest_sold_at(source, district)
+        if newest:
+            crawl_state.record_complete(source, district, max(newest, recorded or newest))
     except CrawlIncomplete as e:
         # Partial means some rows landed. An incomplete crawl with none (e.g. a
         # page-1 block) is a plain failure.
