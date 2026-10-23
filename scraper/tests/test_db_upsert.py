@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import text
 
@@ -56,3 +56,48 @@ def test_upsert_keeps_sources_separate(db) -> None:
         deduped = c.execute(text('SELECT COUNT(*) FROM "DedupedListing"')).scalar_one()
     assert n == 2
     assert deduped == 1
+
+
+def _coords(db) -> tuple:
+    with db.connect() as c:
+        return tuple(c.execute(text('SELECT lat, lng, "geocodedAt" FROM "Listing"')).one())
+
+
+def test_upsert_keeps_existing_coordinates_when_incoming_are_null(db) -> None:
+    stamp = datetime(2026, 5, 3, 12, 0)
+    upsert_listing(_row(geocodedAt=stamp))
+    # A re-scrape of the same sale that carries no coordinates.
+    upsert_listing(_row(priceSek=5_000_000, lat=None, lng=None, geocodedAt=None))
+    lat, lng, geocoded_at = _coords(db)
+    assert (lat, lng) == (59.3371735, 18.0753784)
+    assert geocoded_at == stamp
+    with db.connect() as c:
+        assert c.execute(text('SELECT "priceSek" FROM "Listing"')).scalar_one() == 5_000_000
+
+
+def test_upsert_keeps_trio_together_when_only_one_incoming_coordinate_is_null(db) -> None:
+    stamp = datetime(2026, 5, 3, 12, 0)
+    upsert_listing(_row(geocodedAt=stamp))
+    upsert_listing(_row(lat=1.0, lng=None, geocodedAt=datetime(2026, 6, 1)))
+    lat, lng, geocoded_at = _coords(db)
+    assert (lat, lng, geocoded_at) == (59.3371735, 18.0753784, stamp)
+
+
+def test_upsert_overwrites_coordinates_when_incoming_has_them(db) -> None:
+    upsert_listing(_row(geocodedAt=None))
+    new_stamp = datetime(2026, 6, 1, 9, 0)
+    upsert_listing(_row(lat=59.4, lng=18.1, geocodedAt=new_stamp))
+    assert _coords(db) == (59.4, 18.1, new_stamp)
+
+
+def test_upsert_stores_null_coordinates_on_first_insert(db) -> None:
+    upsert_listing(_row(lat=None, lng=None, geocodedAt=None))
+    assert _coords(db) == (None, None, None)
+
+
+def test_upsert_never_overwrites_id(db) -> None:
+    first = _row()
+    upsert_listing(first)
+    upsert_listing(_row(id=str(uuid.uuid4()), priceSek=5_000_000))
+    with db.connect() as c:
+        assert c.execute(text('SELECT id FROM "Listing"')).scalar_one() == first["id"]

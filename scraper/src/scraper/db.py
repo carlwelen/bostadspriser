@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Iterator
 
-from sqlalchemy import MetaData, Table, create_engine
+from sqlalchemy import MetaData, Table, and_, case, create_engine
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -47,11 +47,25 @@ def session() -> Iterator[Session]:
         yield s
 
 
+# Never overwritten on conflict: the natural key and the primary key.
+_CONFLICT_KEPT = frozenset({"source", "sourceId", "id"})
+_COORDINATE_COLS = frozenset({"lat", "lng", "geocodedAt"})
+
+
 def upsert_listing(row: dict) -> None:
     """Insert or update by (source, sourceId) — idempotent re-scrapes."""
     table = listing_table()
     stmt = pg_insert(table).values(**row)
-    update_cols = {c: stmt.excluded[c] for c in row.keys() if c not in {"source", "sourceId", "id"}}
+    update_cols = {
+        c: stmt.excluded[c] for c in row.keys() if c not in _CONFLICT_KEPT | _COORDINATE_COLS
+    }
+    # A re-scrape without coordinates must not wipe good (or geocoded) ones:
+    # the lat/lng/geocodedAt trio is replaced together, and only when the
+    # incoming row carries a complete lat+lng pair.
+    if "lat" in row and "lng" in row:
+        has_coords = and_(stmt.excluded["lat"].is_not(None), stmt.excluded["lng"].is_not(None))
+        for c in _COORDINATE_COLS & row.keys():
+            update_cols[c] = case((has_coords, stmt.excluded[c]), else_=table.c[c])
     stmt = stmt.on_conflict_do_update(
         index_elements=["source", "sourceId"], set_=update_cols
     )
