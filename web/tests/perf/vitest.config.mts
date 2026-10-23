@@ -11,6 +11,8 @@ import { defineConfig } from "vitest/config";
 // synthetic listings on first use. See docs/perf.md.
 const base = process.env.TEST_DB_NAME || "bostadspriser_test";
 process.env.TEST_DB_NAME = `${base}_perf`;
+// Seeding and the heavy aggregates may legitimately run longer than the test default.
+process.env.TEST_DB_STATEMENT_TIMEOUT_MS = "0";
 
 const { testDatabaseUrl } = createRequire(import.meta.url)("../../scripts/test-db.cjs");
 

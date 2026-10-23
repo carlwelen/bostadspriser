@@ -51,6 +51,13 @@ function testDatabaseUrl() {
     ? new URL(explicit)
     : new URL(process.env.DATABASE_URL || FALLBACK_URL);
   if (!explicit) url.pathname = `/${process.env.TEST_DB_NAME || "bostadspriser_test"}`;
+  // A pathological query (a refresh that stalls, a lock that is never released)
+  // should fail the test after a minute instead of hanging the suite. Set
+  // TEST_DB_STATEMENT_TIMEOUT_MS=0 to disable (the perf run does).
+  const timeoutMs = process.env.TEST_DB_STATEMENT_TIMEOUT_MS ?? "60000";
+  if (timeoutMs !== "0" && !url.searchParams.has("options")) {
+    url.searchParams.set("options", `-c statement_timeout=${timeoutMs}`);
+  }
   const out = url.toString();
   assertTestUrl(out);
   return out;

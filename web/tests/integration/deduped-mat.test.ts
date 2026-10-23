@@ -95,6 +95,42 @@ describe("DedupedListingMat", () => {
     }
   });
 
+  it("gives up after 5 s instead of queueing behind a long reader (lock_timeout)", async () => {
+    const [{ cfg }] = await prisma.$queryRaw<Array<{ cfg: string[] | null }>>`
+      SELECT proconfig AS cfg FROM pg_proc WHERE proname = 'refresh_deduped_listing'`;
+    expect(cfg).toContain("lock_timeout=5s");
+
+    await seed(prisma, [row("a")]);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    let locked: () => void = () => {};
+    const holding = new Promise<void>((r) => (locked = r));
+    // A reader holding ACCESS SHARE on the snapshot, as a long page query would.
+    const reader = prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT COUNT(*) FROM "DedupedListingMat"`;
+        locked();
+        await gate;
+      },
+      { timeout: 60_000 }
+    );
+    await holding;
+    const t0 = Date.now();
+    await expect(refresh()).rejects.toThrow(/lock timeout/i);
+    const waited = Date.now() - t0;
+    release();
+    await reader;
+    expect(waited).toBeGreaterThan(4_000);
+    expect(waited).toBeLessThan(15_000);
+    await refresh(); // fine again once the reader is gone
+  });
+
+  it("runs the test connections with a 60 s statement_timeout", async () => {
+    const [{ statement_timeout }] = await prisma.$queryRaw<Array<{ statement_timeout: string }>>`
+      SHOW statement_timeout`;
+    expect(statement_timeout).toBe("1min");
+  });
+
   it("follows deduplication (clusters, priced rows) like the live view", async () => {
     await seed(prisma, [
       row("h", { dedupKey: "k1", clusterId: "c" }),

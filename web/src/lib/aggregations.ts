@@ -963,3 +963,44 @@ export async function sourceFreshness(): Promise<SourceFreshness[]> {
     latestSoldAt: r.latest?.toISOString().slice(0, 10) ?? null,
   }));
 }
+
+export type DedupKeyClusterViolation = {
+  dedupKey: string;
+  /** The distinct non-null clusterIds found on rows with this dedupKey, sorted. */
+  clusterIds: string[];
+  /** Rows with this dedupKey that have no clusterId while another row has one. */
+  unclusteredRows: number;
+};
+
+/**
+ * Check of the clustering contract (see `clusterId` in schema.prisma): every
+ * row sharing a dedupKey must carry the same clusterId. Returns the dedupKeys
+ * that break it, either because their rows are spread over several clusters
+ * (the matcher must merge them) or because some copies arrived after the
+ * matcher ran and have none yet (it must stamp them). Empty = healthy. Reads
+ * "Listing" directly, not the snapshot, so it sees rows not yet refreshed.
+ */
+export async function dedupKeysInMultipleClusters(
+  limit = 1000
+): Promise<DedupKeyClusterViolation[]> {
+  const rows = await prisma.$queryRaw<
+    Array<{ dedup_key: string; cluster_ids: string[]; unclustered: bigint }>
+  >(Prisma.sql`
+    SELECT "dedupKey"                                               AS dedup_key,
+           array_agg(DISTINCT "clusterId" ORDER BY "clusterId")
+             FILTER (WHERE "clusterId" IS NOT NULL)                 AS cluster_ids,
+           COUNT(*) FILTER (WHERE "clusterId" IS NULL)::bigint      AS unclustered
+    FROM "Listing"
+    WHERE "dedupKey" IS NOT NULL
+    GROUP BY "dedupKey"
+    HAVING COUNT(DISTINCT "clusterId") > 1
+        OR (COUNT("clusterId") > 0 AND COUNT(*) FILTER (WHERE "clusterId" IS NULL) > 0)
+    ORDER BY "dedupKey"
+    LIMIT ${limit}
+  `);
+  return rows.map((r) => ({
+    dedupKey: r.dedup_key,
+    clusterIds: r.cluster_ids,
+    unclusteredRows: Number(r.unclustered),
+  }));
+}

@@ -25,9 +25,14 @@ model Listing {
   dedupKey        String?       @db.VarChar(64)
   // Fuzzy-match cluster (same street + house, sold within a few days, price
   // within a fraction of a percent): every copy of one real-world sale gets the
-  // same id, even when their exact dedupKeys differ. DedupedListing groups on
-  // COALESCE(clusterId, dedupKey, id), so the matcher must give a clusterId to
-  // all rows it merges. Null = not clustered.
+  // same id, even when their exact dedupKeys differ. DedupedListing derives a
+  // canonical key from both columns: a row's own clusterId, else the cluster of
+  // any row sharing its dedupKey, else its dedupKey, else its id. Contract for
+  // the matcher: all rows sharing a dedupKey carry one clusterId (new exact
+  // copies arrive without one until the matcher runs again), and merging two
+  // clusters rewrites the smaller one's rows to the larger's id.
+  // aggregations.ts dedupKeysInMultipleClusters() lists violations. Null = not
+  // clustered.
   clusterId       String?       @db.VarChar(64)
   street          String
   houseNumber     String?
