@@ -113,6 +113,72 @@ describe("DedupedListing prefers priced rows (B38)", () => {
   });
 });
 
+describe("DedupedListing clusters (B13)", () => {
+  const count = async () => {
+    const [{ n }] = await prisma.$queryRaw<Array<{ n: bigint }>>`
+      SELECT COUNT(*)::bigint AS n FROM "DedupedListing"`;
+    return Number(n);
+  };
+
+  it("collapses rows with different dedupKeys that share a clusterId", async () => {
+    await seed(prisma, [
+      row("hemnet-1", { dedupKey: "key-a", clusterId: "cluster-1" }),
+      row("booli-1", { source: "booli", dedupKey: "key-b", clusterId: "cluster-1", lat: null, lng: null }),
+      row("other", { dedupKey: "key-c" }),
+    ]);
+    expect(await count()).toBe(2);
+    const [c] = await prisma.$queryRaw<Array<{ id: string; sources: string[] }>>`
+      SELECT id, sources FROM "DedupedListing" WHERE "clusterId" = 'cluster-1'`;
+    // Same preference as before: the row with coordinates (Hemnet) wins, and
+    // `sources` is aggregated over the whole cluster.
+    expect(c).toEqual({ id: "hemnet-1", sources: ["booli", "hemnet"] });
+  });
+
+  it("keeps rows with different dedupKeys apart when there is no clusterId", async () => {
+    await seed(prisma, [row("a", { dedupKey: "key-a" }), row("b", { dedupKey: "key-b" })]);
+    expect(await count()).toBe(2);
+  });
+
+  it("still collapses a shared dedupKey when clusterId is null", async () => {
+    await seed(prisma, [
+      row("a", { dedupKey: "same" }),
+      row("b", { source: "booli", dedupKey: "same" }),
+    ]);
+    expect(await count()).toBe(1);
+  });
+
+  it("applies the preference rules across the cluster, in any insertion order", async () => {
+    const members = [
+      row("unpriced", { dedupKey: "k1", clusterId: "c", pricePerSqmSek: BigInt(0) }),
+      row("booli-late", { source: "booli", dedupKey: "k2", clusterId: "c", lastSeenAt: new Date("2026-09-01T00:00:00Z") }),
+      row("hemnet-old", { dedupKey: "k3", clusterId: "c", lastSeenAt: new Date("2026-01-01T00:00:00Z") }),
+      row("hemnet-new", { dedupKey: "k4", clusterId: "c", lastSeenAt: new Date("2026-06-01T00:00:00Z") }),
+    ];
+    for (const order of [members, [...members].reverse()]) {
+      await seed(prisma, order);
+      expect(await count()).toBe(1);
+      const [w] = await prisma.$queryRaw<Array<{ id: string; sources: string[] }>>`
+        SELECT id, sources FROM "DedupedListing"`;
+      expect(w).toEqual({ id: "hemnet-new", sources: ["booli", "hemnet"] });
+    }
+  });
+
+  it("lets an unclustered row join a cluster named after its dedupKey", async () => {
+    await seed(prisma, [
+      row("seed", { dedupKey: "key-a" }),
+      row("late", { source: "booli", dedupKey: "key-b", clusterId: "key-a" }),
+    ]);
+    expect(await count()).toBe(1);
+  });
+
+  it("indexes clusterId", async () => {
+    const [{ n }] = await prisma.$queryRaw<Array<{ n: bigint }>>`
+      SELECT COUNT(*)::bigint AS n FROM pg_indexes
+      WHERE tablename = 'Listing' AND indexdef LIKE '%"clusterId"%'`;
+    expect(Number(n)).toBe(1);
+  });
+});
+
 describe("Listing.lastSeenAt column", () => {
   beforeEach(async () => {
     await seed(prisma, []);

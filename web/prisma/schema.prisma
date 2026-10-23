@@ -23,6 +23,12 @@ model Listing {
   // Multiple rows can share a dedupKey; aggregations select DISTINCT ON it.
   // Nullable while we backfill the legacy Hemnet rows; new writes always set it.
   dedupKey        String?       @db.VarChar(64)
+  // Fuzzy-match cluster (same street + house, sold within a few days, price
+  // within a fraction of a percent): every copy of one real-world sale gets the
+  // same id, even when their exact dedupKeys differ. DedupedListing groups on
+  // COALESCE(clusterId, dedupKey, id), so the matcher must give a clusterId to
+  // all rows it merges. Null = not clustered.
+  clusterId       String?       @db.VarChar(64)
   street          String
   houseNumber     String?
   district        District
@@ -48,6 +54,7 @@ model Listing {
 
   @@unique([source, sourceId])
   @@index([dedupKey])
+  @@index([clusterId])
   @@index([district, soldAt])
   @@index([street, houseNumber, soldAt])
   @@index([lat, lng])
