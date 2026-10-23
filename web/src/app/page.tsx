@@ -47,7 +47,9 @@ export default function HomePage() {
   );
 
   return (
-    <div className="flex h-screen flex-col bg-zinc-50">
+    // h-dvh, not h-screen: on mobile 100vh is the tallest viewport (URL bar hidden)
+    // and would push the map's bottom edge below the fold.
+    <div className="flex h-dvh flex-col overflow-hidden bg-zinc-50">
       <TopNav />
       <div className="flex flex-1 gap-3 overflow-hidden p-3">
         <main className="relative flex-1 overflow-hidden rounded-xl border border-zinc-200 bg-white">

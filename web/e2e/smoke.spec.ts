@@ -39,6 +39,20 @@ test("unknown districts respond with HTTP 404", async ({ page }) => {
   expect(res?.status()).toBe(404);
 });
 
+test("the landing page stays full-bleed and does not scroll", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("map-container")).toBeVisible();
+  const { scrollHeight, clientHeight } = await page.evaluate(() => ({
+    scrollHeight: document.scrollingElement!.scrollHeight,
+    clientHeight: document.scrollingElement!.clientHeight,
+  }));
+  expect(scrollHeight).toBeLessThanOrEqual(clientHeight);
+  // Wheel input must not move the page either.
+  await page.mouse.move(100, 100);
+  await page.mouse.wheel(0, 2000);
+  expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(0);
+});
+
 const TALL_PAGES = [
   "/district/ostermalm",
   "/street/ostermalm/karlavagen",
@@ -47,10 +61,8 @@ const TALL_PAGES = [
 ];
 for (const path of TALL_PAGES) {
   test(`${path} scrolls to the footer with the mouse wheel`, async ({ page, isMobile }) => {
-    // F1: <body> is `h-screen overflow-hidden`, which blocks user scrolling on
-    // secondary pages (programmatic scrollTop still works, so use real input).
-    // Expected to fail until F1 lands; flip to a plain test in the F1 commit.
-    test.fail(true, "F1: secondary pages cannot scroll");
+    // Real input on purpose: programmatic scrollTop works even when
+    // `overflow-hidden` blocks the user (F1).
     await page.goto(path);
     await page.waitForLoadState("networkidle");
     if (isMobile) {
@@ -61,7 +73,9 @@ for (const path of TALL_PAGES) {
       await page.mouse.move(400, 400);
       await page.mouse.wheel(0, 10_000);
     }
-    await expect(page.locator("footer").last()).toBeInViewport({ ratio: 1 });
+    // Not ratio 1: the document height is fractional, so the last <1px of the
+    // footer can sit below the maximum (integer) scroll offset.
+    await expect(page.locator("footer").last()).toBeInViewport({ ratio: 0.95 });
     expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBeGreaterThan(0);
   });
 }
