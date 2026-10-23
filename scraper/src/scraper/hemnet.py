@@ -184,6 +184,17 @@ def _extract_sale_cards(html: str) -> list[dict]:
     return [v for v in apollo.values() if isinstance(v, dict) and v.get("__typename") == "SaleCard"]
 
 
+# Hard ceiling on pages per crawl, far above real depth (~50 cards/page, a few
+# years of one district is well under 100 pages). A guard against a site that
+# keeps serving pages forever; hitting it is logged.
+MAX_PAGES = 500
+
+
+def _card_id(card: dict) -> str | None:
+    value = card.get("listingId") or card.get("id")
+    return str(value) if value else None
+
+
 def _parse_sold_at(card: dict) -> date | None:
     """The sale date of a SaleCard, independent of any price/address rejection."""
     sold_at_raw = card.get("soldAt")
@@ -298,7 +309,14 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
 
         try:
             page_num = 1
+            prev_ids: set[str] = set()
             while True:
+                if page_num > MAX_PAGES:
+                    print(
+                        f"[hemnet] {district}: hit MAX_PAGES={MAX_PAGES}; stopping pagination here",
+                        flush=True,
+                    )
+                    break
                 url = _district_url(district, page_num)
                 try:
                     html = await _fetch(ctx, cfg, url)
@@ -316,6 +334,13 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
                 cards = _extract_sale_cards(html)
                 if not cards:
                     break
+
+                # A site that serves its last page again for every page number
+                # past the end would otherwise be crawled forever.
+                ids = {i for i in map(_card_id, cards) if i}
+                if ids and ids == prev_ids:
+                    break
+                prev_ids = ids
 
                 # Cards `_to_row` rejects (no price, blank address, ...) are
                 # skipped but must not end the crawl: only an explicit

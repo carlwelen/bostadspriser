@@ -86,13 +86,26 @@ SOURCES = {
 }
 
 
+class _Runaway(BaseException):
+    """Raised by the fake fetch when a crawl overruns. A BaseException so the
+    `except Exception` around `_fetch` in iter_district cannot swallow it."""
+
+
+class _Clamp(dict):
+    """A site that serves its last page again for every page number past the end."""
+
+    def get(self, k, default=None):
+        return super().get(min(k, max(self)), default)
+
+
 def _crawl(module, monkeypatch, extract_name: str, pages: dict[int, list[dict]]) -> list[str]:
     fetched: list[int] = []
 
     async def fake_fetch(_ctx, _cfg, url: str) -> str:
         n = int(url.rsplit("page=", 1)[1].split("&")[0])
         fetched.append(n)
-        assert len(fetched) < 20, "pagination did not stop"
+        if len(fetched) >= 20:
+            raise _Runaway(f"pagination did not stop; fetched pages {fetched}")
         return str(n)
 
     async def noop(*_a, **_k) -> None: ...
@@ -150,3 +163,30 @@ def test_crawl_stops_on_a_page_without_any_dated_in_range_card(source, monkeypat
     undated = {**card("x"), "soldAt": None, "soldDate": None}
     pages = {1: [card("p1")], 2: [undated, undated], 3: [card("p3")]}
     assert _crawl(module, monkeypatch, extract, pages) == ["p1"]
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_repeated_last_page_of_rejected_cards_terminates(source, monkeypatch) -> None:
+    module, card, extract = SOURCES[source]
+    pages = _Clamp({1: [card("p1")], 2: [card("u1", priced=False)]})
+    assert _crawl(module, monkeypatch, extract, pages) == ["p1"]
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_repeated_last_page_of_valid_cards_terminates(source, monkeypatch) -> None:
+    module, card, extract = SOURCES[source]
+    pages = _Clamp({1: [card("p1")], 2: [card("p2a"), card("p2b")]})
+    assert _crawl(module, monkeypatch, extract, pages) == ["p1", "p2a", "p2b"]
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_max_pages_caps_the_crawl_and_logs(source, monkeypatch, capsys) -> None:
+    module, card, extract = SOURCES[source]
+    monkeypatch.setattr(module, "MAX_PAGES", 4)
+
+    class Endless(dict):
+        def get(self, k, default=None):
+            return [card(f"p{k}")]  # every page new and valid: only the cap can stop it
+
+    assert _crawl(module, monkeypatch, extract, Endless()) == ["p1", "p2", "p3", "p4"]
+    assert "MAX_PAGES" in capsys.readouterr().out

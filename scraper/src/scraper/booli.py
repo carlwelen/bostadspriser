@@ -218,6 +218,17 @@ def _data_point_text(card: dict, predicate) -> str | None:
     return None
 
 
+# Hard ceiling on pages per crawl, far above real depth (~50 cards/page, a few
+# years of one district is well under 100 pages). A guard against a site that
+# keeps serving pages forever; hitting it is logged.
+MAX_PAGES = 500
+
+
+def _card_id(card: dict) -> str | None:
+    value = card.get("id") or card.get("booliId")
+    return str(value) if value else None
+
+
 def _parse_sold_at(card: dict) -> date | None:
     """The sale date of a SoldProperty, independent of any price/address rejection.
 
@@ -364,7 +375,14 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
 
         try:
             page_num = 1
+            prev_ids: set[str] = set()
             while True:
+                if page_num > MAX_PAGES:
+                    print(
+                        f"[booli] {district}: hit MAX_PAGES={MAX_PAGES}; stopping pagination here",
+                        flush=True,
+                    )
+                    break
                 url = _district_url(district, page_num)
                 try:
                     html = await _fetch(ctx, cfg, url)
@@ -379,6 +397,13 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
                 cards = _extract_sold_properties(html)
                 if not cards:
                     break
+
+                # A site that serves its last page again for every page number
+                # past the end would otherwise be crawled forever.
+                ids = {i for i in map(_card_id, cards) if i}
+                if ids and ids == prev_ids:
+                    break
+                prev_ids = ids
 
                 # Cards we skip (other area, no price, blank address, ...) must not
                 # end the crawl: only an explicit `soldAt < since`, or a page with
