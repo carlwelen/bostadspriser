@@ -238,3 +238,22 @@ def test_log_level_option_configures_the_scraper_logger(fake_world) -> None:
         assert bad.exit_code == 2 and "loud" in bad.output
     finally:
         logger.setLevel(before)
+
+
+def test_update_relabels_pending_rows_with_coordinates_at_the_end(fake_world, monkeypatch) -> None:
+    """Rows must not stay `pending` while carrying coordinates just because cron never runs geocode."""
+    calls: list[str] = []
+    monkeypatch.setattr(run, "mark_inline_pending", lambda: calls.append("relabel") or 3)
+    result = CliRunner().invoke(run.cli, ["update", "--source", "hemnet", "--district", "ostermalm"])
+    assert result.exit_code == 0, result.output
+    assert calls == ["relabel"]
+
+
+def test_a_failing_relabel_does_not_change_the_update_exit_code(fake_world, monkeypatch) -> None:
+    def boom():
+        raise RuntimeError("db hiccup")
+
+    monkeypatch.setattr(run, "mark_inline_pending", boom)
+    result = CliRunner().invoke(run.cli, ["update", "--source", "hemnet", "--district", "ostermalm"])
+    assert result.exit_code == 0, result.output
+    assert "db hiccup" in result.output

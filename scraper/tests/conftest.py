@@ -202,4 +202,6 @@ def scrape_runs(request, monkeypatch):
     monkeypatch.setattr(scrape_run, "start_run", fake.start_run)
     monkeypatch.setattr(scrape_run, "bump", fake.bump)
     monkeypatch.setattr(scrape_run, "finish_run", fake.finish_run)
+    # `update` relabels inline-coordinate rows at the end; no database in these tests.
+    monkeypatch.setattr("scraper.run.mark_inline_pending", lambda: 0)
     return fake

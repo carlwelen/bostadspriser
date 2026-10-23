@@ -46,11 +46,13 @@ def test_lock_is_released_when_the_body_raises() -> None:
         pass
 
 
-@pytest.mark.parametrize("command", [["scrape", "--district", "ostermalm", "--since", "2026-05-01"], ["update"], ["reparse"], ["backfill", "--district", "ostermalm", "--since", "2026-05-01"]])
+@pytest.mark.parametrize("command", [["scrape", "--district", "ostermalm", "--since", "2026-05-01"], ["update"], ["reparse"], ["backfill", "--district", "ostermalm", "--since", "2026-05-01"], ["geocode"], ["backfill-dedup"]])
 def test_commands_refuse_to_run_while_another_run_holds_the_lock(command, monkeypatch) -> None:
     called: list[str] = []
     monkeypatch.setitem(run._SOURCE_ITER, "hemnet", lambda *a, **k: called.append("iter"))
     monkeypatch.setattr(run, "reparse", lambda **kw: called.append("reparse"))
+    monkeypatch.setattr(run, "geocode_pending", lambda **kw: called.append("geocode"))
+    monkeypatch.setattr(run, "backfill_dedup_keys", lambda: called.append("dedup"))
     with single_instance():
         result = CliRunner().invoke(run.cli, command)
     assert result.exit_code == 75, result.output

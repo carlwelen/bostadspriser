@@ -19,7 +19,7 @@ from . import crawl_state, scrape_run
 from .db import DEFAULT_BATCH_SIZE, engine, upsert_listings
 from .errors import CrawlIncomplete
 from .geocode import MAX_ATTEMPTS as MAX_GEOCODE_ATTEMPTS
-from .geocode import geocode_pending
+from .geocode import geocode_pending, mark_inline_pending
 from .hemnet import DISTRICT_LOCATION_IDS
 from .hemnet import iter_district as _hemnet_iter
 from .lock import exclusive
@@ -327,6 +327,12 @@ def update(
     results = [
         _refresh(source, d, overlap, lookback_days, max_pages) for source in sources for d in districts
     ]
+    try:
+        # Rows that shipped coordinates inline must not stay `pending` just because
+        # cron never runs `geocode`. Best-effort: it can't change the exit code.
+        mark_inline_pending()
+    except Exception as e:  # noqa: BLE001
+        click.echo(f"warning: could not relabel inline-coordinate rows: {e}", err=True)
     click.echo(_format_results(results))
     failed = [r for r in results if r.error is not None and not r.partial]
     partial = [r for r in results if r.partial]
@@ -450,15 +456,25 @@ def _format_results(results: list[UpdateResult]) -> str:
     type=click.IntRange(min=1),
     help="Give up on a row after this many lookups.",
 )
+@exclusive
 def geocode(limit: int, max_attempts: int) -> None:
-    """Geocode listings missing lat/lng via Mapbox (pending and previously failed rows)."""
+    """Geocode listings missing lat/lng via Mapbox (pending and previously failed rows).
+
+    Takes the same single-instance lock as scrape/update (exit code 75 when another
+    run holds it). Exits 1 if Mapbox rate-limited the pass; rows not reached keep
+    their attempt budget.
+    """
     summary = geocode_pending(limit=limit, max_attempts=max_attempts)
     click.echo(
         f"geocoded: ok {summary.ok}, not found {summary.not_found}, failed {summary.failed}"
     )
+    if summary.rate_limited:
+        click.echo("rate limited by Mapbox: pass stopped early; run again later", err=True)
+        sys.exit(1)
 
 
 @cli.command()
+@exclusive
 def backfill_dedup() -> None:
     """Populate dedupKey on legacy rows that predate the column."""
     n = backfill_dedup_keys()

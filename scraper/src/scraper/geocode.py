@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 
 import httpx
-from sqlalchemy import bindparam, select, text, update
+from sqlalchemy import bindparam, or_, select, text, update
 from tenacity import (
     RetryCallState,
     Retrying,
@@ -33,6 +33,11 @@ from .config import load_config
 from .db import listing_table, session
 
 log = logging.getLogger("scraper.geocode")
+
+# httpx logs every request URL (with our access_token in the query string) at INFO
+# on its own loggers. Pin them above INFO so no root-level logging config can leak it.
+for _noisy in ("httpx", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 MAPBOX_URL = "https://api.mapbox.com/geocoding/v5/mapbox.places/{q}.json"
 
@@ -63,12 +68,27 @@ class GeocodeSummary:
     ok: int = 0
     not_found: int = 0
     failed: int = 0
+    # The pass stopped early because Mapbox kept answering 429. The rows not yet
+    # tried (and the one that tripped it) keep their attempt budget.
+    rate_limited: bool = False
 
 
 class _Retryable(Exception):
-    def __init__(self, reason: str, retry_after: float | None = None) -> None:
+    """429 / 5xx / transport error: worth another try. Messages never carry the URL."""
+
+    def __init__(self, reason: str, retry_after: float | None = None, rate_limited: bool = False) -> None:
         super().__init__(reason)
         self.retry_after = retry_after
+        self.rate_limited = rate_limited
+
+
+class _RowFailed(Exception):
+    """A definitive per-row failure (non-retryable 4xx, unusable payload): the row
+    is marked `failed` and the pass carries on. The message is already redacted."""
+
+
+def _redact(text_: str, token: str) -> str:
+    return text_.replace(token, "***") if token else text_
 
 
 def mark_inline_pending() -> int:
@@ -106,7 +126,12 @@ def _wait(state: RetryCallState) -> float:
 
 
 def _lookup(http: httpx.Client, token: str, q: str) -> tuple[float, float] | None:
-    """(lng, lat) of the best match, None if there is none; retries 429/5xx/network."""
+    """(lng, lat) of the best match, None if there is none.
+
+    Retries 429/5xx/network errors; raises _Retryable when they persist, _RowFailed
+    for a non-retryable 4xx or an unusable payload, RuntimeError for a rejected
+    token. No exception raised here carries the request URL (and so the token).
+    """
 
     def once() -> tuple[float, float] | None:
         try:
@@ -121,18 +146,27 @@ def _lookup(http: httpx.Client, token: str, q: str) -> tuple[float, float] | Non
                 },
             )
         except httpx.TransportError as e:
-            raise _Retryable(f"{type(e).__name__}: {e}") from e
-        if r.status_code == 429 or r.status_code >= 500:
+            raise _Retryable(_redact(f"{type(e).__name__}: {e}", token)) from None
+        code = r.status_code
+        if code == 429 or code >= 500:
             hint = r.headers.get("Retry-After", "")
-            raise _Retryable(f"HTTP {r.status_code}", float(hint) if hint.replace(".", "", 1).isdigit() else None)
-        if r.status_code in (401, 403):
-            raise RuntimeError(f"Mapbox rejected the token (HTTP {r.status_code}); check MAPBOX_TOKEN")
-        r.raise_for_status()
-        features = r.json().get("features") or []
-        if not features:
-            return None
-        lng, lat = features[0]["center"]
-        return (float(lng), float(lat))
+            raise _Retryable(
+                f"HTTP {code}",
+                float(hint) if hint.replace(".", "", 1).isdigit() else None,
+                rate_limited=code == 429,
+            )
+        if code in (401, 403):
+            raise RuntimeError(f"Mapbox rejected the token (HTTP {code}); check MAPBOX_TOKEN") from None
+        if code >= 400:
+            raise _RowFailed(f"HTTP {code}")
+        try:
+            features = r.json().get("features") or []
+            if not features:
+                return None
+            lng, lat = features[0]["center"]
+            return (float(lng), float(lat))
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError) as e:
+            raise _RowFailed(f"unusable response ({type(e).__name__})") from None
 
     for attempt in Retrying(
         retry=retry_if_exception(lambda e: isinstance(e, _Retryable)),
@@ -184,6 +218,13 @@ def geocode_pending(
         write = (
             update(table)
             .where(table.c.id == bindparam("b_id"))
+            # Guarded: an `update` may have upserted inline coordinates while we waited
+            # on Mapbox; never overwrite those (or a row someone already resolved).
+            .where(
+                table.c.lat.is_(None),
+                # (not IN: expanding parameters can't be used with executemany)
+                or_(table.c.geocodeStatus == "pending", table.c.geocodeStatus == "failed"),
+            )
             .values(
                 lat=bindparam("b_lat"),
                 lng=bindparam("b_lng"),
@@ -204,6 +245,16 @@ def geocode_pending(
             try:
                 hit = _lookup(http, cfg.mapbox_token, q)
             except _Retryable as e:
+                if e.rate_limited:
+                    # Sustained 429: stop, keep this row's attempts (rate limiting says
+                    # nothing about the row) and let a later pass pick up from here.
+                    summary.rate_limited = True
+                    log.warning("geocode rate limited, stopping pass id=%s error=%s", row_id, e)
+                    break
+                log.warning("geocode failed id=%s query=%r error=%s", row_id, q, e)
+                summary.failed += 1
+                pending.append(_outcome(row_id, None, None, None, "failed"))
+            except _RowFailed as e:
                 log.warning("geocode failed id=%s query=%r error=%s", row_id, q, e)
                 summary.failed += 1
                 pending.append(_outcome(row_id, None, None, None, "failed"))
@@ -225,7 +276,8 @@ def geocode_pending(
         if client is None:
             http.close()
     log.info(
-        "geocode pass done ok=%d not_found=%d failed=%d", summary.ok, summary.not_found, summary.failed
+        "geocode pass done ok=%d not_found=%d failed=%d rate_limited=%s",
+        summary.ok, summary.not_found, summary.failed, summary.rate_limited,
     )
     return summary
 

@@ -226,16 +226,159 @@ def test_a_429_is_retried_with_backoff_and_honours_retry_after(db, mapbox, sleep
     assert _all(db)["1"]["geocodeStatus"] == "ok"
 
 
-def test_a_single_persistent_429_does_not_abort_the_batch(db, mapbox, sleeps) -> None:
-    upsert_listings([_row("limited", street="Limited"), _row("fine", street="Fine")])
-    mapbox.answers = {"Limited": [("status", 429)], "Fine": [("ok", INSIDE)]}
+def test_sustained_429_stops_the_pass_without_burning_the_row_s_attempts(db, mapbox, sleeps) -> None:
+    """Circuit breaker: a row that exhausts its 429 retries ends the pass. Rate limiting
+    says nothing about the row, so its attempt budget is not spent."""
+    upsert_listings(
+        [_row("fine", street="Fine", id="id-1"), _row("limited", street="Limited", id="id-2"),
+         _row("after", street="After", id="id-3")]
+    )
+    mapbox.answers = {"Limited": [("status", 429, {"Retry-After": "5"})], "Fine": [("ok", INSIDE)]}
     summary = _pass(mapbox)
     got = _all(db)
-    assert (summary.ok, summary.failed) == (1, 1)
-    assert got["fine"]["geocodeStatus"] == "ok"
-    assert got["limited"]["geocodeStatus"] == "failed" and got["limited"]["geocodeAttempts"] == 1
-    assert got["limited"]["geocodedAt"] is None  # no answer was received
-    assert sum(1 for r in mapbox.requests if "Limited" in unquote(r.url.path)) == geo.REQUEST_ATTEMPTS
+    assert summary.rate_limited and summary.ok == 1 and summary.failed == 0
+    assert got["fine"]["geocodeStatus"] == "ok"  # finished rows are kept
+    assert got["limited"]["geocodeStatus"] == "pending" and got["limited"]["geocodeAttempts"] == 0
+    assert got["after"]["geocodeStatus"] == "pending" and got["after"]["geocodeAttempts"] == 0
+    asked = [unquote(r.url.path) for r in mapbox.requests]
+    assert sum("Limited" in p for p in asked) == geo.REQUEST_ATTEMPTS
+    assert not any("After" in p for p in asked)  # the pass stopped, it did not hammer on
+
+
+def test_probe_429_storm_burns_attempts(db, mapbox, sleeps) -> None:
+    upsert_listings([_row("a", street="Aaa")])
+    mapbox.default = [("status", 429, {"Retry-After": "5"})]
+    for _ in range(3):
+        _pass(mapbox)
+    assert _all(db)["a"]["geocodeAttempts"] < 3  # three rate-limited passes spent nothing
+
+
+def test_cli_exits_nonzero_with_a_rate_limited_summary(db, mapbox, sleeps, monkeypatch) -> None:
+    upsert_listings([_row("a", street="Aaa")])
+    mapbox.default = [("status", 429)]
+    real = geo.geocode_pending
+    monkeypatch.setattr(run, "geocode_pending", lambda **kw: real(client=mapbox.client(), **kw))
+    result = CliRunner().invoke(run.cli, ["geocode"])
+    assert result.exit_code == 1
+    assert "rate limited" in result.output
+
+
+SECRET = "pk.SECRET123"
+
+
+@pytest.mark.parametrize("status", [400, 404, 422])
+def test_probe_422_aborts_pass_and_leaks_token(db, mapbox, sleeps, monkeypatch, caplog, status) -> None:
+    """A non-retryable 4xx is a per-row failure; the token never reaches logs or exceptions."""
+    import logging
+
+    monkeypatch.setenv("MAPBOX_TOKEN", SECRET)
+    caplog.set_level(logging.DEBUG)  # even the chattiest level must not show the token
+    upsert_listings([_row("a", street="Aaa", id="id-a"), _row("b", street="Bbb", id="id-b")])
+    mapbox.answers = {"Aaa": [("status", status)]}
+    summary = _pass(mapbox)  # must not raise
+    got = _all(db)
+    assert (summary.failed, summary.ok) == (1, 1)
+    assert got["a"]["geocodeStatus"] == "failed" and got["a"]["geocodeAttempts"] == 1
+    assert got["b"]["geocodeStatus"] == "ok"  # the pass carried on
+    assert SECRET not in caplog.text
+    assert any(f"HTTP {status}" in r.getMessage() for r in caplog.records)  # redacted reason is logged
+
+
+def test_a_poison_row_does_not_block_later_passes(db, mapbox, sleeps) -> None:
+    upsert_listings([_row("a", street="Aaa", id="id-a"), _row("b", street="Bbb", id="id-b")])
+    mapbox.answers = {"Aaa": [("status", 422)]}
+    for expected_attempts in (1, 2, 3):
+        _pass(mapbox, max_attempts=3)
+        assert _all(db)["a"]["geocodeAttempts"] == expected_attempts
+    before = len(mapbox.requests)
+    _pass(mapbox, max_attempts=3)
+    assert len(mapbox.requests) == before  # a is at the cap; b is done
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(200, content=b"<html>not json</html>"),
+        httpx.Response(200, json={"features": [{"no_center": True}]}),
+        httpx.Response(200, json={"features": [{"center": []}]}),
+        httpx.Response(200, json={"features": [{"center": ["x", "y"]}]}),
+        httpx.Response(200, json=["unexpected"]),
+    ],
+)
+def test_bad_payloads_fail_the_row_not_the_pass(db, mapbox, sleeps, response) -> None:
+    upsert_listings([_row("a", street="Aaa", id="id-a"), _row("b", street="Bbb", id="id-b")])
+    real = mapbox.handler
+
+    def handler(request):
+        if "Aaa" in unquote(request.url.path):
+            mapbox.requests.append(request)
+            return response
+        return real(request)
+
+    summary = geo.geocode_pending(client=httpx.Client(transport=httpx.MockTransport(handler)), limit=10)
+    got = _all(db)
+    assert summary.failed == 1 and summary.ok == 1
+    assert got["a"]["geocodeStatus"] == "failed" and got["a"]["geocodeAttempts"] == 1
+    assert got["b"]["geocodeStatus"] == "ok"
+
+
+def test_rejected_token_aborts_without_leaking_it(db, mapbox, sleeps, monkeypatch, caplog) -> None:
+    monkeypatch.setenv("MAPBOX_TOKEN", SECRET)
+    upsert_listings([_row("a", street="Aaa")])
+    mapbox.answers = {"Aaa": [("status", 401)]}
+    with pytest.raises(RuntimeError) as e:
+        _pass(mapbox)
+    assert "401" in str(e.value) and SECRET not in str(e.value)
+    assert e.value.__cause__ is None and e.value.__suppress_context__
+    assert SECRET not in caplog.text
+
+
+def test_the_token_is_not_in_the_cli_output_for_any_failure(db, mapbox, sleeps, monkeypatch) -> None:
+    monkeypatch.setenv("MAPBOX_TOKEN", SECRET)
+    upsert_listings([_row("a", street="Aaa", id="id-a"), _row("b", street="Bbb", id="id-b"), _row("c", street="Ccc", id="id-c")])
+    mapbox.answers = {"Aaa": [("status", 422)], "Bbb": [("boom",)], "Ccc": [("status", 401)]}
+    real = geo.geocode_pending
+    monkeypatch.setattr(run, "geocode_pending", lambda **kw: real(client=mapbox.client(), **kw))
+    result = CliRunner().invoke(run.cli, ["--log-level", "DEBUG", "geocode"])
+    assert result.exit_code != 0
+    assert SECRET not in result.output
+    assert SECRET not in repr(result.exception) and SECRET not in "".join(
+        str(x) for x in (result.exc_info or ())
+    )
+
+
+def test_httpx_request_logging_cannot_leak_the_token(db, mapbox, sleeps, monkeypatch, caplog) -> None:
+    """httpx logs every request URL at INFO on its own logger; it is pinned to WARNING."""
+    import logging
+
+    monkeypatch.setenv("MAPBOX_TOKEN", SECRET)
+    caplog.set_level(logging.INFO)
+    upsert_listings([_row("a")])
+    _pass(mapbox)
+    assert SECRET not in caplog.text
+
+
+def test_late_inline_coordinates_are_never_overwritten_by_an_outcome(db, mapbox, sleeps) -> None:
+    """An `update` can upsert inline coordinates while geocode waits on Mapbox; the
+    outcome write is guarded by `lat IS NULL` and the pending/failed status."""
+    upsert_listings([_row("x", street="Xxx", id="id-x"), _row("y", street="Yyy", id="id-y")])
+    real = mapbox.handler
+
+    def handler(request):
+        path = unquote(request.url.path)
+        for sid, street in (("x", "Xxx"), ("y", "Yyy")):
+            if street in path:
+                # the scraper's upsert lands now, with coordinates that shipped inline
+                upsert_listings([_row(sid, street=street, lat=59.31, lng=18.01)])
+        return real(request)
+
+    mapbox.answers = {"Xxx": [("empty",)], "Yyy": [("ok", INSIDE)]}
+    geo.geocode_pending(client=httpx.Client(transport=httpx.MockTransport(handler)), limit=10)
+    got = _all(db)
+    for sid in ("x", "y"):
+        assert (got[sid]["lat"], got[sid]["lng"]) == (59.31, 18.01)
+        assert got[sid]["geocodeStatus"] == "inline"
+        assert got[sid]["geocodeAttempts"] == 0
 
 
 @pytest.mark.parametrize("failure", [("status", 503), ("boom",)])
