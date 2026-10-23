@@ -187,9 +187,18 @@ def _refresh(source: str, district: str, overlap: timedelta, lookback_days: int)
     def _count(n: int) -> None:
         result.upserted += n
 
+    run_newest: list[date] = []  # newest soldAt this crawl yielded (0 or 1 item)
+
+    async def _tracked(rows: AsyncIterator[dict]) -> AsyncIterator[dict]:
+        async for row in rows:
+            sold_at = row.get("soldAt")
+            if isinstance(sold_at, date) and (not run_newest or sold_at > run_newest[0]):
+                run_newest[:] = [sold_at]
+            yield row
+
     async def _run() -> None:
         assert result.since is not None
-        await _ingest(iter_district(district, result.since), on_batch=_count)
+        await _ingest(_tracked(iter_district(district, result.since)), on_batch=_count)
 
     try:
         # The cutoff comes from the last *finished* crawl (B39), not MAX(soldAt):
@@ -203,10 +212,15 @@ def _refresh(source: str, district: str, overlap: timedelta, lookback_days: int)
         click.echo(f"{source}/{district}: refreshing since {result.since.isoformat()}")
         asyncio.run(_run())
         click.echo(f"  upserted {result.upserted} for {source}/{district}")
-        # Finished without error: everything newer than `since` is now stored.
-        newest = latest_sold_at(source, district)
-        if newest:
-            crawl_state.record_complete(source, district, max(newest, recorded or newest))
+        # Finished without error: everything newer than `since`, up to the newest
+        # sale this crawl yielded, is stored. Record that (never the DB max, which
+        # a partial run may have pushed past a gap) and never move backwards. A
+        # crawl that yielded nothing records nothing.
+        if run_newest:
+            try:
+                crawl_state.record_complete(source, district, max(run_newest[0], recorded or run_newest[0]))
+            except crawl_state.CorruptCrawlState as e:
+                click.echo(f"  warning: crawl state not updated, {e}", err=True)
     except CrawlIncomplete as e:
         # Partial means some rows landed. An incomplete crawl with none (e.g. a
         # page-1 block) is a plain failure.
