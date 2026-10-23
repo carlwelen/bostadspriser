@@ -64,10 +64,10 @@ async def _ingest(
             return
         batch = list(buf)
         buf.clear()
-        upsert_listings(batch)
-        written += len(batch)
+        n = upsert_listings(batch, batch_size=batch_size)  # distinct rows written
+        written += n
         if on_batch is not None:
-            on_batch(len(batch))
+            on_batch(n)
 
     try:
         async for row in rows:

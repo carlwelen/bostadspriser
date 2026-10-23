@@ -30,7 +30,7 @@ def fake_world(monkeypatch):
 
     monkeypatch.setitem(run._SOURCE_ITER, "hemnet", make_iter("hemnet"))
     monkeypatch.setitem(run._SOURCE_ITER, "booli", make_iter("booli"))
-    monkeypatch.setattr(run, "upsert_listings", upserted.extend)
+    monkeypatch.setattr(run, "upsert_listings", lambda rows, **kw: (upserted.extend(rows), len(rows))[1])
     monkeypatch.setattr(
         run, "latest_sold_at", lambda source, district: date(2026, 5, 10) if source == "hemnet" else None
     )

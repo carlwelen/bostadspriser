@@ -93,7 +93,9 @@ def upsert_listings(rows: list[dict], batch_size: int = DEFAULT_BATCH_SIZE) -> i
         raise ValueError("batch_size must be >= 1")
     written = 0
     for start in range(0, len(rows), batch_size):
-        batch = _collapse_duplicates(rows[start : start + batch_size])
+        # lastSeenAt/scrapedAt are stamped by the database, on insert too.
+        chunk = [{k: v for k, v in r.items() if k not in _SERVER_STAMPED} for r in rows[start : start + batch_size]]
+        batch = _collapse_duplicates(chunk)
         # One statement needs one column set; rows from the parsers always share
         # it, but group defensively so a row missing e.g. lat/lng still works.
         groups: dict[frozenset[str], list[dict]] = {}
@@ -112,19 +114,23 @@ def _has_coords(row: dict) -> bool:
 
 
 def _collapse_duplicates(batch: list[dict]) -> list[dict]:
-    """Last row wins per (source, sourceId), as if the rows were upserted one by one.
+    """Merge rows sharing (source, sourceId) as if upserted one by one, in order.
 
-    So the first occurrence's id is kept, and an earlier row's coordinates survive
-    a later row that has none (the same rule the ON CONFLICT clause applies)."""
+    Later values win column by column, but a column the later row doesn't mention
+    keeps the earlier value; the first occurrence's id is kept; and an earlier
+    row's coordinates survive a later row without a complete lat+lng pair (the
+    rule the ON CONFLICT clause applies)."""
     merged: dict[tuple, dict] = {}
     for r in batch:
         key = (r["source"], r["sourceId"])
         prev = merged.get(key)
         if prev is not None:
+            combined = {**prev, **r}
             if "id" in prev:
-                r = {**r, "id": prev["id"]}
-            if _has_coords(prev) and not _has_coords(r):
-                r = {**r, **{c: prev[c] for c in _COORDINATE_COLS if c in prev and c in r}}
+                combined["id"] = prev["id"]
+            if not _has_coords(r) and _has_coords(prev):
+                combined.update({c: prev[c] for c in _COORDINATE_COLS if c in prev})
+            r = combined
         merged[key] = r
     return list(merged.values())
 

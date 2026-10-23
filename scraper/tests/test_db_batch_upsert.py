@@ -88,11 +88,14 @@ def test_every_upsert_bumps_last_seen_at_but_never_scraped_at(db, batched) -> No
     assert abs((seen - _utc_now()).total_seconds()) < 60  # bumped on conflict
 
 
-def test_last_seen_at_from_the_caller_is_ignored(db) -> None:
-    upsert_listings([_row("x")])
+def test_server_stamps_from_the_caller_are_ignored_on_insert_and_update(db) -> None:
     bogus = datetime(2001, 1, 1)
-    upsert_listings([_row("x", lastSeenAt=bogus)])
-    assert _stamps(db)["x"][1] != bogus
+    upsert_listings([_row("x", lastSeenAt=bogus, scrapedAt=bogus)])  # insert path
+    scraped, seen = _stamps(db)["x"]
+    assert bogus not in (scraped, seen)
+    assert abs((seen - _utc_now()).total_seconds()) < 60
+    upsert_listings([_row("x", lastSeenAt=bogus, scrapedAt=bogus)])  # conflict path
+    assert bogus not in _stamps(db)["x"]
 
 
 def test_batch_with_empty_input_is_a_no_op(db) -> None:
@@ -121,6 +124,34 @@ def test_duplicate_in_batch_keeps_earlier_coordinates_when_the_last_has_none(db)
     assert (row["lat"], row["lng"]) == (59.3371735, 18.0753784)
     assert row["geocodedAt"] == datetime(2026, 5, 3, 12, 0)
     assert row["priceSek"] == 2_000_000
+
+
+def test_duplicates_with_different_key_sets_merge_like_sequential_upserts(db) -> None:
+    """In-batch duplicates must not drop columns the last row doesn't mention."""
+    # (a) the last row has no lat/lng/geocodedAt keys at all
+    full = _row("a", rooms=2.0)
+    no_coord_keys = {k: v for k, v in _row("a", priceSek=2_000_000, rooms=2.0).items() if k not in {"lat", "lng", "geocodedAt"}}
+    # (b) the last row has no `rooms` key
+    base_b = _row("b", rooms=3.0)
+    no_rooms = {k: v for k, v in _row("b", priceSek=3_000_000).items() if k != "rooms"}
+    upsert_listings([full, no_coord_keys, base_b, no_rooms])
+    rows = _all(db)
+    assert (rows["a"]["lat"], rows["a"]["lng"]) == (59.3371735, 18.0753784)
+    assert rows["a"]["geocodedAt"] == datetime(2026, 5, 3, 12, 0)
+    assert rows["a"]["priceSek"] == 2_000_000 and rows["a"]["rooms"] == 2
+    assert rows["b"]["rooms"] == 3 and rows["b"]["priceSek"] == 3_000_000
+
+
+def test_three_way_duplicate_merges_in_order(db) -> None:
+    first = _row("t", rooms=1.0, lat=1.0, lng=2.0, geocodedAt=datetime(2026, 5, 1))
+    second = _row("t", priceSek=2_000_000, lat=None, lng=None, geocodedAt=None)  # no coords: keep first's
+    third_dict = _row("t", priceSek=3_000_000, lat=5.0, lng=6.0, geocodedAt=datetime(2026, 6, 1))
+    third = {k: v for k, v in third_dict.items() if k != "rooms"}  # has coords, no rooms key
+    upsert_listings([first, second, third])
+    row = _all(db)["t"]
+    assert (row["lat"], row["lng"], row["geocodedAt"]) == (5.0, 6.0, datetime(2026, 6, 1))
+    assert row["priceSek"] == 3_000_000 and row["rooms"] == 1
+    assert row["id"] == first["id"]
 
 
 def test_same_source_id_in_different_sources_is_not_a_duplicate(db) -> None:
@@ -181,11 +212,24 @@ def test_ingest_buffers_in_batches_and_flushes_the_tail(db, monkeypatch) -> None
         sizes.append(len(batch))
         return real(batch, **kw)
 
-    monkeypatch.setattr("scraper.run.upsert_listings", spy)
+    kwargs: list[dict] = []
+
+    def spy_kw(batch, **kw):
+        kwargs.append(kw)
+        return spy(batch, **kw)
+
+    monkeypatch.setattr("scraper.run.upsert_listings", spy_kw)
     n = asyncio.run(_ingest(_fake_iter([_row(str(i)) for i in range(7)]), batch_size=3))
     assert n == 7
     assert sizes == [3, 3, 1]
+    assert all(kw == {"batch_size": 3} for kw in kwargs)  # the batch size is passed through
     assert len(_all(db)) == 7
+
+
+def test_ingest_counts_what_upsert_listings_reports(db) -> None:
+    """Duplicates inside a batch collapse; the count follows the return value."""
+    rows = [_row("same"), _row("same", priceSek=2), _row("other")]
+    assert asyncio.run(_ingest(_fake_iter(rows), batch_size=10)) == 2
 
 
 def test_ingest_keeps_buffered_rows_when_the_iterator_fails(db) -> None:
