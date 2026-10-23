@@ -31,14 +31,14 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | ID | P | Owner | Status | Acceptance | Commit | Notes |
 |---|---|---|---|---|---|---|
 | B1 | P0 | B | review | `scraper update` MAX(soldAt) query works (no `:d::` bind bug); DB test covers it |  | R approved; merges with the B series after B2/B3 fixes |
-| B2 | P0 | B | in-progress | One `parse_street_address()` in normalize.py used by both sources; table test incl. `S:t Eriksgatan`, `Karlavägen 1 A`, `Ringvägen 12-14`, `Hornsgatan 64 1tr`, `Odengatan 5, lgh 1101` |  | R: changes requested (half-floor `1,5 tr`, prefix fallback, digit-only street) → B fixing |
-| B3 | P0 | B | in-progress | `scraper reparse [--dry-run]` re-derives street/house/rooms/area/prices/dedupKey from `raw`, batched, idempotent; backfill batched too |  | R: changes requested (re-derive soldAt for key consistency, quantize decimals, FOR UPDATE) → B fixing |
+| B2 | P0 | B | review | One `parse_street_address()` in normalize.py used by both sources; table test incl. `S:t Eriksgatan`, `Karlavägen 1 A`, `Ringvägen 12-14`, `Hornsgatan 64 1tr`, `Odengatan 5, lgh 1101` |  | Fix 1d836ff (prefix match, decimal-comma floors, letter ranges → first letter, letterless streets rejected) in re-review |
+| B3 | P0 | B | review | `scraper reparse [--dry-run]` re-derives street/house/rooms/area/prices/dedupKey from `raw`, batched, idempotent; backfill batched too |  | Fix 53b7e56 (soldAt re-derived, round_1dp, FOR UPDATE) in re-review |
 | B4 | P0 | B | review | Rows without a final price are skipped (no `0` prices / `::0` dedup keys); Hemnet derives kr/m² from price/area when missing |  | R approved; merges with the B series after B2/B3 fixes |
 | B5 | P0 | C | in-progress | `rooms=5` on /api/heatmap means `>= 5` ("5+"); integration test with a 6-room row |  | R: changes requested (`rooms=6` alone → 500 from empty Prisma.join) → C fixing |
 | B6 | P0 | C | review | Every API route validates params (400 + JSON error on bad/negative/huge input); DB errors → 500 JSON + server log; tests per bad input |  | R approved; minors (priceMax=0, trailing comma, zero-width bbox) → C. MERGE ORDER: UI must check res.ok first (F30 D-part) or error JSON crashes drawer/map/search |
 | B7 | P0 | C | review | MoM uses the last two complete, adjacent months; `null` when either has < N sales |  | R approved; merges with the C series |
 | B8 | P0 | C | review | `/api/address` applies the period to `addressSales` |  | R approved; merges with the C series |
-| B9 | P0 | C→B | in-progress | Prisma migration adds `lastSeenAt` (C); scraper sets it on every upsert and the view tie-breaks on it (B) |  | Schema half d82bd17 R approved. Python half → B after C merge |
+| B9 | P0 | C→B | in-progress | Prisma migration adds `lastSeenAt` (C); scraper sets it on every upsert and the view tie-breaks on it (B) |  | Schema half d82bd17 R approved. Python half blocked until C series merges (B stopped as instructed) |
 | B10 | P0 | B | review | Upsert keeps existing lat/lng/geocodedAt when incoming coords are NULL (DB test) |  | R approved; merges with the B series after B2/B3 fixes |
 | B11 | P0 | B | review | probe scripts fixed or deleted; nothing imports `DISTRICT_URLS` |  | R approved; merges with the B series after B2/B3 fixes |
 | B12 | P0 | B | review | `update` exits non-zero if any source/district fails and prints a summary table |  | R approved; merges with the B series after B2/B3 fixes |
@@ -47,13 +47,13 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | B32 | P1 | B | todo | Source iterators signal an incomplete crawl (page fetch failed mid-pagination) so `update` reports `partial` and exits non-zero | | From B (P1 run); overlaps B17/B18 |
 | B33 | P3 | B | todo | Unify Hemnet/Booli geocodedAt stamping (`is not None`) | | From B (P1 run); fold into B17 |
 | B34 | P1 | C | todo | `sinceDays`/period cut-offs (heatmap, address, topMovers) use Stockholm's current date explicitly, not the session `CURRENT_DATE` | | From C (P1 run) |
-| B35 | P0 | B | in-progress | Pagination doesn't stop on a page whose cards were all skipped (only on soldAt < since / empty page / no parseable date ≥ since); test both sources | | From R review of B4: p1/all-unpriced/p3 yields only p1 |
+| B35 | P0 | B | review | Pagination doesn't stop on a page whose cards were all skipped (only on soldAt < since / empty page / no parseable date ≥ since); test both sources |  | 58ce43b in review. From R review of B4 |
 | B36 | P2 | B | todo | Reviewed purge/flag for legacy rows reparse reports unparseable (e.g. `reparse --prune-unparseable`) | | From R review of B4 |
 | B13 | P1 | C+B | todo | Fuzzy cross-source matcher (same street+house, \|Δdate\| ≤ 3 d, price ±0.5%) assigns a cluster id; view groups on it; paired-fixture tests | | Schema (C) first |
 | B14 | P1 | B+C | todo | Ingest sanity bounds (area 10–400, kr/m² 20k–400k, rooms 1–15) reject + count; SQL exposes median + count everywhere; UI defaults to median | | |
 | B15 | P1 | B | todo | Check SaleCard for an area/location name and filter on it, or record that none exists | | |
 | B16 | P1 | B(+C) | todo | Geocode: status/retry column, 429 backoff, display-name query, inner-Stockholm bbox + reject outside; (d) storage terms | | (d) likely owner decision; schema via C |
-| B17 | P1 | B | todo | Shared browser/source base; sources only define URL, `_looks_real`, extraction, `_to_row`; characterisation tests first | | |
+| B17 | P1 | B | todo | Shared browser/source base; sources only define URL, `_looks_real`, extraction, `_to_row`; characterisation tests first |  | Also add a max-pages / repeated-page guard (B noted a page repeating forever would loop) |
 | B18 | P1 | C+B | todo | `ScrapeRun` model (C); scraper writes it and uses `logging` (B); web shows freshness (F18) | | |
 | B19 | P1 | B | todo | Oldest-covered date per source/district; `scraper backfill --source --district --since --resume` | | Depends on B18 |
 | B20 | P1 | B | todo | Batched upserts (page or 100 rows per transaction) | | |
