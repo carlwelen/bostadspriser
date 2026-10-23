@@ -2,7 +2,8 @@
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useAddressData, type AddressQuery, type Period } from "./useAddressData";
+import type { Period } from "@/lib/api-types";
+import { useAddressData, type AddressQuery } from "./useAddressData";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

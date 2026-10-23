@@ -1,3 +1,4 @@
+import type { Period } from "@/lib/api-types";
 import { DISTRICTS, type DistrictSlug } from "@/lib/districts";
 
 // Map filters as they appear in the landing page URL (F15):
@@ -6,7 +7,7 @@ import { DISTRICTS, type DistrictSlug } from "@/lib/districts";
 // `districts=` (present but empty) means "none selected" and shows the empty
 // state, which also makes that state linkable.
 
-export type MapPeriod = "30d" | "3mo" | "12mo" | "all";
+export type MapPeriod = Period;
 export type MapMode = "price" | "frequency";
 
 export type MapFilterState = {

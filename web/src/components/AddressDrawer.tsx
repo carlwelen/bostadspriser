@@ -14,7 +14,8 @@ import {
 
 import { SourceBadge } from "./SourceBadge";
 import { lockBodyScroll, trapTab } from "./map/focusTrap";
-import { useAddressData, type Period } from "./map/useAddressData";
+import type { Period } from "@/lib/api-types";
+import { useAddressData } from "./map/useAddressData";
 
 const PERIODS = [
   { value: "30d" as const, label: "30 dagar" },

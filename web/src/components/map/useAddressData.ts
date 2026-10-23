@@ -1,23 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import type { AddressResponse, Period } from "@/lib/api-types";
 import { fetchJson } from "./fetchJson";
-
-export type Period = "30d" | "3mo" | "12mo" | "all";
-
-// TODO(F30): import from @/lib/api-types once it lands on main.
-export type AddressResponse = {
-  district: string;
-  street: string;
-  house: string | null;
-  period: Period;
-  granularity: "day" | "week" | "month";
-  streetSeries: Array<{ bucket: string; meanPricePerSqm: number; count: number }>;
-  addressSales: Array<{
-    soldAt: string;
-    priceSek: number;
-    pricePerSqmSek: number;
-    sources: string[];
-  }>;
-};
 
 export type AddressQuery = {
   district: string;

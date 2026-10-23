@@ -4,15 +4,10 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation";
 import { fetchJson } from "./map/fetchJson";
 import { lockBodyScroll, trapTab } from "./map/focusTrap";
-import { districtName, type DistrictSlug } from "@/lib/districts";
+import { districtName } from "@/lib/districts";
+import type { StreetsAllItem } from "@/lib/api-types";
 
-type StreetEntry = {
-  district: DistrictSlug;
-  street: string;
-  slug: string;
-  count: number;
-  meanPricePerSqm: number;
-};
+type StreetEntry = StreetsAllItem;
 
 const SEK = new Intl.NumberFormat("sv-SE");
 
@@ -54,7 +49,6 @@ export function StreetSearch() {
   useEffect(() => {
     if (!open || streets) return;
     setError(false);
-    // TODO(F30): import StreetEntry from @/lib/api-types once it lands on main.
     fetchJson<StreetEntry[]>("/api/streets/all")
       .then(setStreets)
       .catch((err) => {

@@ -7,6 +7,7 @@ import { cellToBoundary, latLngToCell } from "h3-js";
 
 import { AddressDrawer, type AddressSelection } from "./AddressDrawer";
 import type { DistrictSlug } from "@/lib/districts";
+import type { HeatmapFeatureProperties, HeatmapResponse } from "@/lib/api-types";
 import { fetchJson } from "./map/fetchJson";
 import { createHexHandlers, type HexMapLike } from "./map/hexHandlers";
 import { buildPricePopup } from "./map/popups";
@@ -44,21 +45,6 @@ const HEX_OUTLINE_LAYER = "hex-outline";
 // zoom, small enough that inner Stockholm decomposes into block-sized buckets.
 const H3_RESOLUTION = 9;
 
-type PointFeature = GeoJSON.Feature<
-  GeoJSON.Point,
-  {
-    pricePerSqm: number;
-    address: string;
-    street: string;
-    houseNumber: string | null;
-    district: string;
-    soldAt: string;
-    source: string;
-    sources: string;
-    dedupKey: string | null;
-  }
->;
-type PointFC = GeoJSON.FeatureCollection<PointFeature["geometry"], PointFeature["properties"]>;
 type HexFeature = GeoJSON.Feature<GeoJSON.Polygon, { count: number }>;
 type HexFC = GeoJSON.FeatureCollection<GeoJSON.Polygon, { count: number }>;
 
@@ -76,7 +62,7 @@ const FREQUENCY_COLOR_RAMP = expr([
   24, "#1e3a8a",  // blue-900
 ]);
 
-function pointsToHexFC(points: PointFC): HexFC {
+function pointsToHexFC(points: HeatmapResponse): HexFC {
   const counts = new Map<string, number>();
   for (const f of points.features) {
     const [lng, lat] = f.geometry.coordinates;
@@ -105,7 +91,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const hexHandlersRef = useRef<ReturnType<typeof createHexHandlers> | null>(null);
   const [styleReady, setStyleReady] = useState(false);
-  const [points, setPoints] = useState<PointFC | null>(null);
+  const [points, setPoints] = useState<HeatmapResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [selectedAddress, setSelectedAddress] = useState<AddressSelection | null>(null);
@@ -161,8 +147,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
     if (filters?.rooms?.length) params.set("rooms", filters.rooms.join(","));
     if (filters?.sinceDays) params.set("sinceDays", String(filters.sinceDays));
     const qs = params.toString();
-    // TODO(F30): import HeatmapResponse from @/lib/api-types once it lands on main.
-    fetchJson<PointFC>(`/api/heatmap${qs ? `?${qs}` : ""}`)
+    fetchJson<HeatmapResponse>(`/api/heatmap${qs ? `?${qs}` : ""}`)
       .then((fc) => {
         if (!cancelled) {
           setPoints(fc);
@@ -241,7 +226,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
         const f = e.features?.[0];
         if (!f || f.geometry.type !== "Point") return;
         const [lng, lat] = (f.geometry as GeoJSON.Point).coordinates;
-        const p = f.properties as PointFeature["properties"];
+        const p = f.properties as HeatmapFeatureProperties;
         popup.setLngLat([lng, lat]).setDOMContent(buildPricePopup(p)).addTo(map);
       });
       map.on("mouseleave", PRICE_POINT_LAYER, () => {
@@ -254,7 +239,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
       map.on("click", PRICE_POINT_LAYER, (e) => {
         const f = e.features?.[0];
         if (!f) return;
-        const p = f.properties as PointFeature["properties"];
+        const p = f.properties as HeatmapFeatureProperties;
         if (!p.district) return;
         setSelectedAddress({
           district: p.district,
