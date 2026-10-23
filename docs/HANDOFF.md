@@ -37,7 +37,7 @@ Each block below is a branch with commits that are **not on `main` yet**. Merge 
 4. *Minor:* a dedupKey split across clusters with no cross-source partner is never healed; seed the union-find from `dedup_keys_in_multiple_clusters()`.
 5. *Nit:* translate both cases of åäöéè in the SQL key.
 
-The reviewer's probe tests are in the B13 notes of `docs/backlog.md`.
+The reviewer's probe tests are in `docs/review-probes/b13_matcher_probe.py`. Copy it to `scraper/tests/`: tests 4–6 assert the buggy behaviour, so invert them as the failing-first tests.
 
 The B46 refresh calls are **guarded**: they do nothing until the SQL function exists. That is why B merges before C.
 
