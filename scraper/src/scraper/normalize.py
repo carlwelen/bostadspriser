@@ -46,17 +46,20 @@ def parse_rooms(text: str | None) -> float | None:
 # number always wins and no tail can leak into the street. The street is lazy:
 # the first "<space><digits>" ends it. A letter must stand alone ("3A", "3 A")
 # and not start a word ("64 nb", "7 vån") or an abbreviation ("o.g.").
-# [0-9], not \d: \d also matches Arabic-Indic and full-width digits.
-# A floor or apartment marker right after the range's second number means it is
-# not a range end ("2 - 3 tr" is house 2, third floor).
-_FLOOR_MARKER = r"(?!\s*(?:tr|trp|trappa|trappor|vån|lgh|nb|bv|[½/]))"
+# [0-9], not \d: \d also matches Arabic-Indic and full-width digits (those are
+# rejected up front in parse_street_address). Only a *floor number* directly after
+# the range's second number blocks the range ("2 - 3 tr" is house 2, third floor,
+# "2 - 1/2 tr" a half floor). Markers that precede a number ("lgh 1101", "vån 2")
+# or stand alone ("nb", "bv") don't: "12-14 lgh 1101" is the range 12-14.
+# The marker is scoped ASCII + case-insensitive; the rest of the pattern is
+# case-sensitive so Unicode case folds (long s, Kelvin sign) are not house letters.
+_FLOOR_MARKER = r"(?!\s*(?ai:(?:[0-9]+\s*)?[½/]|trappor|trappa|trp|tr))"
 _ADDR_RE = re.compile(
     r"^(?P<street>.+?)\s+"
-    r"(?P<n1>[0-9]{1,3})(?:\s?(?P<l1>[A-Za-z])(?!\w|\.\w))?(?![0-9])"
-    r"(?:\s*[-–—]\s*(?P<n2>[0-9]{1,3})(?:\s?(?P<l2>[A-Za-z])(?!\w|\.\w))?(?![0-9])"
+    r"(?P<n1>[0-9]{1,3})(?:\s?(?P<l1>[A-Za-z])(?!\w|\.\w))?(?!\d)"
+    r"(?:\s*[-–—]\s*(?P<n2>[0-9]{1,3})(?:\s?(?P<l2>[A-Za-z])(?!\w|\.\w))?(?!\d)"
     + _FLOOR_MARKER
     + r")?",
-    re.IGNORECASE,
 )
 
 # A real street name has a word of at least two letters; "12" and "12 B" don't.
@@ -85,6 +88,9 @@ def parse_street_address(addr: str | None) -> tuple[str, str | None]:
     # "Odengatan 5, lgh 1101": a comma starts the tail, unless it is a decimal
     # comma, i.e. has a digit on both sides ("1,5 tr").
     head = re.split(r"(?<![0-9]),|,(?![0-9])", text, maxsplit=1)[0].strip()
+    if any(c.isdigit() and not c.isascii() for c in head):
+        # Arabic-Indic / full-width digits: don't silently read "6４" as 6.
+        return "", None
     m = _ADDR_RE.match(head)
     if not m and re.search(r"\s[0-9]", head):
         # Looks numeric but doesn't parse ("Hornsgatan 1234"): reject rather than

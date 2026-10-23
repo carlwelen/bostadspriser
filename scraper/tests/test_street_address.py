@@ -93,7 +93,21 @@ NBSP = " "
         ("Hornsgatan 2 - 3 tr", ("Hornsgatan", "2")),
         ("Götgatan 1-4 tr", ("Götgatan", "1")),
         ("Hornsgatan 2 -3tr", ("Hornsgatan", "2")),
-        ("Hornsgatan 2 - 3 vån", ("Hornsgatan", "2")),
+        ("Hornsgatan 2 - 3 1/2 tr", ("Hornsgatan", "2")),
+        ("Hornsgatan 2 - 3 trappor", ("Hornsgatan", "2")),
+        ("Hornsgatan 2 - 1/2 tr", ("Hornsgatan", "2")),
+        # Markers that precede a number or stand alone do not block a range
+        ("Ringvägen 12-14 lgh 1101", ("Ringvägen", "12-14")),
+        ("Ringvägen 12–14 Nb", ("Ringvägen", "12-14")),
+        ("Hornsgatan 2-3 BV", ("Hornsgatan", "2-3")),
+        ("Hornsgatan 2-3 våning 2", ("Hornsgatan", "2-3")),
+        ("Hornsgatan 2-3 vån 2", ("Hornsgatan", "2-3")),
+        # Unicode case folds are not house letters (long s, Kelvin sign)
+        ("Strandvägen 7 ſ", ("Strandvägen", "7")),
+        ("Strandvägen 7 \u212a", ("Strandvägen", "7")),
+        # A full-width digit glued to the number is not silently dropped
+        ("Hornsgatan 6４", ("", None)),
+        ("Ringvägen 12-1４", ("", None)),
         ("Hornsgatan 2-3", ("Hornsgatan", "2-3")),
         # A street never contains digits: reject instead of storing one
         ("Hornsgatan 9999 5", ("", None)),
