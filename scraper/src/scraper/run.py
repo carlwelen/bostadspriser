@@ -376,8 +376,10 @@ def update(
             click.echo(f"warning: could not relabel inline-coordinate rows: {e}", err=True)
     finally:
         # Once, after every source/district (partial and failed runs stored rows too).
-        if any(r.upserted for r in results):
-            refresh_deduped()
+        # Unconditional: `update` is the cron entry point, so a refresh that failed on a
+        # previous run is retried even when this run found nothing new (about 1 s at
+        # 200k rows). The other commands only refresh when they wrote rows.
+        refresh_deduped()
     click.echo(_format_results(results))
     failed = [r for r in results if r.error is not None and not r.partial]
     partial = [r for r in results if r.partial]
@@ -518,6 +520,9 @@ def geocode(limit: int, max_attempts: int) -> None:
         summary = geocode_pending(limit=limit, max_attempts=max_attempts)
     except GeocodeConfigError as e:
         click.echo(f"error: {e}", err=True)
+        stored = e.summary.ok if e.summary is not None else 0
+        if stored:  # coordinates saved before the token was rejected still change the view
+            refresh_deduped()
         sys.exit(EXIT_CONFIG)
     click.echo(
         f"geocoded: ok {summary.ok}, not found {summary.not_found}, failed {summary.failed}"
@@ -580,6 +585,9 @@ def refresh_view() -> None:
         click.echo("refreshed DedupedListingMat")
     elif outcome == "missing":
         click.echo("refresh_deduped_listing() does not exist in this database; nothing to do")
+    elif outcome == "busy":
+        click.echo("database busy (lock timeout); run again later", err=True)
+        sys.exit(EXIT_TEMPFAIL)
     else:
         click.echo("refresh failed (see the log)", err=True)
         sys.exit(1)
@@ -609,17 +617,25 @@ def stats() -> None:
 
 def _echo_snapshot_counts() -> None:
     """When the DedupedListingMat snapshot exists, show it next to the live view and
-    warn if their row counts differ (a refresh is due, or one failed)."""
+    warn if they differ: by row count, or by the newest lastSeenAt (same count but
+    stale content, e.g. a refresh failed after rows were re-scraped)."""
     with engine().connect() as c:
         if not c.execute(text("SELECT to_regclass('\"DedupedListingMat\"') IS NOT NULL")).scalar_one():
             return
-        live = c.execute(text('SELECT COUNT(*) FROM "DedupedListing"')).scalar_one()
-        snap = c.execute(text('SELECT COUNT(*) FROM "DedupedListingMat"')).scalar_one()
-    click.echo(f"DedupedListing {live:>8}  DedupedListingMat {snap:>8}")
-    if live != snap:
+        live, live_seen = c.execute(
+            text('SELECT COUNT(*), MAX("lastSeenAt") FROM "DedupedListing"')
+        ).one()
+        snap, snap_seen = c.execute(
+            text('SELECT COUNT(*), MAX("lastSeenAt") FROM "DedupedListingMat"')
+        ).one()
+    click.echo(
+        f"DedupedListing {live:>8} (newest seen {live_seen})  "
+        f"DedupedListingMat {snap:>8} (newest seen {snap_seen})"
+    )
+    if (live, live_seen) != (snap, snap_seen):
         click.echo(
-            "warning: DedupedListing and DedupedListingMat row counts differ; "
-            "run `scraper refresh-view`",
+            "warning: DedupedListing and DedupedListingMat differ (row count or newest "
+            "lastSeenAt); run `scraper refresh-view`",
             err=True,
         )
 

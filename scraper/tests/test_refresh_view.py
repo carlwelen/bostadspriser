@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import date
+from urllib.parse import unquote
 
 import httpx
 import pytest
@@ -27,6 +28,10 @@ from tests.conftest import _TEST_NAME_RE
 STUB = """
 CREATE OR REPLACE FUNCTION refresh_deduped_listing() RETURNS void
 LANGUAGE sql AS $$ INSERT INTO refresh_audit DEFAULT VALUES $$
+"""
+LOCK_STUB = """
+CREATE OR REPLACE FUNCTION refresh_deduped_listing() RETURNS void
+LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'lock timeout' USING ERRCODE = '55P03'; END $$
 """
 FAILING_STUB = """
 CREATE OR REPLACE FUNCTION refresh_deduped_listing() RETURNS void
@@ -52,8 +57,9 @@ def _row(sid: str, **overrides) -> dict:
         "geocodedAt": None,
         "raw": {"fixture": True},
     }
-    base["dedupKey"] = dedup_key(base["street"], base["houseNumber"], base["soldAt"], base["priceSek"])
     base.update(overrides)
+    if "dedupKey" not in overrides:  # derived from the final street/house/date/price
+        base["dedupKey"] = dedup_key(base["street"], base["houseNumber"], base["soldAt"], base["priceSek"])
     return base
 
 
@@ -84,11 +90,19 @@ def audit(db):
             c.execute(text(saved))
 
 
-def _use_function(db, sql: str | None) -> None:
-    with db.begin() as c:
-        c.execute(text("DROP FUNCTION IF EXISTS refresh_deduped_listing()"))
-        if sql:
-            c.execute(text(sql))
+@pytest.fixture()
+def use_function(db, audit):
+    """Swap refresh_deduped_listing() for the given SQL (None: drop it). Depends on
+    `audit`, whose teardown puts C's real definition back, so no test can ever leave
+    the shared test database without the real function."""
+
+    def use(sql: str | None) -> None:
+        with db.begin() as c:
+            c.execute(text("DROP FUNCTION IF EXISTS refresh_deduped_listing()"))
+            if sql:
+                c.execute(text(sql))
+
+    return use
 
 
 def _iterator(rows_by_district: dict[str, list[dict]], fail_after: dict[str, bool] | None = None):
@@ -118,18 +132,25 @@ def test_upserting_never_refreshes_the_snapshot(db, audit) -> None:
     assert audit() == 0
 
 
-def test_a_missing_function_is_a_silent_no_op(db, caplog) -> None:
-    _use_function(db, None)
+def test_a_missing_function_is_a_silent_no_op(use_function, caplog) -> None:
+    use_function(None)
     caplog.set_level(logging.DEBUG)
     assert refresh_deduped() == "missing"
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert any(r.levelno == logging.DEBUG and "refresh_deduped_listing" in r.getMessage() for r in caplog.records)
 
 
-def test_a_failing_refresh_returns_failed_logs_a_warning_and_never_raises(db, audit, caplog) -> None:
-    _use_function(db, FAILING_STUB)
+def test_a_failing_refresh_returns_failed_logs_a_warning_and_never_raises(use_function, caplog) -> None:
+    use_function(FAILING_STUB)
     assert refresh_deduped() == "failed"
-    assert any(r.levelno == logging.WARNING and "refresh" in r.getMessage() for r in caplog.records)
+    warning = next(r for r in caplog.records if r.levelno == logging.WARNING and "refresh" in r.getMessage())
+    assert "sqlstate=P0001" in warning.getMessage()  # the code says why (55P03 = lock timeout)
+
+
+def test_a_lock_timeout_is_reported_as_busy(use_function, caplog) -> None:
+    use_function(LOCK_STUB)
+    assert refresh_deduped() == "busy"
+    assert any("sqlstate=55P03" in r.getMessage() for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -149,10 +170,18 @@ def test_update_refreshes_once_after_all_combinations_even_when_one_is_partial(d
     assert audit() == 1  # ...but the snapshot was refreshed once, for both districts' rows
 
 
-def test_update_that_wrote_nothing_does_not_refresh(db, audit, monkeypatch) -> None:
+def test_update_refreshes_even_when_nothing_was_written(db, audit, monkeypatch) -> None:
+    """`update` is the cron entry point: a refresh that failed last time must be retried
+    even when later crawls find nothing new."""
     monkeypatch.setitem(run._SOURCE_ITER, "hemnet", _iterator({}))
     result = CliRunner().invoke(run.cli, ["update", "--source", "hemnet", "--district", "ostermalm"])
-    assert result.exit_code == 0 and audit() == 0
+    assert result.exit_code == 0 and audit() == 1
+
+
+def test_scrape_that_wrote_nothing_does_not_refresh(db, audit, monkeypatch) -> None:
+    monkeypatch.setitem(run._SOURCE_ITER, "hemnet", _iterator({}))
+    assert CliRunner().invoke(run.cli, ["scrape", "--district", "ostermalm", *SINCE]).exit_code == 0
+    assert audit() == 0
 
 
 def test_scrape_refreshes_once_on_success_and_on_an_incomplete_crawl(db, audit, monkeypatch) -> None:
@@ -215,6 +244,21 @@ def test_geocode_refreshes_when_it_wrote_rows_only(db, audit, monkeypatch) -> No
     assert audit() == 1
 
 
+def test_geocode_refreshes_rows_stored_before_a_rejected_token_aborts(db, audit, monkeypatch) -> None:
+    upsert_listings([_row("a", street="Aaa", id="id-a"), _row("b", street="Bbb", id="id-b")])
+
+    def handler(request):
+        if "Bbb" in unquote(request.url.path):
+            return httpx.Response(401, json={})
+        return httpx.Response(200, json={"features": [{"center": [18.07, 59.33]}]})
+
+    real = geo.geocode_pending
+    monkeypatch.setattr(run, "geocode_pending", lambda **kw: real(client=_mapbox(handler), **kw))
+    result = CliRunner().invoke(run.cli, ["geocode"])
+    assert result.exit_code == 78  # the token was rejected...
+    assert audit() == 1  # ...but a's coordinates were stored, so the snapshot is refreshed
+
+
 def test_backfill_dedup_refreshes_when_it_filled_keys_only(db, audit) -> None:
     upsert_listings([_row("1", dedupKey=None)])
     assert CliRunner().invoke(run.cli, ["backfill-dedup"]).exit_code == 0
@@ -233,18 +277,21 @@ def test_refresh_view_command_refreshes_and_takes_the_lock(db, audit) -> None:
     assert busy.exit_code == 75 and audit() == 1
 
 
-def test_refresh_view_reports_a_missing_function_and_a_failure(db, audit) -> None:
-    _use_function(db, None)
+def test_refresh_view_reports_a_missing_function_a_failure_and_a_busy_database(use_function) -> None:
+    use_function(None)
     missing = CliRunner().invoke(run.cli, ["refresh-view"])
     assert missing.exit_code == 0 and "refresh_deduped_listing" in missing.output and "nothing to do" in missing.output
-    _use_function(db, FAILING_STUB)
+    use_function(FAILING_STUB)
     failed = CliRunner().invoke(run.cli, ["refresh-view"])
     assert failed.exit_code == 1 and "failed" in failed.output
+    use_function(LOCK_STUB)
+    busy = CliRunner().invoke(run.cli, ["refresh-view"])
+    assert busy.exit_code == 75 and "busy" in busy.output  # a lock timeout: try again later
 
 
 @pytest.mark.parametrize("stub", [None, FAILING_STUB])
-def test_a_missing_or_failing_refresh_never_changes_a_crawl_exit_code(db, audit, monkeypatch, stub) -> None:
-    _use_function(db, stub)
+def test_a_missing_or_failing_refresh_never_changes_a_crawl_exit_code(db, use_function, monkeypatch, stub) -> None:
+    use_function(stub)
     monkeypatch.setitem(run._SOURCE_ITER, "hemnet", _iterator({"ostermalm": [_row("1")]}))
     update = CliRunner().invoke(run.cli, ["update", "--source", "hemnet", "--district", "ostermalm"])
     scrape = CliRunner().invoke(run.cli, ["scrape", "--district", "ostermalm", *SINCE])
@@ -289,6 +336,16 @@ def test_stats_compares_the_view_with_its_snapshot(db, mat_view) -> None:
     mat_view()
     fresh = CliRunner().invoke(run.cli, ["stats"])
     assert "differ" not in fresh.output and "DedupedListingMat" in fresh.output
+
+
+def test_stats_notices_content_drift_when_the_counts_still_match(db, mat_view) -> None:
+    upsert_listings([_row("1")])
+    mat_view()
+    assert "differ" not in CliRunner().invoke(run.cli, ["stats"]).output
+    with db.begin() as c:  # same row count, newer content than the snapshot
+        c.execute(text("UPDATE \"Listing\" SET \"lastSeenAt\" = \"lastSeenAt\" + interval '1 day'"))
+    drift = CliRunner().invoke(run.cli, ["stats"])
+    assert "differ" in drift.output
 
 
 def test_stats_without_a_snapshot_prints_no_comparison(db) -> None:

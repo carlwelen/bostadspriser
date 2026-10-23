@@ -181,8 +181,10 @@ def refresh_deduped() -> str:
 
     Runs in its own short transaction (never inside an upsert batch) and is
     best-effort: returns "refreshed", "missing" (the function doesn't exist yet, e.g.
-    before that migration: silent apart from a DEBUG record) or "failed" (logged as a
-    warning). It never raises, so it can't fail a crawl.
+    before that migration: silent apart from a DEBUG record), "busy" (a lock timeout,
+    SQLSTATE 55P03: another session holds the view; try again later) or "failed"
+    (anything else). Failures are logged as a warning with the SQLSTATE. It never
+    raises, so it can't fail a crawl.
     """
     try:
         with engine().begin() as c:
@@ -195,5 +197,8 @@ def refresh_deduped() -> str:
             c.execute(text("SELECT refresh_deduped_listing()"))
         return "refreshed"
     except Exception as e:  # noqa: BLE001
-        log.warning("refreshing the deduplicated snapshot failed error=%s", type(e).__name__)
-        return "failed"
+        sqlstate = getattr(getattr(e, "orig", None), "sqlstate", None)
+        log.warning(
+            "refreshing the deduplicated snapshot failed error=%s sqlstate=%s", type(e).__name__, sqlstate
+        )
+        return "busy" if sqlstate == "55P03" else "failed"

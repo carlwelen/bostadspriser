@@ -272,9 +272,8 @@ def test_backfill_module_has_no_script_entry_point_that_bypasses_the_lock() -> N
     entry_points = [
         node
         for node in tree.body
+        # any mention of __name__ in a module-level `if` (either operand order)
         if isinstance(node, ast.If)
-        and isinstance(node.test, ast.Compare)
-        and isinstance(node.test.left, ast.Name)
-        and node.test.left.id == "__name__"
+        and any(isinstance(n, ast.Name) and n.id == "__name__" for n in ast.walk(node.test))
     ]
     assert entry_points == []

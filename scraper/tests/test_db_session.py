@@ -69,6 +69,10 @@ def test_test_connections_have_a_statement_timeout_and_keep_utc(db) -> None:
         ("postgresql://u:p@h/db", "options=-c%20statement_timeout=60000"),
         ("postgresql://u:p@h/db?schema=public", "schema=public&options=-c%20statement_timeout=60000"),
         (
+            "postgresql://u:p@h/db?application_name=my%20app&x=a%2Bb",
+            "application_name=my%20app&x=a%2Bb&options=-c%20statement_timeout=60000",
+        ),
+        (
             "postgresql://u:p@h/db?options=-c%20application_name%3Dx",
             "options=-c%20application_name=x%20-c%20statement_timeout=60000",
         ),

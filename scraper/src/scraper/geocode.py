@@ -94,7 +94,10 @@ class _Retryable(Exception):
 
 class GeocodeConfigError(RuntimeError):
     """Missing or rejected Mapbox token: nothing will work, abort (CLI exit 78).
-    The message never contains the URL or the token."""
+    The message never contains the URL or the token. When raised mid-pass, `summary`
+    holds what the pass had stored by then."""
+
+    summary: "GeocodeSummary | None" = None
 
 
 class _RowFailed(Exception):
@@ -297,7 +300,8 @@ def geocode_pending(
             attempts = 1 if held else REQUEST_ATTEMPTS
             try:
                 hit = _lookup(http, cfg.mapbox_token, q, attempts)
-            except GeocodeConfigError:
+            except GeocodeConfigError as e:
+                e.summary = summary  # what was stored before the token was rejected
                 raise
             except _Retryable as e:
                 if e.rate_limited:
