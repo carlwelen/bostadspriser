@@ -119,7 +119,7 @@ export default async function InsightsPage() {
               Medelvärden grupperade efter antal rum
             </p>
           </div>
-          <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
+          <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
             <table className="w-full text-sm">
               <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wider text-zinc-500">
                 <tr>
