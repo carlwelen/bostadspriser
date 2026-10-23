@@ -210,8 +210,12 @@ def _data_point_text(card: dict, predicate) -> str | None:
     return None
 
 
-def _to_row(card: dict, district: str) -> dict | None:
-    """Map a Booli SoldProperty into the Listing column shape. Returns None if unparseable."""
+def card_fields(card: dict, district: str) -> dict | None:
+    """Derive the Listing columns that come from a SoldProperty. None if unparseable.
+
+    Pure function of the card: no id, no timestamps. `_to_row` adds those for
+    inserts; `reparse` calls this directly to re-derive stored rows from `raw`.
+    """
     booli_id = card.get("id") or card.get("booliId")
     sold_date_raw = card.get("soldDate")
     addr = card.get("streetAddress") or ""
@@ -264,8 +268,6 @@ def _to_row(card: dict, district: str) -> dict | None:
 
     final_price = int(price_sek) if price_sek else 0
     return {
-        "id": str(uuid.uuid4()),
-        "source": "booli",
         "sourceId": str(booli_id),
         "dedupKey": dedup_key(street, house, sold_at, final_price),
         "street": street,
@@ -278,7 +280,19 @@ def _to_row(card: dict, district: str) -> dict | None:
         "soldAt": sold_at,
         "lat": lat,
         "lng": lng,
-        "geocodedAt": datetime.now(timezone.utc) if lat is not None else None,
+    }
+
+
+def _to_row(card: dict, district: str) -> dict | None:
+    """Map a Booli SoldProperty into the Listing column shape. Returns None if unparseable."""
+    fields = card_fields(card, district)
+    if fields is None:
+        return None
+    return {
+        "id": str(uuid.uuid4()),
+        "source": "booli",
+        **fields,
+        "geocodedAt": datetime.now(timezone.utc) if fields["lat"] is not None else None,
         "raw": card,
     }
 

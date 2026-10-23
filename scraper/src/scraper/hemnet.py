@@ -176,8 +176,12 @@ def _extract_sale_cards(html: str) -> list[dict]:
     return [v for v in apollo.values() if isinstance(v, dict) and v.get("__typename") == "SaleCard"]
 
 
-def _to_row(card: dict, district: str) -> dict | None:
-    """Map a Hemnet SaleCard into the Listing column shape. Returns None if unparseable."""
+def card_fields(card: dict, district: str) -> dict | None:
+    """Derive the Listing columns that come from a SaleCard. None if unparseable.
+
+    Pure function of the card: no id, no timestamps. `_to_row` adds those for
+    inserts; `reparse` calls this directly to re-derive stored rows from `raw`.
+    """
     listing_id = card.get("listingId") or card.get("id")
     sold_at_raw = card.get("soldAt")
     addr = card.get("streetAddress") or ""
@@ -196,8 +200,6 @@ def _to_row(card: dict, district: str) -> dict | None:
     coords = card.get("coordinates") or {}
     price_sek = parse_sek(card.get("finalPrice", "")) or 0
     return {
-        "id": str(uuid.uuid4()),
-        "source": "hemnet",
         "sourceId": str(listing_id),
         "dedupKey": dedup_key(street, house, sold_at, price_sek),
         "street": street,
@@ -210,7 +212,19 @@ def _to_row(card: dict, district: str) -> dict | None:
         "soldAt": sold_at,
         "lat": coords.get("lat"),
         "lng": coords.get("long"),
-        "geocodedAt": datetime.now(timezone.utc) if coords.get("lat") else None,
+    }
+
+
+def _to_row(card: dict, district: str) -> dict | None:
+    """Map a Hemnet SaleCard into the Listing column shape. Returns None if unparseable."""
+    fields = card_fields(card, district)
+    if fields is None:
+        return None
+    return {
+        "id": str(uuid.uuid4()),
+        "source": "hemnet",
+        **fields,
+        "geocodedAt": datetime.now(timezone.utc) if fields["lat"] else None,
         "raw": card,
     }
 

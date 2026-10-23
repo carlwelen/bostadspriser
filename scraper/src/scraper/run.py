@@ -15,6 +15,7 @@ from .db import engine, upsert_listing
 from .geocode import geocode_pending
 from .hemnet import DISTRICT_LOCATION_IDS
 from .hemnet import iter_district as _hemnet_iter
+from .reparse import format_summary, reparse
 
 # Both sources cover the same four districts; the CLI accepts the union of slugs.
 _ALL_DISTRICTS = sorted(set(DISTRICT_LOCATION_IDS) | set(_BOOLI_DISTRICTS))
@@ -140,6 +141,20 @@ def backfill_dedup() -> None:
     """Populate dedupKey on legacy rows that predate the column."""
     n = backfill_dedup_keys()
     click.echo(f"backfilled {n} rows")
+
+
+@cli.command("reparse")
+@click.option("--dry-run", is_flag=True, help="Report what would change without writing.")
+@click.option(
+    "--batch-size",
+    default=1000,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="Rows per keyset batch / transaction.",
+)
+def reparse_cmd(dry_run: bool, batch_size: int) -> None:
+    """Re-derive street, house number, rooms, area, prices and dedupKey from `raw`."""
+    click.echo(format_summary(reparse(dry_run=dry_run, batch_size=batch_size)))
 
 
 @cli.command()
