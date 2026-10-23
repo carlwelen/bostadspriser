@@ -1,18 +1,13 @@
 import { NextResponse } from "next/server";
 import { listStreets } from "@/lib/aggregations";
-import { isDistrictSlug } from "@/lib/districts";
+import type { StreetsResponse } from "@/lib/api-types";
+import { PUBLIC_CACHE, parseQuery, streetsQuery, withApiErrors } from "@/lib/api-validation";
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const district = searchParams.get("district");
-  const limit = Math.min(Number(searchParams.get("limit") ?? 200), 1000);
+export const GET = withApiErrors("/api/streets", async (request: Request) => {
+  const parsed = parseQuery(streetsQuery, new URL(request.url).searchParams);
+  if (!parsed.ok) return parsed.response;
+  const { district, limit } = parsed.data;
 
-  if (!district || !isDistrictSlug(district)) {
-    return NextResponse.json({ error: "missing/invalid district" }, { status: 400 });
-  }
-
-  const streets = await listStreets(district, limit);
-  return NextResponse.json(streets, {
-    headers: { "Cache-Control": "public, max-age=60, stale-while-revalidate=300" },
-  });
-}
+  const streets: StreetsResponse = await listStreets(district, limit);
+  return NextResponse.json(streets, { headers: { "Cache-Control": PUBLIC_CACHE } });
+});
