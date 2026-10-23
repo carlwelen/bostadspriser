@@ -9,6 +9,7 @@ Single source of truth for the hardening loop. A resumed session told "continue 
 - **Process:** implementer agents (B scraper, C data/API, D map UI, E analytics UI) work in their own git worktrees, at most 3 at a time, one commit per backlog ID. A fresh reviewer (R) checks each task's diff and proving test. Only the orchestrator merges into `main`, one task at a time, re-running the gate after each merge. **Only the orchestrator edits this file**, so it never conflicts across worktrees; agents report status back to it.
 - **Per-worktree isolation:** each role uses its own test DB and e2e port: B → `TEST_DB_NAME=bostadspriser_test_b E2E_PORT=3102`, C → `_c`/3103, D → `_d`/3104, E → `_e`/3105, orchestrator on `main` → `bostadspriser_test` (default)/3100. Never the dev DB `bostadspriser`.
 - **Known-failing pins:** baseline bugs with a reproducing e2e test are marked `test.fail(...)` (or in `KNOWN_CONSOLE_ERRORS`) in `web/e2e/` with their ID. The fixing commit flips them to normal tests.
+- **Worktree note:** agent worktrees start from the initial commit; implementers fast-forward to `main` first (they did so in P1). Worktrees live in `.claude/worktrees/` (gitignored).
 - **Audit rounds completed:** 0 (stop condition needs two consecutive rounds with no new P0/P1).
 
 Status values: `todo`, `in-progress`, `review`, `done`, `BLOCKED: needs owner decision`.
@@ -63,13 +64,13 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 
 | ID | P | Owner | Status | Acceptance | Commit | Notes |
 |---|---|---|---|---|---|---|
-| F1 | P0 | E | in-progress | Secondary pages scroll with real input; full-height/overflow lives in the map page wrapper | | Confirmed in P0: e2e "scrolls to the footer" pinned `test.fail` |
+| F1 | P0 | E | review | Secondary pages scroll with real input; full-height/overflow lives in the map page wrapper | | Confirmed in P0: e2e "scrolls to the footer" pinned `test.fail` |
 | F2 | P0 | D | todo | Deselecting every district shows the empty state (or the last can't be deselected), consistently | | |
 | F3 | P0 | D | todo | Map popups never inject scraped strings as HTML; test with a malicious address | | |
-| F4 | P0 | E | in-progress | `<html lang="sv">` | | |
+| F4 | P0 | E | review | `<html lang="sv">` | | |
 | F5 | P0 | D | todo | Hex layer handlers registered once (no pile-up across mode switches) | | |
 | F6 | P0 | D | todo | Missing Mapbox token → clear in-app message; remove the F6 entry from `KNOWN_CONSOLE_ERRORS` | | |
-| F7 | P0 | E/D | todo | Copy reflects Booli + selected period; footer uses `DISTRICTS` display names | | Sidebar copy lives in page.tsx (D) |
+| F7 | P0 | E/D | in-progress | Copy reflects Booli + selected period; footer uses `DISTRICTS` display names | | Sidebar copy lives in page.tsx (D) |
 | F8 | P1 | E | todo | Månad/År toggle on every time-series chart, in URL (`?g=year`), year buckets formatted `2025` | | |
 | F9 | P1 | E | todo | Compare builder: add-series combobox (streets + districts), removable chips, "Jämför" buttons, dedupe, shared palette | | |
 | F10 | P1 | E | todo | House page shows address vs street vs district | | |
@@ -82,12 +83,14 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | F17 | P1 | D(+C) | todo | Data-driven quantile price legend; ramp + legend in one module | | |
 | F18 | P1 | E | todo | "Senast uppdaterad …" + per-source coverage | | Depends on B18 |
 | F19 | P1 | E/D | todo | error.tsx per segment, inline retry (drawer, map, search), loading.tsx for insights/compare/house | | |
-| F26 | P1 | E | in-progress | Unknown district/street/house responds HTTP 404 (not a streamed 200); flip the pinned e2e test | | Found in P0: `district/[slug]/loading.tsx` starts streaming before `notFound()` |
+| F26 | P1 | E | review | Unknown district/street/house responds HTTP 404 (not a streamed 200); flip the pinned e2e test | | Found in P0: `district/[slug]/loading.tsx` starts streaming before `notFound()`. E commit 9e6f889 under review |
 | F20 | P2 | D | todo | Mobile layout for `/` (bottom sheet/drawer below md; mobile nav) | | |
 | F21 | P2 | D/E | todo | aria-pressed toggles, drawer focus trap/return/aria-modal, StreetSearch combobox, SVG icon, contrast | | |
 | F22 | P2 | E | todo | One chart colour token source; colour-blind-safe district colours, identical everywhere | | |
 | F23 | P2 | E | todo | Per-page metadata, OG defaults, `metadataBase`, `/insights` in sitemap | | |
 | F27 | P2 | E | todo | Recent-sales table doesn't clip horizontally on mobile (scroll container or stacked rows) | | Found in P0 screenshot of /district/ostermalm at Pixel 7 width |
+| F28 | P2 | E | todo | Recharts `ResponsiveContainer` SSR warnings ("width(-1) and height(-1)") gone from server logs (initialDimension/minHeight) in PriceChart, Histogram, PriceAreaScatter | | From E (P1 run) |
+| F29 | P2 | E | todo | Insights subtitle "Allt räknas i SQL — inga sammanfattningar i frontend" is developer copy; rewrite for end users (Swedish) | | From E (P1 run) |
 | F24 | P3 | D | todo | Hex click → sales list; shared-coordinate popups list all sales | | |
 | F25 | P3 | E | todo | Optional dark mode via F22 tokens | | |
 

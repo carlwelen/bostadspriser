@@ -26,3 +26,6 @@ scraper/.state/
 
 # Ad-hoc screenshots in repo root
 /*.png
+
+# Agent worktrees
+.claude/worktrees/
