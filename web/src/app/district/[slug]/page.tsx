@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHero } from "@/components/PageHero";
+import { formatSales, formatSold } from "@/components/plural";
 import { PriceChart } from "@/components/PriceChart";
 import { RecentSalesTable } from "@/components/RecentSalesTable";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -75,7 +76,7 @@ export default async function DistrictPage({
               {summary.latest ?? "—"}
             </span>
             <span className="mx-2 text-zinc-500">·</span>
-            <span>{SEK.format(summary.count)} försäljningar i underlaget</span>
+            <span>{formatSales(summary.count)} i underlaget</span>
           </>
         }
       />
@@ -138,7 +139,7 @@ export default async function DistrictPage({
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-zinc-900">{s.street}</p>
                       <p className="text-xs text-zinc-500">
-                        {s.count} sålda • senast {s.latestSoldAt}
+                        {formatSold(s.count)} • senast {s.latestSoldAt}
                       </p>
                     </div>
                     <span className="shrink-0 text-sm font-medium tabular-nums text-zinc-700">
