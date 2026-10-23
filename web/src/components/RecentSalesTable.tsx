@@ -14,8 +14,14 @@ export function RecentSalesTable({
     return <p className="text-sm text-zinc-500">Inga försäljningar ännu.</p>;
   }
   return (
-    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
-      <table className="w-full text-sm">
+    // The wrapper scrolls sideways on narrow screens; the columns keep their width.
+    <div
+      role="region"
+      aria-label="Försäljningar (scrolla i sidled)"
+      tabIndex={0}
+      className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm"
+    >
+      <table className="w-full min-w-[40rem] text-sm">
         <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wider text-zinc-500">
           <tr>
             <th className="px-4 py-3 font-medium">Datum</th>
