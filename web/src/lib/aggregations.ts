@@ -170,9 +170,9 @@ export async function listStreets(
  * `\d`, because Prisma.sql reads the cooked template string.
  */
 const HOUSE_NUMBER_ORDER = Prisma.sql`
-  NULLIF(substring("houseNumber" from '^[0-9]{1,9}'), '')::int ASC NULLS LAST,
-  upper(substring("houseNumber" from '^[0-9]+[[:space:]]*([[:alpha:]])')) ASC NULLS FIRST,
-  NULLIF(substring("houseNumber" from '^[0-9]+[[:space:]]*[[:alpha:]]?[[:space:]]*-[[:space:]]*([0-9]{1,9})'), '')::int ASC NULLS FIRST,
+  NULLIF(substring(btrim("houseNumber") from '^[0-9]{1,9}'), '')::int ASC NULLS LAST,
+  upper(substring(btrim("houseNumber") from '^[0-9]+[[:space:]]*([[:alpha:]])')) ASC NULLS FIRST,
+  NULLIF(substring(btrim("houseNumber") from '^[0-9]+[[:space:]]*[[:alpha:]]?[[:space:]]*[-–][[:space:]]*([0-9]{1,9})'), '')::int ASC NULLS FIRST,
   "houseNumber" ASC`;
 
 export async function listHouseNumbers(

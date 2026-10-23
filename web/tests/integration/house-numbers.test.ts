@@ -63,6 +63,11 @@ describe("listHouseNumbers ordering, harder cases", () => {
     ]);
   });
 
+  it("trims whitespace and accepts an en dash in ranges", async () => {
+    await seedHouses([" 10", "10–12", "9 ", "10-11", "8"]);
+    expect(await order()).toEqual(["8", "9 ", " 10", "10-11", "10–12"]);
+  });
+
   it("does not overflow on absurdly long digit runs", async () => {
     await seedHouses(["99999999999999999999", "7"]);
     expect(await order()).toEqual(["7", "99999999999999999999"]);

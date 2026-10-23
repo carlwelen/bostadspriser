@@ -110,10 +110,11 @@ describe("/api/heatmap validation", () => {
   });
 
   it("accepts a zero-width bbox (BETWEEN is inclusive)", async () => {
-    // Exactly one fixture point: Östermalm centroid (59.3378, 18.0805).
+    // Two fixture sales sit exactly on the Östermalm centroid (59.3378, 18.0805):
+    // the first Karlavägen sale and the recent one.
     const res = await heatmapGET(req("/api/heatmap?bbox=18.0805,59.3378,18.0805,59.3378"));
     expect(res.status).toBe(200);
-    expect((await res.json()).features.length).toBeGreaterThan(0);
+    expect((await res.json()).features).toHaveLength(2);
     expect((await heatmapGET(req("/api/heatmap?bbox=18,59,18,60"))).status).toBe(200);
     expect((await heatmapGET(req("/api/heatmap?bbox=17,59.5,18,59.5"))).status).toBe(200);
   });

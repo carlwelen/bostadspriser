@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db";
 import { MIN_MOM_SALES, districtMomChange } from "@/lib/aggregations";
 import type { DistrictSlug } from "@/lib/districts";
@@ -155,14 +155,19 @@ describe("districtMomChange", () => {
 });
 
 describe("districtMomChange without asOf", () => {
-  beforeAll(async () => {
-    await seed(prisma);
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("defaults asOf to the current time", async () => {
-    // (Racy only if the test straddles a month boundary in Stockholm.)
-    for (const d of ["ostermalm", "vasastan"] as const) {
-      expect(await districtMomChange(d)).toEqual(await districtMomChange(d, new Date()));
-    }
+    // Pin "now" and give both complete months data, so the result is non-null
+    // and depends on the clock: a wrong default (e.g. the epoch) finds nothing.
+    await seed(prisma, [...sales("2026-02", N, 100_000), ...sales("2026-03", N, 110_000)]);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(APRIL);
+    const mom = await districtMomChange("vasastan");
+    expect(mom).not.toBeNull();
+    expect(mom).toMatchObject({ previous: 100_000, current: 110_000 });
+    expect(mom).toEqual(await districtMomChange("vasastan", APRIL));
   });
 });
