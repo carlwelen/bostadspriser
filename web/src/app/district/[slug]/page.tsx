@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { GranularityToggle } from "@/components/GranularityToggle";
-import { granularityMeanLabel, parseGranularity } from "@/components/granularity";
+import { granularityCaption, parseGranularity } from "@/components/granularity";
 import { PageHero } from "@/components/PageHero";
 import { formatSales, formatSold } from "@/components/plural";
 import { PriceChart } from "@/components/PriceChart";
@@ -101,7 +101,7 @@ export default async function DistrictPage({
               <h2 className="text-base font-medium text-zinc-900">
                 Pris/m² över tid
               </h2>
-              <p className="text-xs text-zinc-500">{granularityMeanLabel(granularity)}</p>
+              <p className="text-xs text-zinc-500">{granularityCaption(granularity)}</p>
             </div>
             <div className="flex items-center gap-3">
               <GranularityToggle granularity={granularity} path={`/district/${slug}`} />
@@ -135,8 +135,14 @@ export default async function DistrictPage({
                         {formatSold(s.count)} • senast {s.latestSoldAt}
                       </p>
                     </div>
-                    <span className="shrink-0 text-sm font-medium tabular-nums text-zinc-700">
-                      {SEK.format(s.meanPricePerSqm)}
+                    <span className="shrink-0 text-right">
+                      <span className="block text-sm font-medium tabular-nums text-zinc-900">
+                        {SEK.format(s.medianPricePerSqm)}
+                        <span className="ml-1 text-[11px] font-normal text-zinc-500">median</span>
+                      </span>
+                      <span className="block text-[11px] tabular-nums text-zinc-500">
+                        medel {SEK.format(s.meanPricePerSqm)} kr/m²
+                      </span>
                     </span>
                   </Link>
                 </li>

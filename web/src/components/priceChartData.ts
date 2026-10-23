@@ -9,7 +9,12 @@ export function isLowSample(count: number | undefined): boolean {
 
 export type ChartSeries = {
   name: string;
-  points: Array<{ bucket: string; meanPricePerSqm: number; count: number }>;
+  points: Array<{
+    bucket: string;
+    medianPricePerSqm: number;
+    meanPricePerSqm: number;
+    count: number;
+  }>;
 };
 
 /** One chart row: `t` (UTC ms of the bucket start) plus, per series, its value and sale count. */
@@ -17,6 +22,8 @@ export type ChartRow = { t: number } & Record<string, number | undefined>;
 
 /** Key under which a series' sale count is stored in a row. */
 export const countKey = (name: string) => `${name}__n`;
+/** Key under which a series' mean is stored in a row (the plotted value is the median). */
+export const meanKey = (name: string) => `${name}__mean`;
 
 function stepUtc(ms: number, granularity: Granularity): number {
   const d = new Date(ms);
@@ -45,7 +52,8 @@ export function buildChartData(
       min = Math.min(min, t);
       max = Math.max(max, t);
       const row = byTime.get(t) ?? { t };
-      row[s.name] = p.meanPricePerSqm;
+      row[s.name] = p.medianPricePerSqm;
+      row[meanKey(s.name)] = p.meanPricePerSqm;
       row[countKey(s.name)] = p.count;
       byTime.set(t, row);
     }

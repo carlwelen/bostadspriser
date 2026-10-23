@@ -4,13 +4,16 @@ import {
   buildChartData,
   countKey,
   isLowSample,
+  meanKey,
   pickTicks,
   type ChartSeries,
 } from "./priceChartData";
 
-const pt = (bucket: string, mean: number, count: number) => ({
+// The mean sits 1 000 above the median so the two can't be mixed up.
+const pt = (bucket: string, median: number, count: number) => ({
   bucket,
-  meanPricePerSqm: mean,
+  medianPricePerSqm: median,
+  meanPricePerSqm: median + 1000,
   count,
 });
 
@@ -36,8 +39,13 @@ describe("buildChartData", () => {
   it("uses UTC millisecond timestamps as the x value", () => {
     const { rows } = buildChartData([a], "month");
     expect(rows[0].t).toBe(MS("2025-01-01"));
-    expect(rows[0].A).toBe(100);
     expect(rows[0][countKey("A")]).toBe(5);
+  });
+
+  it("plots the median and keeps the mean alongside it", () => {
+    const { rows } = buildChartData([a], "month");
+    expect(rows[0].A).toBe(100);
+    expect(rows[0][meanKey("A")]).toBe(1100);
   });
 
   it("fills missing months with empty rows so the line breaks there", () => {

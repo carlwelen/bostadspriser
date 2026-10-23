@@ -8,9 +8,9 @@ export function parseGranularity(value: string | string[] | undefined): Granular
   return first === "year" ? "year" : "month";
 }
 
-/** Caption for the chart's buckets: "Månadsmedel" or "Årsmedel". */
-export function granularityMeanLabel(granularity: Granularity): string {
-  return granularity === "year" ? "Årsmedel" : "Månadsmedel";
+/** Caption for the chart's buckets: the plotted value is the median per bucket. */
+export function granularityCaption(granularity: Granularity): string {
+  return granularity === "year" ? "Median kr/m² per år" : "Median kr/m² per månad";
 }
 
 /**

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { GranularityToggle } from "@/components/GranularityToggle";
-import { granularityMeanLabel, parseGranularity } from "@/components/granularity";
+import { granularityCaption, parseGranularity } from "@/components/granularity";
 import { PageHero } from "@/components/PageHero";
 import { PriceChart } from "@/components/PriceChart";
 import { RecentSalesTable } from "@/components/RecentSalesTable";
@@ -69,7 +69,7 @@ export default async function AddressPage({
                 Pris/m² över tid
               </h2>
               <p className="text-xs text-zinc-500">
-                {granularityMeanLabel(granularity)} — adress vs gata vs stadsdel
+                {granularityCaption(granularity)} — adress vs gata vs stadsdel
               </p>
             </div>
             <GranularityToggle

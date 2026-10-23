@@ -20,13 +20,15 @@ import {
   countKey,
   isLowSample,
   pickTicks,
+  meanKey,
   type ChartRow,
+  type ChartSeries,
 } from "./priceChartData";
 
 export type Series = {
   name: string;
   color?: string;
-  points: Array<{ bucket: string; meanPricePerSqm: number; count: number }>;
+  points: ChartSeries["points"];
 };
 
 // Multi-series palette tuned to feel data-forward, not playful.
@@ -75,6 +77,7 @@ function ChartTooltip({
         {entries.map((e) => {
           const name = String(e.name);
           const n = e.payload?.[countKey(name)];
+          const mean = e.payload?.[meanKey(name)];
           return (
             <li key={name}>
               <p className="flex items-center gap-1.5 text-zinc-700">
@@ -82,8 +85,13 @@ function ChartTooltip({
                 <span className="font-medium text-zinc-900">{name}</span>
               </p>
               <p className="pl-3.5 tabular-nums text-zinc-700">
-                {SEK.format(Number(e.value))} kr/m² medel
+                Median {SEK.format(Number(e.value))} kr/m²
               </p>
+              {mean !== undefined && (
+                <p className="pl-3.5 tabular-nums text-zinc-500">
+                  Medel {SEK.format(mean)} kr/m²
+                </p>
+              )}
               {n !== undefined && (
                 <p className="pl-3.5 tabular-nums text-zinc-500">
                   {formatSales(n)}

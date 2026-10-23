@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { GranularityToggle } from "@/components/GranularityToggle";
-import { granularityMeanLabel, parseGranularity } from "@/components/granularity";
+import { granularityCaption, parseGranularity } from "@/components/granularity";
 import { PageHero } from "@/components/PageHero";
 import { formatSales, formatSold } from "@/components/plural";
 import { PriceChart } from "@/components/PriceChart";
@@ -97,7 +97,7 @@ export default async function StreetPage({
               <h2 className="text-base font-medium text-zinc-900">
                 Pris/m² över tid
               </h2>
-              <p className="text-xs text-zinc-500">{granularityMeanLabel(granularity)}</p>
+              <p className="text-xs text-zinc-500">{granularityCaption(granularity)}</p>
             </div>
             <GranularityToggle
               granularity={granularity}
@@ -120,8 +120,10 @@ export default async function StreetPage({
                     <p className="text-sm font-medium text-zinc-900">
                       {street} {h.houseNumber}
                     </p>
-                    <p className="mt-1 text-xs text-zinc-500">
-                      {formatSold(h.count)} • {SEK.format(h.meanPricePerSqm)} kr/m²
+                    <p className="mt-1 text-xs text-zinc-500">{formatSold(h.count)}</p>
+                    <p className="text-xs tabular-nums text-zinc-500">
+                      Median {SEK.format(h.medianPricePerSqm)} • medel{" "}
+                      {SEK.format(h.meanPricePerSqm)} kr/m²
                     </p>
                   </Link>
                 </li>
