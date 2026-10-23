@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from click.testing import CliRunner
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 from scraper import booli, hemnet
 from scraper.backfill import backfill_dedup_keys
@@ -179,6 +181,54 @@ def test_reparse_derives_missing_per_sqm_and_never_rewrites_to_zero(db) -> None:
     assert rows["500"]["pricePerSqmSek"] == 140_000  # round(4_900_000 / 35)
     assert rows["501"]["priceSek"] == 0 and rows["501"]["dedupKey"] == "old"  # reported, untouched
     assert reparse().changed == 0
+
+
+def test_reparse_corrects_sold_at_and_keeps_dedup_key_consistent(db) -> None:
+    """Legacy UTC/DST off-by-one: raw is authoritative, key must match the stored date."""
+    legacy = _legacy(hemnet, HEMNET_CARD, "sodermalm", soldAt=date(2026, 5, 1), dedupKey="stale")
+    upsert_listing(legacy)
+    summary = reparse(dry_run=True)
+    assert summary.by_field["soldAt"] == 1
+    assert summary.sold_at_mismatch == 1
+    assert _rows(db)["100"]["soldAt"] == date(2026, 5, 1)  # dry run wrote nothing
+
+    reparse()
+    row = _rows(db)["100"]
+    assert row["soldAt"] == date(2026, 5, 2)
+    assert row["dedupKey"] == dedup_key(row["street"], row["houseNumber"], row["soldAt"], row["priceSek"])
+    assert reparse().changed == 0
+
+
+def test_reparse_is_idempotent_for_two_decimal_areas_and_rooms(db) -> None:
+    """The DB rounds to 1 decimal; card_fields must too or every run rewrites the row."""
+    card = {**HEMNET_CARD, "livingArea": "35,25 m²", "rooms": "2,25 rum", "squareMeterPrice": "140 000 kr/m²"}
+    row = hemnet._to_row(card, "sodermalm")
+    assert row is not None
+    assert row["areaSqm"] == 35.3 and row["rooms"] == 2.3
+    upsert_listing(row)
+    assert reparse().changed == 0
+    assert reparse().changed == 0
+
+
+def test_reparse_locks_batch_rows_unless_dry_run(db) -> None:
+    """A concurrent upsert must not slip a newer raw in between SELECT and UPDATE."""
+    _seed(db)
+    statements: list[str] = []
+
+    def capture(conn, cursor, statement, *args):  # noqa: ARG001
+        statements.append(statement)
+
+    event.listen(db, "before_cursor_execute", capture)
+    try:
+        reparse(dry_run=True)
+        dry = [s for s in statements if s.lstrip().upper().startswith("SELECT") and '"Listing"' in s]
+        statements.clear()
+        reparse()
+        real = [s for s in statements if s.lstrip().upper().startswith("SELECT") and '"Listing"' in s]
+    finally:
+        event.remove(db, "before_cursor_execute", capture)
+    assert dry and not any("FOR UPDATE" in s for s in dry)
+    assert real and all("FOR UPDATE" in s for s in real)
 
 
 def test_reparse_cli_dry_run_then_real(db) -> None:

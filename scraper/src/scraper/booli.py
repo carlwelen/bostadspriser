@@ -45,6 +45,7 @@ from .normalize import (
     parse_sqm,
     parse_street_address,
     resolve_prices,
+    round_1dp,
 )
 
 # Booli encodes `soldDate` as a plain ISO date string ("2026-05-02") so no
@@ -281,8 +282,8 @@ def card_fields(card: dict, district: str) -> dict | None:
         "street": street,
         "houseNumber": house,
         "district": district,
-        "rooms": parse_rooms(rooms_text),
-        "areaSqm": area_sqm,
+        "rooms": round_1dp(parse_rooms(rooms_text)),
+        "areaSqm": round_1dp(area_sqm),
         "priceSek": final_price,
         "pricePerSqmSek": price_per_sqm,
         "soldAt": sold_at,

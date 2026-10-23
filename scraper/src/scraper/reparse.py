@@ -29,7 +29,9 @@ _DERIVERS: dict[str, Callable[[dict, str], dict | None]] = {
 }
 
 # Columns reparse owns. Everything else (ids, coordinates, timestamps, raw) is
-# left alone; soldAt is only compared and reported.
+# left alone. soldAt is re-derived too: raw is authoritative (the Stockholm-zone
+# fix landed after some rows were stored), and dedupKey is computed from the
+# derived date, so leaving the stored date would make the two disagree.
 FIELDS = (
     "street",
     "houseNumber",
@@ -37,6 +39,7 @@ FIELDS = (
     "areaSqm",
     "priceSek",
     "pricePerSqmSek",
+    "soldAt",
     "dedupKey",
 )
 
@@ -54,7 +57,7 @@ class ReparseSummary:
     # (id, source, reason) — capped sample; the full count is `unparseable`.
     unparseable_samples: list[tuple[str, str, str]] = field(default_factory=list)
     unparseable: int = 0
-    # Rows whose stored soldAt differs from the one in `raw` (not rewritten).
+    # Rows whose stored soldAt differed from the one in `raw` (also counted in by_field).
     sold_at_mismatch: int = 0
     dry_run: bool = False
 
@@ -69,12 +72,17 @@ def _same(old: Any, new: Any) -> bool:
 
 
 def reparse(*, dry_run: bool = False, batch_size: int = 1000) -> ReparseSummary:
-    """Re-derive FIELDS for every row from its `raw` card, in id-keyset batches."""
+    """Re-derive FIELDS for every row from its `raw` card, in id-keyset batches.
+
+    Rows inserted mid-run with an id below the keyset cursor are not seen by this
+    run; they are picked up by the next one (and a fresh insert is already
+    derived by the current parsers anyway).
+    """
     if batch_size < 1:
         raise ValueError("batch_size must be >= 1")
     table = listing_table()
     summary = ReparseSummary(dry_run=dry_run)
-    cols = [table.c.id, table.c.source, table.c.district, table.c.soldAt, table.c.raw]
+    cols = [table.c.id, table.c.source, table.c.district, table.c.raw]
     cols += [table.c[f] for f in FIELDS]
     write = update(table).where(table.c.id == bindparam("b_id")).values(
         {f: bindparam(f"n_{f}") for f in FIELDS}
@@ -85,6 +93,11 @@ def reparse(*, dry_run: bool = False, batch_size: int = 1000) -> ReparseSummary:
         query = select(*cols).order_by(table.c.id).limit(batch_size)
         if last_id is not None:
             query = query.where(table.c.id > last_id)
+        if not dry_run:
+            # Lock the batch so a concurrent `update` can't upsert a newer raw
+            # between this SELECT and our UPDATE (we'd overwrite it with values
+            # derived from the older card). The upsert waits, then wins.
+            query = query.with_for_update()
         with session() as s:
             rows = s.execute(query).all()
             if not rows:
@@ -102,10 +115,9 @@ def reparse(*, dry_run: bool = False, batch_size: int = 1000) -> ReparseSummary:
                 if derived is None:
                     _note_unparseable(summary, row, "raw card no longer parses")
                     continue
-                if derived["soldAt"] != row.soldAt:
-                    summary.sold_at_mismatch += 1
-
                 changed = [f for f in FIELDS if not _same(getattr(row, f), derived[f])]
+                if "soldAt" in changed:
+                    summary.sold_at_mismatch += 1
                 if not changed:
                     continue
                 summary.changed += 1
@@ -142,7 +154,7 @@ def format_summary(summary: ReparseSummary) -> str:
         for row_id, f, old, new in summary.examples:
             lines.append(f"  {row_id} {f}: {old!r} -> {new!r}")
     if summary.sold_at_mismatch:
-        lines.append(f"{summary.sold_at_mismatch} rows have a soldAt that differs from raw (not rewritten)")
+        lines.append(f"{summary.sold_at_mismatch} rows had a soldAt that differed from raw")
     if summary.unparseable:
         lines.append(f"{summary.unparseable} rows no longer parse (left untouched):")
         for row_id, source, reason in summary.unparseable_samples:

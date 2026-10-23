@@ -8,6 +8,7 @@ and return numeric types or None.
 from __future__ import annotations
 
 import re
+from decimal import ROUND_HALF_UP, Decimal
 
 # Matches digit groups with optional non-breaking/regular spaces.
 _DIGIT_RE = re.compile(r"[\d \s]+")
@@ -107,6 +108,17 @@ def resolve_prices(
             return None
         per_sqm_sek = int(round(price_sek / area_sqm))
     return int(price_sek), int(per_sqm_sek)
+
+
+def round_1dp(value: float | None) -> float | None:
+    """Round like Postgres does for the Decimal(_, 1) columns (half away from zero).
+
+    Applied to rooms and areaSqm before they leave the parsers so what an insert
+    stores and what `reparse` derives are the same number (35.25 -> 35.3).
+    """
+    if value is None:
+        return None
+    return float(Decimal(str(value)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
 
 
 DISTRICT_ALIASES = {

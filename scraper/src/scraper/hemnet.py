@@ -39,6 +39,7 @@ from .normalize import (
     parse_sqm,
     parse_street_address,
     resolve_prices,
+    round_1dp,
 )
 
 # Hemnet encodes `soldAt` as a Unix timestamp at Stockholm-local midnight.
@@ -218,8 +219,8 @@ def card_fields(card: dict, district: str) -> dict | None:
         "street": street,
         "houseNumber": house,
         "district": district,
-        "rooms": parse_rooms(card.get("rooms")),
-        "areaSqm": area_sqm,
+        "rooms": round_1dp(parse_rooms(card.get("rooms"))),
+        "areaSqm": round_1dp(area_sqm),
         "priceSek": price_sek,
         "pricePerSqmSek": price_per_sqm,
         "soldAt": sold_at,
