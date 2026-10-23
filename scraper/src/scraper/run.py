@@ -16,6 +16,7 @@ from .backfill import backfill_dedup_keys
 from .booli import DISTRICT_AREA_IDS as _BOOLI_DISTRICTS
 from .booli import iter_district as _booli_iter
 from . import crawl_state, scrape_run
+from .cluster import dedup_keys_in_multiple_clusters, match_clusters
 from .db import DEFAULT_BATCH_SIZE, engine, refresh_deduped, upsert_listings
 from .errors import CrawlIncomplete
 from .geocode import MAX_ATTEMPTS as MAX_GEOCODE_ATTEMPTS
@@ -128,8 +129,8 @@ def cli(log_level: str) -> None:
     """Bostadspriser scraper.
 
     \b
-    One run at a time: scrape, update, backfill, reparse, geocode and backfill-dedup
-    share an exclusive lock on update.lock (next to storageState.json, in
+    One run at a time: scrape, update, backfill, reparse, geocode, cluster, refresh-view
+    and backfill-dedup share an exclusive lock on update.lock (next to storageState.json, in
     scraper/.state/). A second run exits with code 75 (EX_TEMPFAIL) and a message
     naming the lock; the lock is released when the process ends, so a leftover
     file never blocks. Exit codes: 0 ok; 1 failed or incomplete; 75 (EX_TEMPFAIL) busy
@@ -374,6 +375,15 @@ def update(
             mark_inline_pending()
         except Exception as e:  # noqa: BLE001
             click.echo(f"warning: could not relabel inline-coordinate rows: {e}", err=True)
+        try:
+            # Link cross-source copies the exact dedupKey misses, before the snapshot
+            # is refreshed so it sees the clusters. Also best-effort.
+            clustered = match_clusters()
+            if clustered.rows_updated:
+                click.echo(f"clustered {clustered.rows_updated} rows in {clustered.components} clusters")
+            _warn_split_keys(clustered.violations)
+        except Exception as e:  # noqa: BLE001
+            click.echo(f"warning: clustering failed: {e}", err=True)
     finally:
         # Once, after every source/district (partial and failed runs stored rows too).
         # Unconditional: `update` is the cron entry point, so a refresh that failed on a
@@ -580,6 +590,46 @@ def reparse_cmd(dry_run: bool, batch_size: int) -> None:
         refresh_deduped()
 
 
+def _warn_split_keys(violations: list[tuple[str, list[str]]]) -> None:
+    if violations:
+        click.echo(
+            f"warning: {len(violations)} dedupKey(s) span more than one cluster "
+            "(the same sale split over clusters); `scraper cluster` heals this",
+            err=True,
+        )
+        for key, cids in violations[:5]:
+            click.echo(f"  {key}: {', '.join(cids)}", err=True)
+
+
+@cli.command("cluster")
+@click.option("--dry-run", is_flag=True, help="Report what would be linked without writing.")
+@click.option("--batch-size", default=500, show_default=True, type=click.IntRange(min=1),
+              help="Clusters written per transaction.")
+@exclusive
+def cluster_cmd(dry_run: bool, batch_size: int) -> None:
+    """Link cross-source copies of one sale that `dedupKey` misses (assigns clusterId).
+
+    Same normalized address, different sources, sold within 3 days, price within 0.5%.
+    All rows sharing a dedupKey share one clusterId, which is the smallest dedupKey of
+    the cluster. Idempotent; `update` runs it too. Exits 1 if a dedupKey is still split
+    over several clusters afterwards.
+    """
+    summary = match_clusters(dry_run=dry_run, batch_size=batch_size)
+    verb = "would update" if dry_run else "updated"
+    click.echo(
+        f"{'dry run: ' if dry_run else ''}{summary.pairs} matching pairs; {verb} "
+        f"{summary.rows_updated} rows in {summary.components} clusters "
+        f"({summary.propagated} rows inherited a cluster from their dedupKey)"
+    )
+    for target, keys in summary.examples:
+        click.echo(f"  cluster {target}: {len(keys)} dedupKeys")
+    if not dry_run and summary.rows_updated:
+        refresh_deduped()
+    if summary.violations:
+        _warn_split_keys(summary.violations)
+        sys.exit(1)
+
+
 @cli.command("refresh-view")
 @exclusive
 def refresh_view() -> None:
@@ -617,6 +667,7 @@ def stats() -> None:
             f"{d:12} {n:>6} {str(earliest):>12} {str(latest):>12} {(mean or 0):>12,}"
         )
     _echo_snapshot_counts()
+    _warn_split_keys(dedup_keys_in_multiple_clusters())
 
 
 def _echo_snapshot_counts() -> None:

@@ -233,4 +233,8 @@ def scrape_runs(request, monkeypatch):
     monkeypatch.setattr(scrape_run, "finish_run", fake.finish_run)
     # `update` relabels inline-coordinate rows at the end; no database in these tests.
     monkeypatch.setattr("scraper.run.mark_inline_pending", lambda: 0)
+    # ...and clusters cross-source copies; the matcher has its own database tests.
+    from scraper.cluster import ClusterSummary
+
+    monkeypatch.setattr("scraper.run.match_clusters", lambda **kw: ClusterSummary())
     return fake
