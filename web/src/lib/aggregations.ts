@@ -415,6 +415,89 @@ export async function globalSummary(): Promise<{
   };
 }
 
+/** Dedup-aware headline numbers for a set of sales (kr/m², whole kronor). */
+export type SalesSummary = {
+  count: number;
+  meanPricePerSqm: number | null;
+  /** Median is robust to the odd outlier sale; prefer it over the mean for display. */
+  medianPricePerSqm: number | null;
+  earliest: string | null;
+  latest: string | null;
+};
+
+export type DistrictStreetCount = SalesSummary & {
+  /** Distinct streets with at least one sale in the district. */
+  streetCount: number;
+};
+
+type SummaryRow = {
+  n: bigint;
+  streets: bigint;
+  mean: bigint | null;
+  median: bigint | null;
+  earliest: Date | null;
+  latest: Date | null;
+};
+
+async function summarize(
+  scope: Prisma.Sql
+): Promise<{ summary: SalesSummary; streetCount: number }> {
+  const [row] = await prisma.$queryRaw<SummaryRow[]>(Prisma.sql`
+    SELECT COUNT(*)::bigint                                                      AS n,
+           COUNT(DISTINCT street)::bigint                                        AS streets,
+           AVG("pricePerSqmSek")::bigint                                         AS mean,
+           ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY "pricePerSqmSek"))::numeric)::bigint AS median,
+           MIN("soldAt")                                                         AS earliest,
+           MAX("soldAt")                                                         AS latest
+    FROM "DedupedListing"
+    WHERE ${scope}
+      AND "pricePerSqmSek" > 0
+  `);
+  return {
+    streetCount: Number(row?.streets ?? 0),
+    summary: {
+      count: Number(row?.n ?? 0),
+      meanPricePerSqm: row?.mean != null ? Number(row.mean) : null,
+      medianPricePerSqm: row?.median != null ? Number(row.median) : null,
+      earliest: row?.earliest?.toISOString().slice(0, 10) ?? null,
+      latest: row?.latest?.toISOString().slice(0, 10) ?? null,
+    },
+  };
+}
+
+/** Summary of every sale on one street. */
+export async function streetSummary(
+  district: DistrictSlug,
+  street: string
+): Promise<SalesSummary> {
+  const { summary } = await summarize(
+    Prisma.sql`district = ${district}::"District" AND street = ${street}`
+  );
+  return summary;
+}
+
+/** Summary of every sale at one address (street + house number, exact match). */
+export async function addressSummary(
+  district: DistrictSlug,
+  street: string,
+  houseNumber: string
+): Promise<SalesSummary> {
+  const { summary } = await summarize(
+    Prisma.sql`district = ${district}::"District" AND street = ${street} AND "houseNumber" = ${houseNumber}`
+  );
+  return summary;
+}
+
+/** Exact number of streets with sales in a district, plus the district summary. */
+export async function districtStreetCount(
+  district: DistrictSlug
+): Promise<DistrictStreetCount> {
+  const { streetCount, summary } = await summarize(
+    Prisma.sql`district = ${district}::"District"`
+  );
+  return { streetCount, ...summary };
+}
+
 export type DistrictSummary = {
   count: number;
   meanPricePerSqm: number | null;
