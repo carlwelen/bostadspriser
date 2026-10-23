@@ -7,6 +7,7 @@ import { cellToBoundary, latLngToCell } from "h3-js";
 
 import { AddressDrawer, type AddressSelection } from "./AddressDrawer";
 import type { DistrictSlug } from "@/lib/districts";
+import { buildHexPopup, buildPricePopup } from "./map/popups";
 
 export type HeatmapMode = "price" | "frequency";
 
@@ -234,36 +235,13 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
       });
 
       const popup = new mapboxgl.Popup({ closeButton: false, offset: 8 });
-      const sourceChips = (sourcesCsv: string): string => {
-        const sources = (sourcesCsv ?? "").split(",").filter(Boolean);
-        const cls = (s: string) =>
-          s === "hemnet" ? "color:#be123c" : s === "booli" ? "color:#1d4ed8" : "color:#52525b";
-        const initials = sources
-          .map((s) => `<span style="${cls(s)};font-weight:600">${s === "hemnet" ? "H" : s === "booli" ? "B" : s[0].toUpperCase()}</span>`)
-          .join('<span style="color:#a1a1aa">&nbsp;+&nbsp;</span>');
-        return `<span style="display:inline-flex;align-items:center;gap:4px;background:#f4f4f5;padding:1px 6px;border-radius:9999px;font-size:10px">${initials}</span>`;
-      };
       map.on("mouseenter", PRICE_POINT_LAYER, (e) => {
         map.getCanvas().style.cursor = "pointer";
         const f = e.features?.[0];
         if (!f || f.geometry.type !== "Point") return;
         const [lng, lat] = (f.geometry as GeoJSON.Point).coordinates;
         const p = f.properties as PointFeature["properties"];
-        const sek = new Intl.NumberFormat("sv-SE").format(p.pricePerSqm);
-        popup
-          .setLngLat([lng, lat])
-          .setHTML(
-            `<div style="font:12px ui-sans-serif,system-ui;line-height:1.45;min-width:160px">
-               <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                 <strong>${p.address}</strong>
-                 ${sourceChips(p.sources)}
-               </div>
-               <div style="margin-top:2px;color:#0f172a">${sek} kr/m²</div>
-               <div style="color:#71717a">${p.soldAt}</div>
-               <div style="margin-top:6px;color:#1d4ed8;font-weight:500;letter-spacing:0.01em">Klicka för historik →</div>
-             </div>`
-          )
-          .addTo(map);
+        popup.setLngLat([lng, lat]).setDOMContent(buildPricePopup(p)).addTo(map);
       });
       map.on("mouseleave", PRICE_POINT_LAYER, () => {
         map.getCanvas().style.cursor = "";
@@ -346,22 +324,15 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
         offset: 8,
         className: "hex-popup",
       });
-      const hexLabel = (count: number): string => {
-        const period = sinceDaysRef.current
-          ? sinceDaysToLabel(sinceDaysRef.current)
-          : "hela perioden";
-        const word = count === 1 ? "försäljning" : "försäljningar";
-        return `<div style="font:12px ui-sans-serif,system-ui;line-height:1.4">
-          <strong style="font-size:14px">${count}</strong> ${word}<br/>
-          <span style="color:#71717a">${period}</span>
-        </div>`;
-      };
       map.on("mouseenter", HEX_FILL_LAYER, (e) => {
         map.getCanvas().style.cursor = "pointer";
         const f = e.features?.[0];
         if (!f) return;
         const p = f.properties as { count: number };
-        hexPopup.setLngLat(e.lngLat).setHTML(hexLabel(p.count)).addTo(map);
+        const period = sinceDaysRef.current
+          ? sinceDaysToLabel(sinceDaysRef.current)
+          : "hela perioden";
+        hexPopup.setLngLat(e.lngLat).setDOMContent(buildHexPopup(p.count, period)).addTo(map);
       });
       map.on("mousemove", HEX_FILL_LAYER, (e) => {
         // Reposition the popup as the cursor moves over the hex.
