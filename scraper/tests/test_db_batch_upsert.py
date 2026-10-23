@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import pytest
 from sqlalchemy import text
@@ -56,6 +56,43 @@ def test_batch_inserts_many_rows_and_is_idempotent(db) -> None:
     assert len(after) == 25
     assert {r["priceSek"] for r in after.values()} == {5_000_000}
     assert {r["sourceId"]: r["id"] for r in after.values()} == ids
+
+
+def _stamps(db) -> dict[str, tuple[datetime, datetime]]:
+    with db.connect() as c:
+        rows = c.execute(text('SELECT "sourceId", "scrapedAt", "lastSeenAt" FROM "Listing"')).all()
+    return {r[0]: (r[1], r[2]) for r in rows}
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+@pytest.mark.parametrize("batched", [False, True])
+def test_every_upsert_bumps_last_seen_at_but_never_scraped_at(db, batched) -> None:
+    """B9: `lastSeenAt` is the latest sighting; `scrapedAt` stays the first insert."""
+
+    def put(row: dict) -> None:
+        upsert_listings([row]) if batched else upsert_listing(row)
+
+    put(_row("seen"))
+    scraped, seen = _stamps(db)["seen"]
+    assert abs((seen - _utc_now()).total_seconds()) < 60  # set on insert (DB default, UTC)
+
+    old = datetime(2020, 1, 1)
+    with db.begin() as c:
+        c.execute(text('UPDATE "Listing" SET "scrapedAt" = :t, "lastSeenAt" = :t'), {"t": old})
+    put(_row("seen", priceSek=5_000_000))  # re-scrape of the same sale
+    scraped, seen = _stamps(db)["seen"]
+    assert scraped == old  # first-insert time untouched
+    assert abs((seen - _utc_now()).total_seconds()) < 60  # bumped on conflict
+
+
+def test_last_seen_at_from_the_caller_is_ignored(db) -> None:
+    upsert_listings([_row("x")])
+    bogus = datetime(2001, 1, 1)
+    upsert_listings([_row("x", lastSeenAt=bogus)])
+    assert _stamps(db)["x"][1] != bogus
 
 
 def test_batch_with_empty_input_is_a_no_op(db) -> None:

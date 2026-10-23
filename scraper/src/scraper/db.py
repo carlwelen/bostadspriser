@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Iterator
 
-from sqlalchemy import MetaData, Table, and_, case, create_engine
+from sqlalchemy import MetaData, Table, and_, case, create_engine, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
@@ -68,6 +68,8 @@ def session() -> Iterator[Session]:
 # Never overwritten on conflict: the natural key and the primary key.
 _CONFLICT_KEPT = frozenset({"source", "sourceId", "id"})
 _COORDINATE_COLS = frozenset({"lat", "lng", "geocodedAt"})
+# Stamped by the database, never taken from the caller: scrapedAt/lastSeenAt.
+_SERVER_STAMPED = frozenset({"scrapedAt", "lastSeenAt"})
 
 
 def upsert_listing(row: dict) -> None:
@@ -132,8 +134,13 @@ def _upsert_stmt(rows: list[dict]):
     stmt = pg_insert(table).values(rows)
     cols = rows[0].keys()
     update_cols = {
-        c: stmt.excluded[c] for c in cols if c not in _CONFLICT_KEPT | _COORDINATE_COLS
+        c: stmt.excluded[c]
+        for c in cols
+        if c not in _CONFLICT_KEPT | _COORDINATE_COLS | _SERVER_STAMPED
     }
+    # Every sighting bumps lastSeenAt (the view's tie-breaker); scrapedAt keeps
+    # the first insert. The session is pinned to UTC, so now() lands as UTC.
+    update_cols["lastSeenAt"] = func.now()
     # A re-scrape without coordinates must not wipe good (or geocoded) ones:
     # the lat/lng/geocodedAt trio is replaced together, and only when the
     # incoming row carries a complete lat+lng pair. Evaluated per row.
