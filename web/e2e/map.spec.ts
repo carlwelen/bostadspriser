@@ -73,6 +73,93 @@ test("deselecting every district shows the empty state and requests nothing", as
   expect(heatmapRequests[0]).toContain("districts=vasastan");
 });
 
+// F15: filters round-trip through the URL.
+function logHeatmapRequests(page: Page): URL[] {
+  const urls: URL[] = [];
+  page.on("request", (r) => {
+    const u = new URL(r.url());
+    if (u.pathname === "/api/heatmap") urls.push(u);
+  });
+  return urls;
+}
+
+test("filters are read from the URL on load", async ({ page }) => {
+  const reqs = logHeatmapRequests(page);
+  await page.goto("/?districts=vasastan&rooms=2,3&period=3mo&mode=frequency");
+  await page.waitForLoadState("networkidle");
+
+  await expect(page.getByRole("button", { name: "Vasastan", exact: true })).toHaveAttribute("aria-pressed", "true");
+  for (const name of ["Östermalm", "Norrmalm", "Södermalm"]) {
+    await expect(page.getByRole("button", { name, exact: true })).toHaveAttribute("aria-pressed", "false");
+  }
+  await expect(page.getByText("1 av 4")).toBeVisible();
+  for (const [name, pressed] of [["1", "false"], ["2", "true"], ["3", "true"], ["4", "false"]]) {
+    await expect(page.getByRole("button", { name, exact: true })).toHaveAttribute("aria-pressed", pressed);
+  }
+  await expect(page.getByRole("button", { name: "3 mån", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Frekvens", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("source-note")).toContainText("senaste 3 månaderna");
+
+  expect(reqs).toHaveLength(1);
+  expect(reqs[0].searchParams.get("districts")).toBe("vasastan");
+  expect(reqs[0].searchParams.get("rooms")).toBe("2,3");
+  expect(reqs[0].searchParams.get("sinceDays")).toBe("90");
+});
+
+test("changing a filter updates the URL without adding history entries", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+  const historyBefore = await page.evaluate(() => history.length);
+
+  await page.getByRole("button", { name: "Södermalm", exact: true }).click();
+  await page.getByRole("button", { name: "2", exact: true }).click();
+  await page.getByRole("button", { name: "Allt", exact: true }).click();
+  await page.getByRole("button", { name: "Frekvens", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Visa heatmap" }).uncheck();
+
+  await expect.poll(() => new URL(page.url()).search).toBe(
+    "?districts=ostermalm%2Cvasastan%2Cnorrmalm&rooms=2&period=all&mode=frequency&heatmap=0"
+  );
+  expect(await page.evaluate(() => history.length)).toBe(historyBefore);
+
+  // Reload restores the same state.
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Södermalm", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("button", { name: "Allt", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("checkbox", { name: "Visa heatmap" })).not.toBeChecked();
+
+  // Back to the defaults gives a clean URL.
+  await page.getByRole("button", { name: "Södermalm", exact: true }).click();
+  await page.getByRole("button", { name: "2", exact: true }).click();
+  await page.getByRole("button", { name: "12 mån", exact: true }).click();
+  await page.getByRole("button", { name: "Pris", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Visa heatmap" }).check();
+  await expect.poll(() => new URL(page.url()).search).toBe("");
+});
+
+test("invalid URL parameters fall back to the defaults", async ({ page }) => {
+  const reqs = logHeatmapRequests(page);
+  await page.goto("/?districts=gamla-stan&rooms=9,x&period=forever&mode=3d&heatmap=maybe");
+  await page.waitForLoadState("networkidle");
+  await expect(page.getByText("4 av 4")).toBeVisible();
+  await expect(page.getByRole("button", { name: "12 mån", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Pris", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("checkbox", { name: "Visa heatmap" })).toBeChecked();
+  expect(reqs).toHaveLength(1);
+  expect(reqs[0].searchParams.get("districts")).toBe("ostermalm,vasastan,norrmalm,sodermalm");
+  expect(reqs[0].searchParams.has("rooms")).toBe(false);
+  expect(reqs[0].searchParams.get("sinceDays")).toBe("365");
+});
+
+test("/?districts= opens the empty state without a request", async ({ page }) => {
+  const reqs = logHeatmapRequests(page);
+  await page.goto("/?districts=");
+  await page.waitForLoadState("networkidle");
+  await expect(page.getByText("Inga stadsdelar valda")).toBeVisible();
+  await expect(page.getByText("0 av 4")).toBeVisible();
+  expect(reqs).toHaveLength(0);
+});
+
 // F7: the sidebar note names both sources and follows the selected period.
 test("the sidebar source note names Hemnet and Booli and follows the period", async ({ page }) => {
   await page.goto("/");

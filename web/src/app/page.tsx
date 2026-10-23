@@ -1,49 +1,72 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import {
-  HeatmapMap,
-  type HeatmapFilters,
-  type HeatmapMode,
-} from "@/components/HeatmapMap";
+import { Suspense, useMemo, useRef } from "react";
+import { useSearchParams } from "next/navigation";
+import { HeatmapMap, type HeatmapFilters } from "@/components/HeatmapMap";
 import { BrandMark } from "@/components/BrandMark";
 import { StreetSearch } from "@/components/StreetSearch";
 import Link from "next/link";
 import { DISTRICTS, type DistrictSlug } from "@/lib/districts";
+import {
+  parseFilters,
+  periodToSinceDays,
+  serializeFilters,
+  type MapFilterState,
+  type MapMode,
+  type MapPeriod,
+} from "@/components/map/filterParams";
 
-const ALL_DISTRICTS = DISTRICTS.map((d) => d.slug);
 const ROOM_OPTIONS = [1, 2, 3, 4, 5];
-const SINCE_OPTIONS = [
-  { label: "30 dagar", phrase: "senaste 30 dagarna", value: 30 },
-  { label: "3 mån", phrase: "senaste 3 månaderna", value: 90 },
-  { label: "12 mån", phrase: "senaste 12 månaderna", value: 365 },
-  { label: "Allt", phrase: "hela perioden", value: undefined as number | undefined },
+const PERIOD_OPTIONS: Array<{ label: string; phrase: string; value: MapPeriod }> = [
+  { label: "30 dagar", phrase: "senaste 30 dagarna", value: "30d" },
+  { label: "3 mån", phrase: "senaste 3 månaderna", value: "3mo" },
+  { label: "12 mån", phrase: "senaste 12 månaderna", value: "12mo" },
+  { label: "Allt", phrase: "hela perioden", value: "all" },
 ];
 
+// useSearchParams() needs a Suspense boundary for the static prerender.
 export default function HomePage() {
-  const [selected, setSelected] = useState<DistrictSlug[]>([...ALL_DISTRICTS]);
-  const [showHeatmap, setShowHeatmap] = useState(true);
-  const [mode, setMode] = useState<HeatmapMode>("price");
-  const [rooms, setRooms] = useState<number[]>([]);
-  const [sinceDays, setSinceDays] = useState<number | undefined>(365);
+  return (
+    <Suspense fallback={<div className="h-dvh bg-zinc-50" />}>
+      <MapPage />
+    </Suspense>
+  );
+}
+
+function MapPage() {
+  // The URL is the single source of truth for the filters (F15). Changes use
+  // history.replaceState rather than pushState: filtering refines one view
+  // instead of navigating, so Back should leave the map, not step through
+  // every toggle. Next syncs replaceState into useSearchParams.
+  const qs = useSearchParams().toString();
+  const state = useMemo(() => parseFilters(new URLSearchParams(qs)), [qs]);
+  // Latest state, so two quick clicks before React re-renders don't clobber each other.
+  const latest = useRef(state);
+  latest.current = state;
+
+  const update = (patch: Partial<MapFilterState>) => {
+    const next = { ...latest.current, ...patch };
+    latest.current = next;
+    const search = serializeFilters(next);
+    window.history.replaceState(null, "", search ? `?${search}` : window.location.pathname);
+  };
 
   const toggleDistrict = (slug: DistrictSlug) => {
-    setSelected((prev) =>
-      prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug]
-    );
+    const cur = latest.current.districts;
+    update({ districts: cur.includes(slug) ? cur.filter((s) => s !== slug) : [...cur, slug] });
   };
   const toggleRoom = (n: number) => {
-    setRooms((prev) =>
-      prev.includes(n) ? prev.filter((r) => r !== n) : [...prev, n]
-    );
+    const cur = latest.current.rooms;
+    update({ rooms: cur.includes(n) ? cur.filter((r) => r !== n) : [...cur, n] });
   };
 
+  const sinceDays = periodToSinceDays(state.period);
   const filters: HeatmapFilters = useMemo(
     () => ({
-      rooms: rooms.length ? rooms : undefined,
+      rooms: state.rooms.length ? state.rooms : undefined,
       sinceDays,
     }),
-    [rooms, sinceDays]
+    [state.rooms, sinceDays]
   );
 
   return (
@@ -55,23 +78,24 @@ export default function HomePage() {
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 md:flex-row">
         <main className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-zinc-200 bg-white">
           <HeatmapMap
-            districts={selected}
-            showHeatmap={showHeatmap}
-            mode={mode}
+            districts={state.districts}
+            showHeatmap={state.showHeatmap}
+            mode={state.mode}
             filters={filters}
           />
         </main>
         <Sidebar
-          selected={selected}
+          selected={state.districts}
           onToggleDistrict={toggleDistrict}
-          showHeatmap={showHeatmap}
-          onToggleHeatmap={() => setShowHeatmap((v) => !v)}
-          mode={mode}
-          onChangeMode={setMode}
-          rooms={rooms}
+          showHeatmap={state.showHeatmap}
+          onToggleHeatmap={() => update({ showHeatmap: !latest.current.showHeatmap })}
+          mode={state.mode}
+          onChangeMode={(mode) => update({ mode })}
+          rooms={state.rooms}
           onToggleRoom={toggleRoom}
-          sinceDays={sinceDays}
-          onSetSinceDays={setSinceDays}
+          onClearRooms={() => update({ rooms: [] })}
+          period={state.period}
+          onSetPeriod={(period) => update({ period })}
         />
       </div>
     </div>
@@ -108,12 +132,13 @@ type SidebarProps = {
   onToggleDistrict: (slug: DistrictSlug) => void;
   showHeatmap: boolean;
   onToggleHeatmap: () => void;
-  mode: HeatmapMode;
-  onChangeMode: (mode: HeatmapMode) => void;
+  mode: MapMode;
+  onChangeMode: (mode: MapMode) => void;
   rooms: number[];
   onToggleRoom: (n: number) => void;
-  sinceDays: number | undefined;
-  onSetSinceDays: (v: number | undefined) => void;
+  onClearRooms: () => void;
+  period: MapPeriod;
+  onSetPeriod: (p: MapPeriod) => void;
 };
 
 function Sidebar({
@@ -125,8 +150,9 @@ function Sidebar({
   onChangeMode,
   rooms,
   onToggleRoom,
-  sinceDays,
-  onSetSinceDays,
+  onClearRooms,
+  period,
+  onSetPeriod,
 }: SidebarProps) {
   return (
     <aside className="flex max-h-[45%] w-full shrink-0 flex-col gap-5 overflow-y-auto md:max-h-none md:w-80 rounded-xl border border-zinc-200 bg-white p-5">
@@ -144,6 +170,7 @@ function Sidebar({
             return (
               <button
                 key={d.slug}
+                aria-pressed={on}
                 onClick={() => onToggleDistrict(d.slug)}
                 className={
                   "rounded-lg border px-3 py-2 text-left text-sm transition " +
@@ -167,6 +194,7 @@ function Sidebar({
             return (
               <button
                 key={n}
+                aria-pressed={on}
                 onClick={() => onToggleRoom(n)}
                 className={
                   "rounded-md border px-2.5 py-1 text-xs font-medium transition " +
@@ -181,7 +209,7 @@ function Sidebar({
           })}
           {rooms.length > 0 && (
             <button
-              onClick={() => rooms.forEach((r) => onToggleRoom(r))}
+              onClick={onClearRooms}
               className="text-[11px] text-zinc-500 underline-offset-2 hover:underline"
             >
               rensa
@@ -193,12 +221,13 @@ function Sidebar({
       <section>
         <p className="text-xs text-zinc-500">Tidsperiod</p>
         <div className="mt-2 inline-flex w-full overflow-hidden rounded-lg border border-zinc-200">
-          {SINCE_OPTIONS.map((opt) => {
-            const active = opt.value === sinceDays;
+          {PERIOD_OPTIONS.map((opt) => {
+            const active = opt.value === period;
             return (
               <button
                 key={opt.label}
-                onClick={() => onSetSinceDays(opt.value)}
+                aria-pressed={active}
+                onClick={() => onSetPeriod(opt.value)}
                 className={
                   "flex-1 px-2 py-1.5 text-xs transition " +
                   (active
@@ -249,7 +278,7 @@ function Sidebar({
       </section>
 
       <p data-testid="source-note" className="mt-auto pt-3 text-[11px] text-zinc-500">
-        Källa: sålda bostäder från Hemnet och Booli, {SINCE_OPTIONS.find((o) => o.value === sinceDays)?.phrase} i
+        Källa: sålda bostäder från Hemnet och Booli, {PERIOD_OPTIONS.find((o) => o.value === period)?.phrase} i
         Stockholms innerstad.
       </p>
     </aside>
@@ -260,10 +289,10 @@ function ModeSwitch({
   mode,
   onChange,
 }: {
-  mode: HeatmapMode;
-  onChange: (m: HeatmapMode) => void;
+  mode: MapMode;
+  onChange: (m: MapMode) => void;
 }) {
-  const options: Array<{ value: HeatmapMode; label: string; hint: string }> = [
+  const options: Array<{ value: MapMode; label: string; hint: string }> = [
     { value: "price", label: "Pris", hint: "kr/m²" },
     { value: "frequency", label: "Frekvens", hint: "antal sålda" },
   ];
@@ -276,6 +305,7 @@ function ModeSwitch({
           return (
             <button
               key={opt.value}
+              aria-pressed={active}
               onClick={() => onChange(opt.value)}
               className={
                 "flex-1 rounded-md px-3 py-1.5 text-sm transition " +
