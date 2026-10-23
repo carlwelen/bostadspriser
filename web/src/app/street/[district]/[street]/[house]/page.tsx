@@ -1,4 +1,6 @@
 import { notFound } from "next/navigation";
+import { GranularityToggle } from "@/components/GranularityToggle";
+import { granularityMeanLabel, parseGranularity } from "@/components/granularity";
 import { PageHero } from "@/components/PageHero";
 import { PriceChart } from "@/components/PriceChart";
 import { RecentSalesTable } from "@/components/RecentSalesTable";
@@ -15,18 +17,21 @@ export const dynamic = "force-dynamic";
 
 export default async function AddressPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ district: string; street: string; house: string }>;
+  searchParams: Promise<{ g?: string | string[] }>;
 }) {
   const { district: districtParam, street: streetSlug, house } = await params;
+  const granularity = parseGranularity((await searchParams).g);
   const resolved = await resolveStreet(districtParam, streetSlug);
   if (!resolved) notFound();
   const { district, street } = resolved;
   const houseNumber = decodeURIComponent(house);
 
   const [streetPoints, addressPoints, summary, sales] = await Promise.all([
-    streetTimeseries(district, street, "month"),
-    streetTimeseries(district, street, "month", houseNumber),
+    streetTimeseries(district, street, granularity),
+    streetTimeseries(district, street, granularity, houseNumber),
     addressSummary(district, street, houseNumber),
     recentSales({ district, street, houseNumber }, 50),
   ]);
@@ -52,17 +57,26 @@ export default async function AddressPage({
         <SummaryCards summary={summary} extra={<StatCard label="Gata" value={street} />} />
 
         <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-          <div className="flex items-end justify-between">
-            <h2 className="text-base font-medium text-zinc-900">
-              Pris/m² över tid
-            </h2>
-            <p className="text-xs text-zinc-500">Månadsmedel — adress vs gata</p>
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <h2 className="text-base font-medium text-zinc-900">
+                Pris/m² över tid
+              </h2>
+              <p className="text-xs text-zinc-500">
+                {granularityMeanLabel(granularity)} — adress vs gata
+              </p>
+            </div>
+            <GranularityToggle
+              granularity={granularity}
+              path={`/street/${district}/${streetSlug}/${encodeURIComponent(houseNumber)}`}
+            />
           </div>
           <PriceChart
             series={[
               { name: `${street} ${houseNumber}`, points: addressPoints, color: "#2563eb" },
               { name: `${street} (gata)`, points: streetPoints, color: "#a1a1aa" },
             ]}
+            granularity={granularity}
           />
         </section>
 

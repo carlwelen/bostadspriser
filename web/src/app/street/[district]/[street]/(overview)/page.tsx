@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { GranularityToggle } from "@/components/GranularityToggle";
+import { granularityMeanLabel, parseGranularity } from "@/components/granularity";
 import { PageHero } from "@/components/PageHero";
 import { formatSales, formatSold } from "@/components/plural";
 import { PriceChart } from "@/components/PriceChart";
@@ -39,16 +41,19 @@ const SEK = new Intl.NumberFormat("sv-SE");
 
 export default async function StreetPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ district: string; street: string }>;
+  searchParams: Promise<{ g?: string | string[] }>;
 }) {
   const { district: districtParam, street: streetSlug } = await params;
+  const granularity = parseGranularity((await searchParams).g);
   const resolved = await resolveStreet(districtParam, streetSlug);
   if (!resolved) notFound();
   const { district, street } = resolved;
 
   const [points, summary, houses, sales] = await Promise.all([
-    streetTimeseries(district, street, "month"),
+    streetTimeseries(district, street, granularity),
     streetSummary(district, street),
     listHouseNumbers(district, street),
     recentSales({ district, street }, 50),
@@ -87,13 +92,19 @@ export default async function StreetPage({
         />
 
         <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-          <div className="flex items-end justify-between">
-            <h2 className="text-base font-medium text-zinc-900">
-              Pris/m² över tid
-            </h2>
-            <p className="text-xs text-zinc-500">Månadsmedel</p>
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <h2 className="text-base font-medium text-zinc-900">
+                Pris/m² över tid
+              </h2>
+              <p className="text-xs text-zinc-500">{granularityMeanLabel(granularity)}</p>
+            </div>
+            <GranularityToggle
+              granularity={granularity}
+              path={`/street/${district}/${streetSlug}`}
+            />
           </div>
-          <PriceChart series={[{ name: street, points }]} />
+          <PriceChart series={[{ name: street, points }]} granularity={granularity} />
         </section>
 
         {houses.length > 0 && (
