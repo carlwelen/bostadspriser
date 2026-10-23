@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { formatUpdated, latestUpdate, partialRuns, sourceLabel } from "@/components/freshness";
 import { Histogram } from "@/components/Histogram";
 import { PageHero } from "@/components/PageHero";
 import { formatSold } from "@/components/plural";
@@ -10,9 +11,11 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { StatCard } from "@/components/StatCard";
 import {
   globalSummary,
+  latestScrapeRuns,
   pricePerSqmDistribution,
   priceAreaSample,
   roomsBreakdown,
+  sourceFreshness,
   topMovers,
 } from "@/lib/aggregations";
 import { districtName } from "@/lib/districts";
@@ -35,7 +38,7 @@ export const metadata: Metadata = {
 };
 
 export default async function InsightsPage() {
-  const [summary, distribution, rooms, scatter, moversUp, moversDown] =
+  const [summary, distribution, rooms, scatter, moversUp, moversDown, sources, runs] =
     await Promise.all([
       globalSummary(),
       pricePerSqmDistribution(BUCKET_WIDTH),
@@ -43,7 +46,11 @@ export default async function InsightsPage() {
       priceAreaSample(800),
       topMovers("up", 6),
       topMovers("down", 6),
+      sourceFreshness(),
+      latestScrapeRuns(),
     ]);
+  const updated = latestUpdate(sources);
+  const partial = partialRuns(runs);
 
   return (
     <>
@@ -53,9 +60,18 @@ export default async function InsightsPage() {
         title="Mönster i Stockholms innerstad"
         accent="Stockholms innerstad"
         subtitle={
-          summary.earliest && summary.latest
-            ? `Slutpriser i Stockholms innerstad från ${summary.earliest} till ${summary.latest}, sammanställda från Hemnet och Booli. Där det går visas median, eftersom enstaka mycket dyra affärer annars drar upp snittet.`
-            : "Underlaget laddas in löpande från Hemnet och Booli."
+          <>
+            <p>
+              {summary.earliest && summary.latest
+                ? `Slutpriser i Stockholms innerstad från ${summary.earliest} till ${summary.latest}, sammanställda från Hemnet och Booli. Där det går visas median, eftersom enstaka mycket dyra affärer annars drar upp snittet.`
+                : "Underlaget laddas in löpande från Hemnet och Booli."}
+            </p>
+            <p className="mt-2 text-zinc-400">
+              {updated
+                ? `Senast uppdaterad ${formatUpdated(updated)}.`
+                : "Ingen uppdatering har registrerats ännu."}
+            </p>
+          </>
         }
       />
       <main className="mx-auto max-w-6xl space-y-10 px-6 py-10">
@@ -170,6 +186,64 @@ export default async function InsightsPage() {
               </tbody>
             </table>
           </div>
+        </section>
+
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-base font-medium text-zinc-900">Datakällor</h2>
+            <p className="text-xs text-zinc-500">
+              När varje källa senast hämtades och vilka försäljningsdatum den täcker. Antalet är
+              råa rader, så samma affär kan räknas av båda källorna.
+            </p>
+          </div>
+          <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
+            <table className="w-full min-w-[34rem] text-sm">
+              <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Källa</th>
+                  <th className="px-4 py-3 font-medium">Senast uppdaterad</th>
+                  <th className="px-4 py-3 font-medium">Försäljningsdatum</th>
+                  <th className="px-4 py-3 text-right font-medium">Rader</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {sources.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-6 text-sm text-zinc-500">
+                      Inga källor har hämtats ännu.
+                    </td>
+                  </tr>
+                ) : (
+                  sources.map((src) => (
+                    <tr key={src.source}>
+                      <td className="px-4 py-2.5 font-medium text-zinc-900">
+                        {sourceLabel(src.source)}
+                      </td>
+                      <td className="px-4 py-2.5 tabular-nums text-zinc-700">
+                        {src.lastSuccessAt ? formatUpdated(src.lastSuccessAt) : "Ingen lyckad hämtning"}
+                      </td>
+                      <td className="px-4 py-2.5 tabular-nums text-zinc-700">
+                        {src.earliestSoldAt && src.latestSoldAt
+                          ? `${src.earliestSoldAt} → ${src.latestSoldAt}`
+                          : "—"}
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-zinc-700">
+                        {SEK.format(src.listingCount)}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          {partial.length > 0 && (
+            <p className="text-xs text-amber-700">
+              {partial
+                .map((p) => `${sourceLabel(p.source)} (${districtName(p.district)})`)
+                .join(", ")}
+              : senaste hämtningen avbröts i förtid, så de allra senaste affärerna kan saknas.
+            </p>
+          )}
         </section>
       </main>
       <SiteFooter />
