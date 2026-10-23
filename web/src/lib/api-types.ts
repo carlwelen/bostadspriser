@@ -4,7 +4,12 @@
 
 import type { DistrictSlug } from "./districts";
 
-export type { StreetSummary, TimeseriesPoint } from "./aggregations";
+export type {
+  LatestScrapeRun,
+  SourceFreshness,
+  StreetSummary,
+  TimeseriesPoint,
+} from "./aggregations";
 import type { StreetSummary, TimeseriesPoint } from "./aggregations";
 
 /** Body of every 4xx/5xx response. `issues` is set on 400s only. */

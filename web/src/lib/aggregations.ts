@@ -786,3 +786,103 @@ export async function addressDrawerData(
     })),
   };
 }
+
+// Scraper freshness (B18). Written by the scraper into "ScrapeRun"; read by the UI.
+
+export type LatestScrapeRun = {
+  source: string;
+  district: DistrictSlug;
+  status: "ok" | "partial";
+  /** ISO timestamps (UTC). */
+  startedAt: string;
+  finishedAt: string;
+  pages: number;
+  rowsUpserted: number;
+  rowsRejected: number;
+  /** Oldest sale date (YYYY-MM-DD) the run reached, if recorded. */
+  oldestSoldAt: string | null;
+};
+
+/** For every (source, district): its most recently finished ok/partial run. */
+export async function latestScrapeRuns(): Promise<LatestScrapeRun[]> {
+  const rows = await prisma.$queryRaw<
+    Array<{
+      source: string;
+      district: DistrictSlug;
+      status: "ok" | "partial";
+      startedAt: Date;
+      finishedAt: Date;
+      pages: number;
+      rowsUpserted: number;
+      rowsRejected: number;
+      oldestSoldAt: Date | null;
+    }>
+  >(Prisma.sql`
+    SELECT DISTINCT ON (source, district)
+           source, district::text AS district, status::text AS status,
+           "startedAt", "finishedAt", pages, "rowsUpserted", "rowsRejected", "oldestSoldAt"
+    FROM "ScrapeRun"
+    WHERE status IN ('ok', 'partial') AND "finishedAt" IS NOT NULL
+    ORDER BY source, district, "finishedAt" DESC, "startedAt" DESC
+  `);
+  return rows.map((r) => ({
+    source: r.source,
+    district: r.district,
+    status: r.status,
+    startedAt: r.startedAt.toISOString(),
+    finishedAt: r.finishedAt.toISOString(),
+    pages: r.pages,
+    rowsUpserted: r.rowsUpserted,
+    rowsRejected: r.rowsRejected,
+    oldestSoldAt: r.oldestSoldAt?.toISOString().slice(0, 10) ?? null,
+  }));
+}
+
+export type SourceFreshness = {
+  source: string;
+  /** Finish time (ISO, UTC) of the source's latest ok/partial run; null if it has none. */
+  lastSuccessAt: string | null;
+  /** Raw (not deduplicated) rows from this source, and the sold-date range they cover. */
+  listingCount: number;
+  earliestSoldAt: string | null;
+  latestSoldAt: string | null;
+};
+
+/** Per source: when it last scraped successfully and which sale dates it covers. */
+export async function sourceFreshness(): Promise<SourceFreshness[]> {
+  const rows = await prisma.$queryRaw<
+    Array<{
+      source: string;
+      last_success: Date | null;
+      n: bigint;
+      earliest: Date | null;
+      latest: Date | null;
+    }>
+  >(Prisma.sql`
+    WITH runs AS (
+      SELECT source, MAX("finishedAt") AS last_success
+      FROM "ScrapeRun"
+      WHERE status IN ('ok', 'partial') AND "finishedAt" IS NOT NULL
+      GROUP BY source
+    ), coverage AS (
+      SELECT source, COUNT(*)::bigint AS n, MIN("soldAt") AS earliest, MAX("soldAt") AS latest
+      FROM "Listing"
+      GROUP BY source
+    )
+    SELECT COALESCE(c.source, r.source) AS source,
+           r.last_success,
+           COALESCE(c.n, 0)::bigint     AS n,
+           c.earliest,
+           c.latest
+    FROM coverage c
+    FULL OUTER JOIN runs r ON r.source = c.source
+    ORDER BY 1
+  `);
+  return rows.map((r) => ({
+    source: r.source,
+    lastSuccessAt: r.last_success?.toISOString() ?? null,
+    listingCount: Number(r.n),
+    earliestSoldAt: r.earliest?.toISOString().slice(0, 10) ?? null,
+    latestSoldAt: r.latest?.toISOString().slice(0, 10) ?? null,
+  }));
+}
