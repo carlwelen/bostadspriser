@@ -153,6 +153,13 @@ def mapbox():
     return Mapbox()
 
 
+@pytest.fixture(autouse=True)
+def _id_order(monkeypatch):
+    """Passes pick their row order from a fresh random salt; tests want the plain id
+    order unless they pass `order_salt` themselves."""
+    monkeypatch.setattr(geo, "_new_salt", lambda: "")
+
+
 @pytest.fixture()
 def sleeps(monkeypatch):
     recorded: list[float] = []
@@ -498,15 +505,16 @@ def test_sustained_connect_error_stops_after_a_few_rows(db, sleeps) -> None:
     assert all(r["geocodeAttempts"] == 0 for r in _all(db).values())
 
 
-def test_a_success_resets_the_outage_streak_and_charges_the_rows_that_failed_before_it(db, mapbox, sleeps) -> None:
+def test_a_success_resets_the_streak_and_charges_only_rows_that_had_the_full_budget(db, mapbox, sleeps) -> None:
     ids = [("a", "Aaa", "id-1"), ("b", "Bbb", "id-2"), ("c", "Ccc", "id-3")]
     upsert_listings([_row(sid, street=street, id=rid) for sid, street, rid in ids])
     mapbox.answers = {"Aaa": [("status", 503)], "Bbb": [("status", 503)], "Ccc": [("ok", INSIDE)]}
     summary = _pass(mapbox)
     got = _all(db)
-    assert not summary.unavailable and (summary.failed, summary.ok) == (2, 1)
-    assert got["a"]["geocodeStatus"] == "failed" and got["a"]["geocodeAttempts"] == 1
-    assert got["b"]["geocodeStatus"] == "failed" and got["b"]["geocodeAttempts"] == 1
+    assert not summary.unavailable and (summary.failed, summary.ok) == (1, 1)
+    assert got["a"]["geocodeStatus"] == "failed" and got["a"]["geocodeAttempts"] == 1  # full retry budget
+    # b was tried once (a streak had started), so a brief blip must not charge it
+    assert got["b"]["geocodeStatus"] == "pending" and got["b"]["geocodeAttempts"] == 0
     assert got["c"]["geocodeStatus"] == "ok"
 
 
@@ -683,3 +691,81 @@ def test_help_documents_the_geocode_exit_codes() -> None:
     assert "78" in out and "EX_CONFIG" in out
     geocode_help = CliRunner().invoke(run.cli, ["geocode", "--help"]).output
     assert "75" in geocode_help and "78" in geocode_help
+
+
+# ---------------------------------------------------------------------------
+# B16 review 4: starvation, reduced-budget charging, documented bound
+# ---------------------------------------------------------------------------
+
+
+def test_persistently_failing_rows_cannot_starve_the_rest_of_the_backlog(db, sleeps) -> None:
+    """Three always-5xx rows used to sort first on every pass (same attempts, same ids),
+    trip the breaker each time, and keep the good row from ever being requested."""
+    upsert_listings(
+        [_row(f"p{i}", street=f"Poison{i}", id=f"id-{i}") for i in range(3)]
+        + [_row("good", street="Fine", id="id-9")]
+    )
+    mb = Mapbox()
+    mb.answers = {"Poison": [("status", 503)], "Fine": [("ok", INSIDE)]}
+    for i in range(40):
+        geo.geocode_pending(limit=50, client=mb.client(), order_salt=f"pass-{i}")
+        if _all(db)["good"]["geocodeStatus"] == "ok":
+            break
+    assert _all(db)["good"]["geocodeStatus"] == "ok", "the good row was never reached"
+    assert i < 40
+
+
+def test_the_order_rotates_between_passes_but_is_stable_for_one_salt(db, mapbox, sleeps) -> None:
+    upsert_listings([_row(str(i), street=f"Gata{i}", id=f"id-{i}") for i in range(8)])
+
+    def order(salt: str) -> tuple[str, ...]:
+        with db.begin() as c:  # back to un-geocoded
+            c.execute(text(
+                'UPDATE "Listing" SET lat = NULL, lng = NULL, "geocodeStatus" = \'pending\', "geocodeAttempts" = 0'
+            ))
+        mapbox.requests.clear()
+        geo.geocode_pending(limit=8, client=mapbox.client(), order_salt=salt)
+        return tuple(unquote(r.url.path) for r in mapbox.requests)
+
+    assert order("same") == order("same")
+    assert len({order(f"other-{i}") for i in range(6)}) > 1
+
+
+def test_only_rows_that_got_the_full_retry_budget_are_charged(db, mapbox, sleeps) -> None:
+    """After the first failing row a streak is under way and later rows get a single try;
+    a brief blip must not charge them."""
+    upsert_listings(
+        [_row("first", street="First", id="id-1"), _row("second", street="Second", id="id-2"),
+         _row("good", street="Fine", id="id-3")]
+    )
+    mapbox.answers = {"First": [("status", 503)], "Second": [("status", 503)], "Fine": [("ok", INSIDE)]}
+    summary = geo.geocode_pending(limit=50, client=mapbox.client(), order_salt="x")
+    got = _all(db)
+    # the order is salted; make the assertion order-independent: whichever failing row came
+    # first had the full budget (charged), the one after it was reduced (not charged)
+    assert got["good"]["geocodeStatus"] == "ok"
+    charged = sorted(got[k]["geocodeAttempts"] for k in ("first", "second"))
+    assert charged in ([0, 1], [0, 0]) and summary.failed == charged.count(1)
+
+
+def test_reduced_budget_rows_stay_uncharged_when_a_later_row_is_answered(db, sleeps, monkeypatch) -> None:
+    """Deterministic version: force the order first, second, good."""
+    upsert_listings(
+        [_row("first", street="First", id="id-1"), _row("second", street="Second", id="id-2"),
+         _row("good", street="Fine", id="id-3")]
+    )
+    mb = Mapbox()
+    mb.answers = {"First": [("status", 503)], "Second": [("status", 503)], "Fine": [("ok", INSIDE)]}
+    summary = geo.geocode_pending(limit=50, client=mb.client())
+    got = _all(db)
+    assert got["first"]["geocodeAttempts"] == 1 and got["first"]["geocodeStatus"] == "failed"
+    assert got["second"]["geocodeAttempts"] == 0 and got["second"]["geocodeStatus"] == "pending"
+    assert got["good"]["geocodeStatus"] == "ok" and summary.failed == 1
+    asked = [unquote(r.url.path) for r in mb.requests]
+    assert sum("First" in p for p in asked) == geo.REQUEST_ATTEMPTS
+    assert sum("Second" in p for p in asked) == 1
+
+
+def test_help_documents_the_always_failing_row_bound() -> None:
+    out = CliRunner().invoke(run.cli, ["geocode", "--help"]).output
+    assert "never charged" in out and f"{geo.REQUEST_ATTEMPTS} requests" in out

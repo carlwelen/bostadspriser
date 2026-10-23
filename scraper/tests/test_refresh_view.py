@@ -245,6 +245,7 @@ def test_geocode_refreshes_when_it_wrote_rows_only(db, audit, monkeypatch) -> No
 
 
 def test_geocode_refreshes_rows_stored_before_a_rejected_token_aborts(db, audit, monkeypatch) -> None:
+    monkeypatch.setattr(geo, "_new_salt", lambda: "")  # plain id order: a is geocoded before b is rejected
     upsert_listings([_row("a", street="Aaa", id="id-a"), _row("b", street="Bbb", id="id-b")])
 
     def handler(request):

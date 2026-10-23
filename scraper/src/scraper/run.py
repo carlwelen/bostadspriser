@@ -515,6 +515,10 @@ def geocode(limit: int, max_attempts: int) -> None:
     Mapbox/the network was unavailable (nothing was charged, rows keep their attempt
     budget; run again later); 78 (EX_CONFIG) the Mapbox token is missing or rejected;
     1 an unexpected internal error repeated on several rows (nothing charged).
+
+    A row that Mapbox only ever answers with 5xx/network errors is never charged: it
+    stays selectable and costs about 4 requests (with backoff) each time it is reached
+    first, and the pass exits 75 when nothing else was answered.
     """
     try:
         summary = geocode_pending(limit=limit, max_attempts=max_attempts)

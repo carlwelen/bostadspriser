@@ -16,12 +16,13 @@ from __future__ import annotations
 import logging
 import re
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.parse import quote
 
 import httpx
-from sqlalchemy import bindparam, or_, select, text, update
+from sqlalchemy import bindparam, func, or_, select, text, update
 from tenacity import (
     RetryCallState,
     Retrying,
@@ -75,8 +76,11 @@ class GeocodeSummary:
     # The pass stopped early because Mapbox kept answering 429. The rows not yet
     # tried (and the one that tripped it) keep their attempt budget.
     rate_limited: bool = False
-    # The pass stopped early after OUTAGE_ROW_LIMIT consecutive rows failed on
-    # 5xx/network errors (Mapbox down or we are offline). Those rows keep their budget.
+    # The pass stopped early because OUTAGE_ROW_LIMIT consecutive rows got no answer
+    # (5xx/network errors), or because nothing in the whole pass was answered: Mapbox is
+    # down or we are offline. Those rows keep their budget. (A streak mixing 5xx with
+    # unexpected errors also reports this, i.e. exit 75: "try again later" is the safe
+    # reading when we can't tell which side is at fault.)
     unavailable: bool = False
     # OUTAGE_ROW_LIMIT rows in a row hit an unexpected error of our own (a bug, not a
     # service problem): the pass stopped, nothing was charged.
@@ -124,6 +128,23 @@ def mark_inline_pending() -> int:
         ).rowcount
         s.commit()
     return n
+
+
+def _new_salt() -> str:
+    return uuid.uuid4().hex
+
+
+def _order_by(table, salt: str):
+    """Row order for a pass: fewest attempts first, then a per-pass pseudo-random order.
+
+    A fixed order (attempts, id) made the same rows sort first on every pass, so a few
+    persistently failing rows tripped the outage breaker each time and the good rows
+    behind them were never requested. Salting the order with a fresh value per pass
+    spreads the failing rows through the backlog; any answered row between them then
+    charges them normally. (An empty salt means plain id order: for deterministic tests.)"""
+    if salt == "":
+        return [table.c.geocodeAttempts, table.c.id]
+    return [table.c.geocodeAttempts, func.md5(table.c.id + salt)]
 
 
 def _query(street: str, house: str | None, district: str) -> str:
@@ -218,8 +239,16 @@ def geocode_pending(
     max_attempts: int = MAX_ATTEMPTS,
     write_batch_size: int = WRITE_BATCH_SIZE,
     client: httpx.Client | None = None,
+    order_salt: str | None = None,
 ) -> GeocodeSummary:
-    """Geocode up to `limit` rows. Returns the outcome counts."""
+    """Geocode up to `limit` rows. Returns the outcome counts.
+
+    Bound for a row Mapbox only ever answers with 5xx/network errors: it is never
+    charged, so it stays selectable and costs about REQUEST_ATTEMPTS requests (with
+    backoff) each time it is reached first, and the pass reports "unavailable" (exit
+    75) when nothing else was answered. That is deliberate: a dead service must not
+    use up the attempt budget of rows that were never at fault.
+    """
     cfg = load_config()
     if not cfg.mapbox_token:
         raise GeocodeConfigError("MAPBOX_TOKEN is not set")
@@ -237,7 +266,7 @@ def geocode_pending(
                 table.c.lat.is_(None),
                 table.c.geocodeAttempts < max_attempts,
             )
-            .order_by(table.c.geocodeAttempts, table.c.id)
+            .order_by(*_order_by(table, _new_salt() if order_salt is None else order_salt))
             .limit(limit)
         ).all()
 
@@ -276,17 +305,20 @@ def geocode_pending(
     # or our connection is down (charge nobody, stop); a streak that simply runs to the
     # end of the pass proves nothing (charge nobody). So a handful of pending rows and
     # an offline machine can never exhaust their attempts.
-    held: list[tuple[str, str]] = []  # (row id, kind)
+    held: list[tuple[str, str, bool]] = []  # (row id, kind, got the full retry budget)
     answered = 0
 
     def charge_held() -> None:
-        for held_id, _kind in held:
-            summary.failed += 1
-            pending.append(_outcome(held_id, None, None, None, "failed"))
+        # Only rows that got the full retry budget: a row tried once (after a streak had
+        # started) may just have hit the same blip, so it is left for the next pass.
+        for held_id, _kind, full in held:
+            if full:
+                summary.failed += 1
+                pending.append(_outcome(held_id, None, None, None, "failed"))
         held.clear()
 
     def streak_verdict() -> None:
-        if any(kind == "retry" for _, kind in held):
+        if any(kind == "retry" for _, kind, _ in held):
             summary.unavailable = True
         else:
             summary.internal_error = True
@@ -298,6 +330,7 @@ def geocode_pending(
             # Once a streak has started, don't spend the full retry/backoff budget on
             # every further row: one try each is enough to tell whether it is over.
             attempts = 1 if held else REQUEST_ATTEMPTS
+            full_budget = attempts == REQUEST_ATTEMPTS
             try:
                 hit = _lookup(http, cfg.mapbox_token, q, attempts)
             except GeocodeConfigError as e:
@@ -311,7 +344,7 @@ def geocode_pending(
                     log.warning("geocode rate limited, stopping pass id=%s error=%s", row_id, e)
                     break
                 log.warning("geocode retries exhausted id=%s query=%r error=%s", row_id, q, e)
-                held.append((row_id, "retry"))
+                held.append((row_id, "retry", full_budget))
             except _RowFailed as e:
                 answered += 1
                 log.warning("geocode failed id=%s query=%r error=%s", row_id, q, e)
@@ -323,7 +356,7 @@ def geocode_pending(
                 # the type: the message could carry the URL. Held, not charged: if every
                 # row blows up it is our bug, not the rows' fault.
                 log.warning("geocode unexpected error id=%s error=%s", row_id, type(e).__name__)
-                held.append((row_id, "error"))
+                held.append((row_id, "error", full_budget))
             else:
                 answered += 1
                 now = datetime.now(timezone.utc)
