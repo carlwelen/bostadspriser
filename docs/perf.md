@@ -145,3 +145,49 @@ ignored by Mapbox) that is true when older matching sales were cut.
   `compress` is on by default), so enable gzip/brotli at the reverse proxy or
   CDN in front of the app (e.g. nginx `gzip on; gzip_types application/json;`).
   The JSON is repetitive: a 37 KB fixture response gzips to 2 KB.
+
+## Caching (B24)
+
+Every page is `force-dynamic` and renders per request, but the data changes a
+few times a day at most. Instead of editing the pages (E's and D's files), the
+aggregation functions in `web/src/lib/aggregations.ts` are wrapped with
+`cached()` (`web/src/lib/cache.ts`), which uses Next's data cache
+(`unstable_cache`):
+
+- **Tags.** Every entry carries `listings` and `agg:<function name>`.
+- **Invalidation.** `POST /api/revalidate` with `Authorization: Bearer
+  $REVALIDATE_SECRET` drops entries by tag (body `{"tags": ["listings"]}`; no
+  body means `listings`). 401 without a Bearer token, 403 for a wrong token or
+  when `REVALIDATE_SECRET` is not set (then nobody can invalidate), 400 for a
+  malformed body or unknown tag. The secret is compared in constant time
+  (SHA-256 of both sides, then `timingSafeEqual`). The scraper should call it
+  after `refresh_deduped_listing()`.
+- **Safety net.** Entries also expire after 3600 s (freshness queries: 300 s),
+  so a missed call means up to an hour of stale pages, not forever.
+- **Which functions.** Everything the pages and `/api/streets*` /
+  `/api/timeseries` use. Not cached: `heatmapPoints` and `addressDrawerData`
+  (large or keyed by free-form input; they rely on the HTTP `Cache-Control`
+  headers) and `dedupKeysInMultipleClusters` (a diagnostic).
+  Cached results must survive JSON (no Date/bigint/Decimal/undefined).
+- **Where it is active.** Only when `NODE_ENV=production`; `AGG_CACHE=on|off`
+  overrides. `next dev` and vitest always query the database.
+- **`next build` needs no database.** The pages are dynamic and nothing runs an
+  aggregation at build time.
+- **No leakage across the e2e seed.** Cache keys include a per-process id
+  (kept on `globalThis`), so a restarted server never reads entries written by
+  an earlier process, including Next's on-disk cache from previous e2e runs. The
+  e2e server is started fresh by Playwright, its readiness probe is
+  `/robots.txt` (no database), and the fixture is seeded before the first data
+  request, so the first request already sees seeded data. A spec that changed
+  data after the server's first data request would have to call
+  `/api/revalidate` (set `REVALIDATE_SECRET` in the web server's env) or the
+  server would serve the cached results.
+
+Checked against a real `next start`: with a street added to the database, the
+cached `/api/streets` response stays unchanged, `POST /api/revalidate` without
+a token gives 401, with a wrong one 403, with the right one 200, and the next
+request shows the new street.
+
+No page needs to change. Optional, for E and D: with this in place the pages
+could move from `force-dynamic` to `revalidate = 3600` for HTTP-level caching
+as well; that is a one-line change per page and not required for any of this.

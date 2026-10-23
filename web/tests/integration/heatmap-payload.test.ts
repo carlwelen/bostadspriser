@@ -30,7 +30,8 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("/api/heatmap payload", () => {
+// Seeding 30k rows and refreshing the snapshot is slow on a loaded machine.
+describe("/api/heatmap payload", { timeout: 120_000 }, () => {
   it("documents a deliberate cap", () => {
     expect(HEATMAP_LIMIT).toBe(30_000);
   });

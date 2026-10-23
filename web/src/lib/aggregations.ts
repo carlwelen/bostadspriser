@@ -4,6 +4,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import type { DistrictSlug } from "./districts";
+import { cached } from "./cache";
 import { slugifyStreet } from "./text";
 import {
   OPEN_ENDED_ROOMS,
@@ -61,7 +62,7 @@ const TRUNC = (g: Granularity) => (g === "year" ? "year" : "month");
 export { slugifyStreet };
 
 /** Resolve a slug back to its canonical street display name within a district. */
-export async function streetFromSlug(
+async function streetFromSlugUncached(
   district: DistrictSlug,
   slug: string
 ): Promise<string | null> {
@@ -73,7 +74,7 @@ export async function streetFromSlug(
   return rows.find((r) => slugifyStreet(r.street) === slug)?.street ?? null;
 }
 
-export async function districtTimeseries(
+async function districtTimeseriesUncached(
   district: DistrictSlug,
   granularity: Granularity = "month"
 ): Promise<TimeseriesPoint[]> {
@@ -101,7 +102,7 @@ export async function districtTimeseries(
   }));
 }
 
-export async function streetTimeseries(
+async function streetTimeseriesUncached(
   district: DistrictSlug,
   street: string,
   granularity: Granularity = "month",
@@ -136,7 +137,7 @@ export async function streetTimeseries(
   }));
 }
 
-export async function listStreets(
+async function listStreetsUncached(
   district: DistrictSlug,
   limit = 200
 ): Promise<StreetSummary[]> {
@@ -188,7 +189,7 @@ const HOUSE_NUMBER_ORDER = Prisma.sql`
   "houseNumber" ASC`;
 
 /** Houses with at least one priced sale; count, mean and median are over priced sales (as in listStreets). */
-export async function listHouseNumbers(
+async function listHouseNumbersUncached(
   district: DistrictSlug,
   street: string
 ): Promise<
@@ -218,7 +219,7 @@ export async function listHouseNumbers(
   }));
 }
 
-export async function recentSales(
+async function recentSalesUncached(
   where: { district: DistrictSlug; street?: string; houseNumber?: string },
   limit = 25
 ): Promise<RecentSale[]> {
@@ -305,7 +306,7 @@ export type StreetMover = {
  * so the UI can show how much data stands behind a percentage. `asOf` pins
  * "now" for tests.
  */
-export async function topMovers(
+async function topMoversUncached(
   direction: "up" | "down",
   limit = 8,
   asOf: Date = new Date()
@@ -376,7 +377,7 @@ export async function topMovers(
 }
 
 /** Bucketed price/m² distribution across all districts. */
-export async function pricePerSqmDistribution(
+async function pricePerSqmDistributionUncached(
   bucketWidth = 20_000
 ): Promise<Array<{ bucket: number; count: number }>> {
   const rows = await prisma.$queryRaw<Array<{ bucket: number; n: bigint }>>(Prisma.sql`
@@ -391,7 +392,7 @@ export async function pricePerSqmDistribution(
 }
 
 /** Per-room-count breakdown: average price/m², average area, count. */
-export async function roomsBreakdown(): Promise<
+async function roomsBreakdownUncached(): Promise<
   Array<{
     rooms: number;
     count: number;
@@ -435,7 +436,7 @@ export async function roomsBreakdown(): Promise<
 }
 
 /** Random-but-stable sample of (areaSqm, pricePerSqmSek, rooms) tuples for a scatter plot. */
-export async function priceAreaSample(limit = 600): Promise<
+async function priceAreaSampleUncached(limit = 600): Promise<
   Array<{ areaSqm: number; pricePerSqm: number; rooms: number | null; district: string }>
 > {
   const rows = await prisma.$queryRaw<
@@ -454,7 +455,7 @@ export async function priceAreaSample(limit = 600): Promise<
 }
 
 /** Single-shot summary across the whole dataset. */
-export async function globalSummary(): Promise<{
+async function globalSummaryUncached(): Promise<{
   total: number;
   meanPricePerSqm: number | null;
   medianPricePerSqm: number | null;
@@ -560,7 +561,7 @@ async function summarize(
 }
 
 /** Summary of every sale on one street. */
-export async function streetSummary(
+async function streetSummaryUncached(
   district: DistrictSlug,
   street: string
 ): Promise<SalesSummary> {
@@ -571,7 +572,7 @@ export async function streetSummary(
 }
 
 /** Summary of every sale at one address (street + house number, exact match). */
-export async function addressSummary(
+async function addressSummaryUncached(
   district: DistrictSlug,
   street: string,
   houseNumber: string
@@ -583,7 +584,7 @@ export async function addressSummary(
 }
 
 /** Exact number of streets with sales in a district, plus the district summary. */
-export async function districtStreetCount(
+async function districtStreetCountUncached(
   district: DistrictSlug
 ): Promise<DistrictStreetCount> {
   const { streetCount, summary } = await summarize(
@@ -595,7 +596,7 @@ export async function districtStreetCount(
 export type DistrictSummary = SalesSummary;
 
 /** Dedup-aware single-shot summary for one district. */
-export async function districtSummary(
+async function districtSummaryUncached(
   district: DistrictSlug
 ): Promise<DistrictSummary> {
   const { summary } = await summarize(Prisma.sql`district = ${district}::"District"`);
@@ -630,7 +631,7 @@ export type DistrictMomChange = {
  *
  * `asOf` is the instant treated as "now" (defaults to the current time).
  */
-export async function districtMomChange(
+async function districtMomChangeUncached(
   district: DistrictSlug,
   asOf: Date = new Date()
 ): Promise<DistrictMomChange | null> {
@@ -776,7 +777,7 @@ export async function heatmapPoints(
 }
 
 /** Every street with sales, busiest first (ties by name), across all districts. */
-export async function listAllStreets(limit = 4000): Promise<StreetsAllItem[]> {
+async function listAllStreetsUncached(limit = 4000): Promise<StreetsAllItem[]> {
   const rows = await prisma.$queryRaw<
     Array<{
       district: DistrictSlug;
@@ -895,7 +896,7 @@ export type LatestScrapeRun = {
 };
 
 /** For every (source, district): its most recently finished ok/partial run. */
-export async function latestScrapeRuns(): Promise<LatestScrapeRun[]> {
+async function latestScrapeRunsUncached(): Promise<LatestScrapeRun[]> {
   const rows = await prisma.$queryRaw<
     Array<{
       source: string;
@@ -940,7 +941,7 @@ export type SourceFreshness = {
 };
 
 /** Per source: when it last scraped successfully and which sale dates it covers. */
-export async function sourceFreshness(): Promise<SourceFreshness[]> {
+async function sourceFreshnessUncached(): Promise<SourceFreshness[]> {
   const rows = await prisma.$queryRaw<
     Array<{
       source: string;
@@ -1018,3 +1019,28 @@ export async function dedupKeysInMultipleClusters(
     unclusteredRows: Number(r.unclustered),
   }));
 }
+
+// Cached entry points (lib/cache.ts). The JSDoc of each function sits on its
+// `...Uncached` implementation above. Left uncached on purpose: heatmapPoints
+// and addressDrawerData (large or user-keyed, covered by HTTP caching),
+// dedupKeysInMultipleClusters (a diagnostic that must see live data).
+export const streetFromSlug = cached("streetFromSlug", streetFromSlugUncached);
+export const districtTimeseries = cached("districtTimeseries", districtTimeseriesUncached);
+export const streetTimeseries = cached("streetTimeseries", streetTimeseriesUncached);
+export const listStreets = cached("listStreets", listStreetsUncached);
+export const listHouseNumbers = cached("listHouseNumbers", listHouseNumbersUncached);
+export const recentSales = cached("recentSales", recentSalesUncached);
+export const topMovers = cached("topMovers", topMoversUncached);
+export const pricePerSqmDistribution = cached("pricePerSqmDistribution", pricePerSqmDistributionUncached);
+export const roomsBreakdown = cached("roomsBreakdown", roomsBreakdownUncached);
+export const priceAreaSample = cached("priceAreaSample", priceAreaSampleUncached);
+export const globalSummary = cached("globalSummary", globalSummaryUncached);
+export const streetSummary = cached("streetSummary", streetSummaryUncached);
+export const addressSummary = cached("addressSummary", addressSummaryUncached);
+export const districtStreetCount = cached("districtStreetCount", districtStreetCountUncached);
+export const districtSummary = cached("districtSummary", districtSummaryUncached);
+export const districtMomChange = cached("districtMomChange", districtMomChangeUncached);
+export const listAllStreets = cached("listAllStreets", listAllStreetsUncached);
+// Freshness is what readers look at to judge staleness: keep it short-lived.
+export const latestScrapeRuns = cached("latestScrapeRuns", latestScrapeRunsUncached, { revalidate: 300 });
+export const sourceFreshness = cached("sourceFreshness", sourceFreshnessUncached, { revalidate: 300 });

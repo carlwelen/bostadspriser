@@ -209,6 +209,19 @@ export const addressQuery = z.object({
 });
 export type AddressQuery = z.output<typeof addressQuery>;
 
+// /api/revalidate (JSON body)
+
+/** Tags a caller may invalidate: the global one, or one function's entries (see lib/cache.ts). */
+export const TAG_PATTERN = /^(listings|agg:[A-Za-z]+)$/;
+
+export const revalidateBody = z.object({
+  tags: z
+    .array(z.string().regex(TAG_PATTERN, 'must be "listings" or "agg:<function name>"'))
+    .min(1, "at least one tag")
+    .max(20, "at most 20 tags")
+    .optional(),
+});
+
 // Helpers used by the route handlers
 
 function issuePath(path: ReadonlyArray<PropertyKey>): string {
