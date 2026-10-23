@@ -69,7 +69,7 @@ describe("rooms filter edge cases", () => {
     lng: 18.05,
     raw: {},
   } as const;
-  const rooms = [3, 4, 4.5, 5, 5.5, 6, 12, null];
+  const rooms = [3, 4, 4.5, 5, 5.5, 6, 6.5, 12, null];
   const rows: FixtureListing[] = rooms.map((r, i) => ({
     ...base,
     id: `rooms-${i}`,
@@ -88,15 +88,28 @@ describe("rooms filter edge cases", () => {
   });
 
   it("5 covers 5, 5.5, 6 and 12 rooms but not 4.5", async () => {
-    expect(await houses("?rooms=5")).toEqual(idx(5, 5.5, 6, 12));
+    expect(await houses("?rooms=5")).toEqual(idx(5, 5.5, 6, 6.5, 12));
   });
 
   it("exact values floor fractional rooms", async () => {
     expect(await houses("?rooms=4")).toEqual(idx(4, 4.5));
   });
 
+  it("values above 5 are exact matches, and never produce an empty filter", async () => {
+    expect(await houses("?rooms=6")).toEqual(idx(6, 6.5));
+    expect(await houses("?rooms=6,7")).toEqual(idx(6, 6.5));
+    expect(await houses("?rooms=12")).toEqual(idx(12));
+    expect(await houses("?rooms=7")).toEqual([]);
+  });
+
+  it("5 together with larger values is just the 5+ bucket", async () => {
+    expect(await houses("?rooms=5,6")).toEqual(idx(5, 5.5, 6, 6.5, 12));
+    expect(await houses("?rooms=3,12")).toEqual(idx(3, 12));
+    expect(await houses("?rooms=4,6")).toEqual(idx(4, 4.5, 6, 6.5));
+  });
+
   it("excludes sales without a room count whenever rooms is set", async () => {
-    expect(await houses("?rooms=3,5")).toEqual(idx(3, 5, 5.5, 6, 12));
+    expect(await houses("?rooms=3,5")).toEqual(idx(3, 5, 5.5, 6, 6.5, 12));
     expect(await houses("")).toHaveLength(rooms.length);
   });
 });
