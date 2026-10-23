@@ -26,6 +26,18 @@ _SOURCE_ITER = {
 }
 
 
+def latest_sold_at(source: str, district: str) -> date | None:
+    """MAX(soldAt) for one source/district, or None when nothing is stored yet."""
+    with engine().connect() as c:
+        return c.execute(
+            text(
+                'SELECT MAX("soldAt") FROM "Listing" '
+                'WHERE district = CAST(:d AS "District") AND source = :s'
+            ),
+            {"d": district, "s": source},
+        ).scalar_one()
+
+
 def _parse_date(s: str) -> date:
     return datetime.strptime(s, "%Y-%m-%d").date()
 
@@ -96,18 +108,6 @@ def update(districts: tuple[str, ...], sources: tuple[str, ...], lookback_days: 
     for source in sources:
         iter_district = _SOURCE_ITER[source]
         for d in districts:
-            with engine().connect() as c:
-                row = c.execute(
-                    text(
-                        'SELECT MAX("soldAt") FROM "Listing" '
-                        'WHERE district = :d::"District" AND source = :s'
-                    ),
-                    {"d": d, "s": source},
-                ).first()
-            latest = row[0] if row and row[0] else None
-            since = (latest - overlap) if latest else (date.today() - timedelta(days=lookback_days))
-            click.echo(f"{source}/{d}: refreshing since {since.isoformat()}")
-
             async def _run() -> int:
                 n = 0
                 async for r in iter_district(d, since):
@@ -116,6 +116,11 @@ def update(districts: tuple[str, ...], sources: tuple[str, ...], lookback_days: 
                 return n
 
             try:
+                latest = latest_sold_at(source, d)
+                since = (
+                    (latest - overlap) if latest else (date.today() - timedelta(days=lookback_days))
+                )
+                click.echo(f"{source}/{d}: refreshing since {since.isoformat()}")
                 n = asyncio.run(_run())
                 click.echo(f"  upserted {n} for {source}/{d}")
             except Exception as e:  # noqa: BLE001
