@@ -21,9 +21,11 @@ function quantile(sorted: number[], q: number): number {
 
 const roundStep = (n: number) => Math.round(n / STEP) * STEP;
 
+const isStrictlyAscending = (b: number[]) => b.every((v, i) => i === 0 || v > b[i - 1]);
+
 /** Strictly ascending, finite: what Mapbox's `interpolate` accepts. */
 function isValidBreaks(b: number[]): boolean {
-  return b.length === 5 && b.every((v, i) => Number.isFinite(v) && (i === 0 || v > b[i - 1]));
+  return b.length === 5 && b.every(Number.isFinite) && isStrictlyAscending(b);
 }
 
 /** Push ties apart so every break is above the one before it. */
@@ -53,6 +55,13 @@ export function computePriceBreaks(values: number[]): number[] {
     const mid = quantile(sorted, 0.5);
     breaks = [-2, -1, 0, 1, 2].map((k) => roundStep(mid * (1 + 0.1 * k)));
   }
+  if (!isStrictlyAscending(breaks)) {
+    // Tied quantiles (a few values dominate): spread the breaks over the data
+    // range rather than nudging them upwards past where the data is.
+    const lo = roundStep(sorted[0]);
+    const hi = roundStep(sorted[sorted.length - 1]);
+    if (hi > lo) breaks = [0, 1, 2, 3, 4].map((i) => roundStep(lo + ((hi - lo) * i) / 4));
+  }
   breaks = ascend(breaks);
   return isValidBreaks(breaks) ? breaks : [...DEFAULT_PRICE_BREAKS];
 }
@@ -67,9 +76,10 @@ export function priceColorExpression(breaks: number[]): unknown[] {
   ];
 }
 
-/** "80k" ... "220k+" labels for the legend; the top break is open-ended. */
+/** "≤80k" ... "220k+" labels for the legend; both end breaks are open-ended. */
 export function formatBreakLabels(breaks: number[]): string[] {
-  return breaks.map((b, i) => `${Math.round(b / 1000)}k${i === breaks.length - 1 ? "+" : ""}`);
+  const last = breaks.length - 1;
+  return breaks.map((b, i) => `${i === 0 ? "≤" : ""}${Math.round(b / 1000)}k${i === last ? "+" : ""}`);
 }
 
 const zoomRamp = (...stops: number[]) => ["interpolate", ["linear"], ["zoom"], ...stops];

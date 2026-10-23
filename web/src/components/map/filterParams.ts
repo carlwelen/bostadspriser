@@ -50,7 +50,7 @@ export function parseFilters(params: URLSearchParams): MapFilterState {
   if (rawDistricts === "") {
     districts = [];
   } else if (rawDistricts !== null) {
-    const wanted = new Set(csv(rawDistricts));
+    const wanted = new Set(csv(rawDistricts).map((x) => x.toLowerCase()));
     const valid = ALL_DISTRICTS.filter((slug) => wanted.has(slug));
     if (valid.length > 0) districts = valid;
   }
@@ -78,30 +78,45 @@ export function parseFilters(params: URLSearchParams): MapFilterState {
 const FILTER_KEYS = ["districts", "rooms", "period", "mode", "heatmap"];
 
 /**
- * `current` with the five filter keys rewritten to `state` (defaults omitted)
- * and every other parameter (utm_*, ...) left alone. Returns the query string
- * without "?".
+ * `current` (a query string, with or without "?", or URLSearchParams) with the
+ * five filter keys rewritten to `state` (defaults omitted). Every other
+ * parameter (utm_*, ...) is kept verbatim: it is not decoded and re-encoded.
+ * Returns the query string without "?".
  */
-export function applyFilters(current: URLSearchParams, state: MapFilterState): string {
-  const next = new URLSearchParams(current);
-  for (const key of FILTER_KEYS) next.delete(key);
-  for (const [key, value] of new URLSearchParams(serializeFilters(state))) next.append(key, value);
-  return next.toString();
+export function applyFilters(current: string | URLSearchParams, state: MapFilterState): string {
+  const raw = typeof current === "string" ? current.replace(/^\?/, "") : current.toString();
+  const kept = raw.split("&").filter((segment) => {
+    if (segment === "") return false;
+    let key = segment.split("=")[0];
+    try {
+      key = decodeURIComponent(key.replace(/\+/g, " "));
+    } catch {
+      /* keep the raw key */
+    }
+    return !FILTER_KEYS.includes(key);
+  });
+  return [...kept, ...filterSegments(state)].join("&");
 }
 
 /** Query string (no leading "?") holding only the non-default values. */
 export function serializeFilters(state: MapFilterState): string {
-  const p = new URLSearchParams();
+  return filterSegments(state).join("&");
+}
+
+// Values are slugs, digits and fixed words, so nothing needs escaping; lists
+// keep readable commas (URLSearchParams would write %2C).
+function filterSegments(state: MapFilterState): string[] {
+  const out: string[] = [];
   const sameDistricts =
     state.districts.length === ALL_DISTRICTS.length &&
     ALL_DISTRICTS.every((s) => state.districts.includes(s));
   if (!sameDistricts) {
     // Canonical order keeps the URL stable regardless of click order.
-    p.set("districts", ALL_DISTRICTS.filter((s) => state.districts.includes(s)).join(","));
+    out.push(`districts=${ALL_DISTRICTS.filter((s) => state.districts.includes(s)).join(",")}`);
   }
-  if (state.rooms.length) p.set("rooms", [...state.rooms].sort((a, b) => a - b).join(","));
-  if (state.period !== DEFAULT_FILTERS.period) p.set("period", state.period);
-  if (state.mode !== DEFAULT_FILTERS.mode) p.set("mode", state.mode);
-  if (!state.showHeatmap) p.set("heatmap", "0");
-  return p.toString();
+  if (state.rooms.length) out.push(`rooms=${[...state.rooms].sort((a, b) => a - b).join(",")}`);
+  if (state.period !== DEFAULT_FILTERS.period) out.push(`period=${state.period}`);
+  if (state.mode !== DEFAULT_FILTERS.mode) out.push(`mode=${state.mode}`);
+  if (!state.showHeatmap) out.push("heatmap=0");
+  return out;
 }

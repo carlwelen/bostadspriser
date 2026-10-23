@@ -36,6 +36,10 @@ describe("parseFilters", () => {
     expect(parse("districts=").districts).toEqual([]);
   });
 
+  it("matches district slugs case-insensitively", () => {
+    expect(parse("districts=Vasastan,SODERMALM").districts).toEqual(["vasastan", "sodermalm"]);
+  });
+
   it("falls back to all districts when the param holds no valid slug", () => {
     expect(parse("districts=gamla-stan,x").districts).toEqual(DEFAULT_FILTERS.districts);
   });
@@ -78,7 +82,7 @@ describe("serializeFilters", () => {
       showHeatmap: false,
     };
     expect(serializeFilters(s)).toBe(
-      "districts=vasastan%2Cnorrmalm&rooms=2%2C3&period=all&mode=frequency&heatmap=0"
+      "districts=vasastan,norrmalm&rooms=2,3&period=all&mode=frequency&heatmap=0"
     );
   });
 
@@ -105,13 +109,14 @@ describe("strict room parsing", () => {
 
 describe("applyFilters", () => {
   it("keeps unrelated parameters and rewrites only the filter keys", () => {
-    const current = new URLSearchParams("utm_source=x&mode=3d&districts=nope&foo=bar%20baz");
+    const current = "?utm_source=x&mode=3d&districts=nope&foo=bar%20baz&q=a%2Cb";
     const next = { ...DEFAULT_FILTERS, mode: "frequency" as const };
-    expect(applyFilters(current, next)).toBe("utm_source=x&foo=bar+baz&mode=frequency");
+    // Other parameters are kept byte for byte (no %20 -> +, no %2C -> ,).
+    expect(applyFilters(current, next)).toBe("utm_source=x&foo=bar%20baz&q=a%2Cb&mode=frequency");
   });
 
   it("removes filter keys that are back at their defaults", () => {
-    const current = new URLSearchParams("rooms=2&period=all&keep=1");
+    const current = "rooms=2&period=all&keep=1";
     expect(applyFilters(current, DEFAULT_FILTERS)).toBe("keep=1");
   });
 
@@ -119,6 +124,12 @@ describe("applyFilters", () => {
     const current = new URLSearchParams("mode=frequency");
     applyFilters(current, DEFAULT_FILTERS);
     expect(current.toString()).toBe("mode=frequency");
+  });
+
+  it("writes commas unescaped in the filter values", () => {
+    const out = applyFilters("", { ...DEFAULT_FILTERS, districts: ["vasastan", "norrmalm"], rooms: [2, 3] });
+    expect(out).toBe("districts=vasastan,norrmalm&rooms=2,3");
+    expect(out).not.toContain("%2C");
   });
 });
 

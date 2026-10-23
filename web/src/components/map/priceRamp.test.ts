@@ -37,6 +37,17 @@ describe("computePriceBreaks", () => {
     expect(computePriceBreaks([150_000])).toEqual(expected);
   });
 
+  it("spreads tied quantiles over the data range instead of nudging past it", () => {
+    // 19 identical values and one outlier: the nudged quantiles used to be
+    // [80000, 81000, 82000, 83000, 91000], mostly above where the data is.
+    expect(computePriceBreaks([...Array(19).fill(80_000), 300_000])).toEqual([
+      80_000, 135_000, 190_000, 245_000, 300_000,
+    ]);
+    expect(computePriceBreaks([...Array(9).fill(100_000), 200_000])).toEqual([
+      100_000, 125_000, 150_000, 175_000, 200_000,
+    ]);
+  });
+
   it("handles very few points", () => {
     const two = computePriceBreaks([100_000, 200_000]);
     expect(two).toHaveLength(5);
@@ -123,7 +134,7 @@ describe("priceColorExpression", () => {
 describe("formatBreakLabels", () => {
   it("formats thousands and marks the top break open-ended", () => {
     expect(formatBreakLabels([80_000, 120_000, 150_000, 180_000, 220_000])).toEqual([
-      "80k",
+      "≤80k",
       "120k",
       "150k",
       "180k",
@@ -132,6 +143,6 @@ describe("formatBreakLabels", () => {
   });
 
   it("matches the default breaks the legend used to hard-code", () => {
-    expect(formatBreakLabels(DEFAULT_PRICE_BREAKS)).toEqual(["80k", "120k", "150k", "180k", "220k+"]);
+    expect(formatBreakLabels(DEFAULT_PRICE_BREAKS)).toEqual(["≤80k", "120k", "150k", "180k", "220k+"]);
   });
 });

@@ -40,7 +40,7 @@ export function MapPage() {
 
   // Rewrites only the five filter keys: other parameters (utm_*) and the hash stay.
   const writeUrl = (next: MapFilterState) => {
-    const search = applyFilters(new URLSearchParams(window.location.search), next);
+    const search = applyFilters(window.location.search, next);
     const url = window.location.pathname + (search ? `?${search}` : "") + window.location.hash;
     if (url !== window.location.pathname + window.location.search + window.location.hash) {
       window.history.replaceState(null, "", url);

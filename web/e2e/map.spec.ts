@@ -118,7 +118,7 @@ test("changing a filter updates the URL without adding history entries", async (
   await page.getByRole("checkbox", { name: "Visa heatmap" }).uncheck();
 
   await expect.poll(() => new URL(page.url()).search).toBe(
-    "?districts=ostermalm%2Cvasastan%2Cnorrmalm&rooms=2&period=all&mode=frequency&heatmap=0"
+    "?districts=ostermalm,vasastan,norrmalm&rooms=2&period=all&mode=frequency&heatmap=0"
   );
   expect(await page.evaluate(() => history.length)).toBe(historyBefore);
 
@@ -191,7 +191,7 @@ test("filter changes keep unrelated parameters and the hash; junk is cleaned up 
   await page.getByRole("button", { name: "Vasastan", exact: true }).click();
   await page.getByRole("button", { name: "Frekvens", exact: true }).click();
   await expect.poll(() => new URL(page.url()).search).toBe(
-    "?utm_source=newsletter&districts=ostermalm%2Cnorrmalm%2Csodermalm&mode=frequency"
+    "?utm_source=newsletter&districts=ostermalm,norrmalm,sodermalm&mode=frequency"
   );
   expect(new URL(page.url()).hash).toBe("#karta");
 });
@@ -329,14 +329,14 @@ test("the price legend is computed from the displayed points", async ({ page }) 
   );
   await page.goto("/");
   const legend = page.getByTestId("price-legend");
-  await expect(legend.locator("span")).toHaveText(["52k", "62k", "75k", "87k", "97k+"]);
+  await expect(legend.locator("span")).toHaveText(["≤52k", "62k", "75k", "87k", "97k+"]);
   await expect(legend.getByText("Skalan anpassas efter urvalet.")).toBeVisible();
 });
 
 test("the price legend shows the default scale when there is no data", async ({ page }) => {
   await page.goto("/?districts=");
   await expect(page.getByTestId("price-legend").locator("span")).toHaveText([
-    "80k",
+    "≤80k",
     "120k",
     "150k",
     "180k",
