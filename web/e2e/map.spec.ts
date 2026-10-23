@@ -250,6 +250,29 @@ test("the sidebar hints at more filters below and the source note is reachable",
   await expect(page.getByTestId("sidebar-more")).toBeHidden();
 });
 
+// F21: small text keeps WCAG AA contrast against its white background.
+test("the filter counter and the legend captions meet AA contrast", async ({ page }) => {
+  await page.goto("/");
+  for (const text of ["4 av 4", "Pris/m² (kr)", "Skalan anpassas efter urvalet."]) {
+    const el = page.getByText(text, { exact: true });
+    if ((await el.count()) === 0) continue; // the caption only shows for adapted scales
+    const ratio = await el.first().evaluate((node) => {
+      const lum = (rgb: number[]) => {
+        const [r, g, b] = rgb.map((v) => {
+          const c = v / 255;
+          return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const ctx = document.createElement("canvas").getContext("2d")!;
+      ctx.fillStyle = getComputedStyle(node).color;
+      ctx.fillRect(0, 0, 1, 1);
+      return 1.05 / (lum(Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3))) + 0.05);
+    });
+    expect(ratio, text).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
 // F34: the count pill agrees with its number.
 test("the map status pill uses the singular for exactly one sale", async ({ page }) => {
   await page.route("**/api/heatmap*", (route) =>

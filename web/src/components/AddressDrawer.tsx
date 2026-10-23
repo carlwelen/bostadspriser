@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Area,
   CartesianGrid,
@@ -13,6 +13,7 @@ import {
 } from "recharts";
 
 import { SourceBadge } from "./SourceBadge";
+import { lockBodyScroll, trapTab } from "./map/focusTrap";
 import { useAddressData, type Period } from "./map/useAddressData";
 
 const PERIODS = [
@@ -64,16 +65,29 @@ export function AddressDrawer({
   const [period, setPeriod] = useState<Period>("12mo");
   const { data, loading, error, reload } = useAddressData(selection, period);
   const panelRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
 
-  // Esc closes the drawer.
+  const open = selection !== null;
+
+  // Modal behaviour: focus moves into the drawer and returns to where it was
+  // (the map canvas / body, or whatever opened it), the page behind doesn't
+  // scroll, Esc closes and Tab stays inside.
   useEffect(() => {
-    if (!selection) return;
+    if (!open) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
+    const unlock = lockBodyScroll();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
+      else if (panelRef.current) trapTab(e, panelRef.current);
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [selection, onClose]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      unlock();
+      if (previouslyFocused && document.contains(previouslyFocused)) previouslyFocused.focus();
+    };
+  }, [open, onClose]);
 
   const merged = useMemo(() => {
     if (!data) return [];
@@ -123,7 +137,8 @@ export function AddressDrawer({
         ref={panelRef}
         tabIndex={-1}
         role="dialog"
-        aria-label={`Detaljer för ${selection.address}`}
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="drawer-enter fixed right-3 focus:outline-none top-3 bottom-3 z-50 flex w-[min(440px,92vw)] flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_24px_60px_-20px_rgb(15_23_42_/_0.18)]"
       >
         <header className="relative border-b border-zinc-200 bg-white px-5 pb-4 pt-5">
@@ -132,13 +147,13 @@ export function AddressDrawer({
               <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-zinc-500">
                 Adress
               </p>
-              <h2 className="mt-1.5 text-xl font-semibold tracking-tight text-zinc-900">
+              <h2 id={titleId} className="mt-1.5 text-xl font-semibold tracking-tight text-zinc-900">
                 {selection.address}
               </h2>
             </div>
             <button
               onClick={onClose}
-              className="-mr-1 rounded-md p-1.5 text-zinc-400 transition-colors duration-200 hover:bg-zinc-100 hover:text-zinc-700"
+              className="-mr-1 rounded-md p-1.5 text-zinc-500 transition-colors duration-200 hover:bg-zinc-100 hover:text-zinc-700"
               aria-label="Stäng"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -184,7 +199,7 @@ export function AddressDrawer({
           <section className="mt-5">
             <div className="flex items-center justify-between text-xs text-zinc-500">
               <p>Pris/m² över tid</p>
-              <p className="text-zinc-400">
+              <p className="text-zinc-500">
                 {selection.street} • {periodLabel(period)}
               </p>
             </div>
@@ -370,7 +385,7 @@ function MiniStat({
       <p className="mt-1 text-sm font-semibold tabular-nums text-zinc-900 leading-tight">
         {value}
       </p>
-      {hint && <p className="mt-0.5 text-[10px] text-zinc-400">{hint}</p>}
+      {hint && <p className="mt-0.5 text-[10px] text-zinc-500">{hint}</p>}
     </div>
   );
 }

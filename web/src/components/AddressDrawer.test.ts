@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AddressDrawer, type AddressSelection } from "./AddressDrawer";
+import { focusableWithin } from "./map/focusTrap";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -19,6 +20,7 @@ const selection: AddressSelection = {
 afterEach(() => {
   vi.unstubAllGlobals();
   document.body.innerHTML = "";
+  document.body.style.overflow = "";
 });
 
 async function mountFailingThenPending() {
@@ -39,6 +41,83 @@ async function mountFailingThenPending() {
   });
   return { host, root, calls: () => calls };
 }
+
+// F21: dialog semantics and keyboard behaviour. The fetch never settles, so the
+// drawer stays in its loading state (no charts needed).
+async function mountPending(onClose = () => {}) {
+  vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+  const trigger = document.createElement("button");
+  trigger.textContent = "trigger";
+  document.body.appendChild(trigger);
+  trigger.focus();
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const render = (sel: AddressSelection | null) =>
+    act(async () => {
+      root.render(createElement(AddressDrawer, { selection: sel, onClose }));
+    });
+  await render(selection);
+  return { trigger, host, root, render };
+}
+const key = (k: string, init: KeyboardEventInit = {}) =>
+  act(async () => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }));
+  });
+
+describe("AddressDrawer dialog behaviour (F21)", () => {
+  it("is a modal dialog labelled by its heading", async () => {
+    const { host, root } = await mountPending();
+    const dialog = host.querySelector('[role="dialog"]')!;
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    const heading = host.querySelector(`#${dialog.getAttribute("aria-labelledby")}`);
+    expect(heading?.textContent).toBe("Karlavägen 10");
+    await act(async () => root.unmount());
+  });
+
+  it("moves focus into the dialog when it opens", async () => {
+    const { host, root } = await mountPending();
+    expect(document.activeElement).toBe(host.querySelector('[role="dialog"]'));
+    await act(async () => root.unmount());
+  });
+
+  it("returns focus to the element that had it before, when it closes", async () => {
+    const { trigger, render, root } = await mountPending();
+    expect(document.activeElement).not.toBe(trigger);
+    await render(null);
+    expect(document.activeElement).toBe(trigger);
+    await act(async () => root.unmount());
+  });
+
+  it("Escape calls onClose", async () => {
+    const onClose = vi.fn();
+    const { root } = await mountPending(onClose);
+    await key("Escape");
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
+  });
+
+  it("keeps Tab inside the dialog, wrapping at both ends", async () => {
+    const { host, root } = await mountPending();
+    const dialog = host.querySelector('[role="dialog"]') as HTMLElement;
+    const items = focusableWithin(dialog);
+    expect(items.length).toBeGreaterThan(1);
+    items[items.length - 1].focus();
+    await key("Tab");
+    expect(document.activeElement).toBe(items[0]);
+    await key("Tab", { shiftKey: true });
+    expect(document.activeElement).toBe(items[items.length - 1]);
+    await act(async () => root.unmount());
+  });
+
+  it("locks page scrolling while open and restores it on close", async () => {
+    const { render, root } = await mountPending();
+    expect(document.body.style.overflow).toBe("hidden");
+    await render(null);
+    expect(document.body.style.overflow).toBe("");
+    await act(async () => root.unmount());
+  });
+});
 
 describe("AddressDrawer retry (F33)", () => {
   it("offers a type=button retry after an error", async () => {

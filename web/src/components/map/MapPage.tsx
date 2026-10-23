@@ -193,7 +193,7 @@ function Sidebar({
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
             Filter
           </h2>
-          <span className="text-[11px] text-zinc-400">{selected.length} av {DISTRICTS.length}</span>
+          <span className="text-[11px] text-zinc-500">{selected.length} av {DISTRICTS.length}</span>
         </div>
         <p className="mt-2 text-xs text-zinc-500">Stadsdelar</p>
         <div className="mt-2 grid grid-cols-2 gap-2">
