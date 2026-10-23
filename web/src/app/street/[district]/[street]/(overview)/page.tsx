@@ -2,15 +2,17 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHero } from "@/components/PageHero";
-import { formatSold } from "@/components/plural";
+import { formatSales, formatSold } from "@/components/plural";
 import { PriceChart } from "@/components/PriceChart";
 import { RecentSalesTable } from "@/components/RecentSalesTable";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { StatCard } from "@/components/StatCard";
+import { SummaryCards } from "@/components/SummaryCards";
 import {
   listHouseNumbers,
   recentSales,
+  streetSummary,
   streetTimeseries,
 } from "@/lib/aggregations";
 import { districtName } from "@/lib/districts";
@@ -45,19 +47,12 @@ export default async function StreetPage({
   if (!resolved) notFound();
   const { district, street } = resolved;
 
-  const [points, houses, sales] = await Promise.all([
+  const [points, summary, houses, sales] = await Promise.all([
     streetTimeseries(district, street, "month"),
+    streetSummary(district, street),
     listHouseNumbers(district, street),
     recentSales({ district, street }, 50),
   ]);
-
-  const totalCount = sales.length;
-  const meanPps =
-    sales.length > 0
-      ? Math.round(
-          sales.reduce((s, x) => s + x.pricePerSqmSek, 0) / sales.length
-        )
-      : null;
 
   return (
     <>
@@ -74,24 +69,22 @@ export default async function StreetPage({
         subtitle={`${districtName(district)}, Stockholms innerstad`}
       />
       <main className="mx-auto max-w-6xl space-y-10 px-6 py-10">
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <StatCard label="Senaste 50 sålda" value={totalCount} />
-          <StatCard
-            label="Medel pris/m²"
-            value={meanPps ? `${SEK.format(meanPps)} kr` : "—"}
-          />
-          <StatCard
-            label="Husnummer i underlaget"
-            value={houses.length}
-            hint={
-              houses.length > 0
-                ? `${houses.slice(0, 4).map((h) => h.houseNumber).join(", ")}${
-                    houses.length > 4 ? ", …" : ""
-                  }`
-                : undefined
-            }
-          />
-        </section>
+        <SummaryCards
+          summary={summary}
+          extra={
+            <StatCard
+              label="Husnummer i underlaget"
+              value={houses.length}
+              hint={
+                houses.length > 0
+                  ? `${houses.slice(0, 4).map((h) => h.houseNumber).join(", ")}${
+                      houses.length > 4 ? ", …" : ""
+                    }`
+                  : undefined
+              }
+            />
+          }
+        />
 
         <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="flex items-end justify-between">
@@ -127,7 +120,10 @@ export default async function StreetPage({
         )}
 
         <section>
-          <h2 className="mb-3 text-base font-medium text-zinc-900">Senaste försäljningar</h2>
+          <h2 className="mb-1 text-base font-medium text-zinc-900">Senaste försäljningar</h2>
+          <p className="mb-3 text-xs text-zinc-500">
+            Visar {sales.length} av {formatSales(summary.count)}.
+          </p>
           <RecentSalesTable sales={sales} />
         </section>
       </main>

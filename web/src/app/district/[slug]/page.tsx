@@ -8,14 +8,17 @@ import { RecentSalesTable } from "@/components/RecentSalesTable";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { StatCard } from "@/components/StatCard";
+import { SummaryCards } from "@/components/SummaryCards";
 import {
+  MIN_MOM_SALES,
   districtMomChange,
-  districtSummary,
+  districtStreetCount,
   districtTimeseries,
   listStreets,
   recentSales,
 } from "@/lib/aggregations";
 import { districtName, isDistrictSlug } from "@/lib/districts";
+import { describeMom } from "./mom";
 
 export const dynamic = "force-dynamic";
 
@@ -34,13 +37,6 @@ export async function generateMetadata({
 }
 
 const SEK = new Intl.NumberFormat("sv-SE");
-const PCT = new Intl.NumberFormat("sv-SE", {
-  style: "percent",
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-  signDisplay: "exceptZero",
-});
-
 export default async function DistrictPage({
   params,
 }: {
@@ -51,15 +47,13 @@ export default async function DistrictPage({
 
   const [points, summary, mom, topStreets, sales] = await Promise.all([
     districtTimeseries(slug, "month"),
-    districtSummary(slug),
+    districtStreetCount(slug),
     districtMomChange(slug),
     listStreets(slug, 12),
     recentSales({ district: slug }, 25),
   ]);
 
-  const meanPps = summary.meanPricePerSqm;
-
-  const tone = mom?.pctChange == null ? "neutral" : mom.pctChange >= 0 ? "up" : "down";
+  const momCard = describeMom(mom, MIN_MOM_SALES);
 
   return (
     <>
@@ -81,29 +75,20 @@ export default async function DistrictPage({
         }
       />
       <main className="mx-auto max-w-6xl space-y-10 px-6 py-10">
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard label="Försäljningar" value={SEK.format(summary.count)} />
-          <StatCard
-            label="Medel pris/m²"
-            value={meanPps ? `${SEK.format(Math.round(meanPps))} kr` : "—"}
-          />
-          <StatCard
-            label="MoM"
-            value={
-              mom?.pctChange == null ? "—" : PCT.format(mom.pctChange / 100)
-            }
-            hint={
-              mom?.current && mom?.previous
-                ? `${SEK.format(mom.previous)} → ${SEK.format(mom.current)}`
-                : undefined
-            }
-            tone={tone as "neutral" | "up" | "down"}
-          />
-          <StatCard
-            label="Antal gator"
-            value={topStreets.length >= 12 ? "12+" : topStreets.length}
-          />
-        </section>
+        <SummaryCards
+          summary={summary}
+          extra={
+            <>
+              <StatCard label="Antal gator" value={SEK.format(summary.streetCount)} />
+              <StatCard
+                label="Förändring mot föregående månad"
+                value={momCard.value}
+                hint={momCard.hint}
+                tone={momCard.tone}
+              />
+            </>
+          }
+        />
 
         <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="flex items-end justify-between gap-3">
@@ -153,9 +138,12 @@ export default async function DistrictPage({
         )}
 
         <section>
-          <h2 className="mb-3 text-base font-medium text-zinc-900">
+          <h2 className="mb-1 text-base font-medium text-zinc-900">
             Senaste försäljningar
           </h2>
+          <p className="mb-3 text-xs text-zinc-500">
+            Visar {sales.length} av {formatSales(summary.count)}.
+          </p>
           <RecentSalesTable sales={sales} />
         </section>
       </main>
