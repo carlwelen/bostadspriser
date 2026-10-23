@@ -17,7 +17,7 @@ exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&
 exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&house=2&period=3mo" is unchanged > series 1`] = `
 {
   "count": 1,
-  "sha": "b1abdc2f63ebd9a9",
+  "sha": "480faa1e3e0e5c58",
 }
 `;
 
@@ -38,7 +38,7 @@ exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&
 exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&house=2&period=30d" is unchanged > series 1`] = `
 {
   "count": 1,
-  "sha": "32ac7cbe2cb5a287",
+  "sha": "2ba8009146dde815",
 }
 `;
 
@@ -59,7 +59,7 @@ exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&
 exports[`/api/address > response for "district=ostermalm&street=Karlav%C3%A4gen&house=10&period=all" is unchanged > series 1`] = `
 {
   "count": 13,
-  "sha": "4498bce57083f12f",
+  "sha": "f3cc2faa6d9e48d9",
 }
 `;
 
@@ -80,7 +80,7 @@ exports[`/api/address > response for "district=sodermalm&street=G%C3%B6tgatan&pe
 exports[`/api/address > response for "district=sodermalm&street=G%C3%B6tgatan&period=all" is unchanged > series 1`] = `
 {
   "count": 13,
-  "sha": "c2f035534f034670",
+  "sha": "3f578f5369f3cd4d",
 }
 `;
 
@@ -122,7 +122,7 @@ exports[`/api/address > response for "district=vasastan&street=Odengatan&house=1
 exports[`/api/address > response for "district=vasastan&street=Odengatan&house=10&period=all" is unchanged > series 1`] = `
 {
   "count": 13,
-  "sha": "f88b43c4d4a670d0",
+  "sha": "6d7ae8b331a03170",
 }
 `;
 
@@ -143,7 +143,7 @@ exports[`/api/address > response for "district=vasastan&street=Odengatan&period=
 exports[`/api/address > response for "district=vasastan&street=Odengatan&period=12mo" is unchanged > series 1`] = `
 {
   "count": 3,
-  "sha": "e661f8f42b8af81e",
+  "sha": "77fcc8f122b653e2",
 }
 `;
 
@@ -164,7 +164,7 @@ exports[`/api/address > response for "district=vasastan&street=Odengatan&period=
 exports[`/api/address > response for "district=vasastan&street=Odengatan&period=all" is unchanged > series 1`] = `
 {
   "count": 13,
-  "sha": "f88b43c4d4a670d0",
+  "sha": "6d7ae8b331a03170",
 }
 `;
 

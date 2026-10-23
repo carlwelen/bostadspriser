@@ -13,6 +13,8 @@ export type Granularity = "month" | "year";
 export type TimeseriesPoint = {
   bucket: string;
   meanPricePerSqm: number;
+  /** Robust to outlier sales; prefer it for display. */
+  medianPricePerSqm: number;
   count: number;
 };
 
@@ -21,6 +23,7 @@ export type StreetSummary = {
   slug: string;
   count: number;
   meanPricePerSqm: number;
+  medianPricePerSqm: number;
   latestSoldAt: string;
 };
 
@@ -43,6 +46,9 @@ export type RecentSale = {
 export function stockholmToday(asOf: Date = new Date()): Prisma.Sql {
   return Prisma.sql`((${asOf}::timestamptz AT TIME ZONE 'Europe/Stockholm')::date)`;
 }
+
+/** Median kr/m² as whole kronor (half-up), for use inside aggregate queries. */
+const MEDIAN_PPS = Prisma.sql`ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY "pricePerSqmSek"))::numeric)::bigint`;
 
 const TRUNC = (g: Granularity) => (g === "year" ? "year" : "month");
 
@@ -77,11 +83,12 @@ export async function districtTimeseries(
 ): Promise<TimeseriesPoint[]> {
   const trunc = TRUNC(granularity);
   const rows = await prisma.$queryRaw<
-    Array<{ bucket: Date; mean_price_per_sqm: bigint; n: bigint }>
+    Array<{ bucket: Date; mean_price_per_sqm: bigint; median_price_per_sqm: bigint; n: bigint }>
   >(Prisma.sql`
     SELECT
       date_trunc(${trunc}, "soldAt")::date AS bucket,
       AVG("pricePerSqmSek")::bigint        AS mean_price_per_sqm,
+      ${MEDIAN_PPS}                        AS median_price_per_sqm,
       COUNT(*)::bigint                     AS n
     FROM "DedupedListing"
     WHERE district = ${district}::"District"
@@ -93,6 +100,7 @@ export async function districtTimeseries(
   return rows.map((r) => ({
     bucket: r.bucket.toISOString().slice(0, 10),
     meanPricePerSqm: Number(r.mean_price_per_sqm),
+    medianPricePerSqm: Number(r.median_price_per_sqm),
     count: Number(r.n),
   }));
 }
@@ -108,11 +116,12 @@ export async function streetTimeseries(
     ? Prisma.sql`AND "houseNumber" = ${houseNumber}`
     : Prisma.sql``;
   const rows = await prisma.$queryRaw<
-    Array<{ bucket: Date; mean_price_per_sqm: bigint; n: bigint }>
+    Array<{ bucket: Date; mean_price_per_sqm: bigint; median_price_per_sqm: bigint; n: bigint }>
   >(Prisma.sql`
     SELECT
       date_trunc(${trunc}, "soldAt")::date AS bucket,
       AVG("pricePerSqmSek")::bigint        AS mean_price_per_sqm,
+      ${MEDIAN_PPS}                        AS median_price_per_sqm,
       COUNT(*)::bigint                     AS n
     FROM "DedupedListing"
     WHERE district = ${district}::"District"
@@ -126,6 +135,7 @@ export async function streetTimeseries(
   return rows.map((r) => ({
     bucket: r.bucket.toISOString().slice(0, 10),
     meanPricePerSqm: Number(r.mean_price_per_sqm),
+    medianPricePerSqm: Number(r.median_price_per_sqm),
     count: Number(r.n),
   }));
 }
@@ -139,12 +149,14 @@ export async function listStreets(
       street: string;
       n: bigint;
       mean_pps: bigint;
+      median_pps: bigint;
       latest: Date;
     }>
   >(Prisma.sql`
     SELECT street,
            COUNT(*)::bigint                AS n,
            AVG("pricePerSqmSek")::bigint   AS mean_pps,
+           ${MEDIAN_PPS}                   AS median_pps,
            MAX("soldAt")                   AS latest
     FROM "DedupedListing"
     WHERE district = ${district}::"District"
@@ -159,6 +171,7 @@ export async function listStreets(
     slug: slugifyStreet(r.street),
     count: Number(r.n),
     meanPricePerSqm: Number(r.mean_pps),
+    medianPricePerSqm: Number(r.median_pps),
     latestSoldAt: r.latest.toISOString().slice(0, 10),
   }));
 }
@@ -178,13 +191,16 @@ const HOUSE_NUMBER_ORDER = Prisma.sql`
 export async function listHouseNumbers(
   district: DistrictSlug,
   street: string
-): Promise<Array<{ houseNumber: string; count: number; meanPricePerSqm: number }>> {
+): Promise<
+  Array<{ houseNumber: string; count: number; meanPricePerSqm: number; medianPricePerSqm: number }>
+> {
   const rows = await prisma.$queryRaw<
-    Array<{ houseNumber: string; n: bigint; mean_pps: bigint }>
+    Array<{ houseNumber: string; n: bigint; mean_pps: bigint; median_pps: bigint }>
   >(Prisma.sql`
     SELECT "houseNumber",
            COUNT(*)::bigint                AS n,
-           AVG("pricePerSqmSek")::bigint   AS mean_pps
+           AVG("pricePerSqmSek")::bigint   AS mean_pps,
+           ${MEDIAN_PPS}                   AS median_pps
     FROM "DedupedListing"
     WHERE district = ${district}::"District"
       AND street    = ${street}
@@ -197,6 +213,7 @@ export async function listHouseNumbers(
     houseNumber: r.houseNumber,
     count: Number(r.n),
     meanPricePerSqm: Number(r.mean_pps),
+    medianPricePerSqm: Number(r.median_pps),
   }));
 }
 
@@ -328,6 +345,7 @@ export async function roomsBreakdown(): Promise<
     rooms: number;
     count: number;
     meanPricePerSqm: number;
+    medianPricePerSqm: number;
     meanAreaSqm: number;
     meanPriceSek: number;
   }>
@@ -337,6 +355,7 @@ export async function roomsBreakdown(): Promise<
       rooms_floor: number;
       n: bigint;
       mean_pps: bigint;
+      median_pps: bigint;
       mean_area: number | null;
       mean_price: bigint;
     }>
@@ -344,6 +363,7 @@ export async function roomsBreakdown(): Promise<
     SELECT FLOOR(rooms)::int        AS rooms_floor,
            COUNT(*)::bigint         AS n,
            AVG("pricePerSqmSek")::bigint  AS mean_pps,
+           ${MEDIAN_PPS}                  AS median_pps,
            AVG("areaSqm")           AS mean_area,
            AVG("priceSek")::bigint  AS mean_price
     FROM "DedupedListing"
@@ -357,6 +377,7 @@ export async function roomsBreakdown(): Promise<
     rooms: Number(r.rooms_floor),
     count: Number(r.n),
     meanPricePerSqm: Number(r.mean_pps),
+    medianPricePerSqm: Number(r.median_pps),
     meanAreaSqm: r.mean_area ? Number(r.mean_area) : 0,
     meanPriceSek: Number(r.mean_price),
   }));
@@ -385,24 +406,38 @@ export async function priceAreaSample(limit = 600): Promise<
 export async function globalSummary(): Promise<{
   total: number;
   meanPricePerSqm: number | null;
+  medianPricePerSqm: number | null;
   earliest: string | null;
   latest: string | null;
-  byDistrict: Array<{ district: string; count: number; meanPricePerSqm: number }>;
+  byDistrict: Array<{
+    district: string;
+    count: number;
+    meanPricePerSqm: number;
+    medianPricePerSqm: number;
+  }>;
 }> {
   const [tot] = await prisma.$queryRaw<
-    Array<{ n: bigint; mean: bigint | null; earliest: Date | null; latest: Date | null }>
+    Array<{
+      n: bigint;
+      mean: bigint | null;
+      median: bigint | null;
+      earliest: Date | null;
+      latest: Date | null;
+    }>
   >(Prisma.sql`
     SELECT COUNT(*)::bigint AS n,
            AVG("pricePerSqmSek")::bigint AS mean,
+           ${MEDIAN_PPS} AS median,
            MIN("soldAt") AS earliest,
            MAX("soldAt") AS latest
     FROM "DedupedListing"
     WHERE "pricePerSqmSek" > 0
   `);
   const byDistrict = await prisma.$queryRaw<
-    Array<{ district: string; n: bigint; mean: bigint }>
+    Array<{ district: string; n: bigint; mean: bigint; median: bigint }>
   >(Prisma.sql`
-    SELECT district::text AS district, COUNT(*)::bigint AS n, AVG("pricePerSqmSek")::bigint AS mean
+    SELECT district::text AS district, COUNT(*)::bigint AS n,
+           AVG("pricePerSqmSek")::bigint AS mean, ${MEDIAN_PPS} AS median
     FROM "DedupedListing"
     WHERE "pricePerSqmSek" > 0
     GROUP BY district
@@ -411,12 +446,14 @@ export async function globalSummary(): Promise<{
   return {
     total: Number(tot?.n ?? 0),
     meanPricePerSqm: tot?.mean ? Number(tot.mean) : null,
+    medianPricePerSqm: tot?.median ? Number(tot.median) : null,
     earliest: tot?.earliest?.toISOString().slice(0, 10) ?? null,
     latest: tot?.latest?.toISOString().slice(0, 10) ?? null,
     byDistrict: byDistrict.map((r) => ({
       district: r.district,
       count: Number(r.n),
       meanPricePerSqm: Number(r.mean),
+      medianPricePerSqm: Number(r.median),
     })),
   };
 }
@@ -504,34 +541,14 @@ export async function districtStreetCount(
   return { streetCount, ...summary };
 }
 
-export type DistrictSummary = {
-  count: number;
-  meanPricePerSqm: number | null;
-  earliest: string | null;
-  latest: string | null;
-};
+export type DistrictSummary = SalesSummary;
 
 /** Dedup-aware single-shot summary for one district. */
 export async function districtSummary(
   district: DistrictSlug
 ): Promise<DistrictSummary> {
-  const [row] = await prisma.$queryRaw<
-    Array<{ n: bigint; mean: bigint | null; earliest: Date | null; latest: Date | null }>
-  >(Prisma.sql`
-    SELECT COUNT(*)::bigint                    AS n,
-           AVG("pricePerSqmSek")::bigint       AS mean,
-           MIN("soldAt")                       AS earliest,
-           MAX("soldAt")                       AS latest
-    FROM "DedupedListing"
-    WHERE district = ${district}::"District"
-      AND "pricePerSqmSek" > 0
-  `);
-  return {
-    count: Number(row?.n ?? 0),
-    meanPricePerSqm: row?.mean ? Number(row.mean) : null,
-    earliest: row?.earliest?.toISOString().slice(0, 10) ?? null,
-    latest: row?.latest?.toISOString().slice(0, 10) ?? null,
-  };
+  const { summary } = await summarize(Prisma.sql`district = ${district}::"District"`);
+  return summary;
 }
 
 /** A month-over-month change needs at least this many sales in *each* month. */
@@ -757,10 +774,13 @@ export async function addressDrawerData(
       ORDER BY "soldAt" DESC
       LIMIT 200
     `),
-    prisma.$queryRaw<Array<{ bucket: Date; mean_price_per_sqm: bigint; n: bigint }>>(Prisma.sql`
+    prisma.$queryRaw<
+      Array<{ bucket: Date; mean_price_per_sqm: bigint; median_price_per_sqm: bigint; n: bigint }>
+    >(Prisma.sql`
       SELECT
         date_trunc(${range.bucket}, "soldAt")::date AS bucket,
         AVG("pricePerSqmSek")::bigint               AS mean_price_per_sqm,
+        ${MEDIAN_PPS}                               AS median_price_per_sqm,
         COUNT(*)::bigint                            AS n
       FROM "DedupedListing"
       WHERE district = ${district}::"District"
@@ -776,6 +796,7 @@ export async function addressDrawerData(
     streetSeries: series.map((r) => ({
       bucket: r.bucket.toISOString().slice(0, 10),
       meanPricePerSqm: Number(r.mean_price_per_sqm),
+      medianPricePerSqm: Number(r.median_price_per_sqm),
       count: Number(r.n),
     })),
     addressSales: sales.map((r) => ({
