@@ -114,8 +114,11 @@ export function MapPage() {
 function TopNav() {
   return (
     <div className="px-3 pt-3">
-      <nav className="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-3 sm:px-5">
-        <BrandMark />
+      <nav className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-xl border border-zinc-200 bg-white px-3 py-3 sm:px-5">
+        {/* Below sm the "STHLM" tag goes; at 320 px the actions wrap under the brand. */}
+        <div className="max-sm:[&_span.uppercase]:hidden">
+          <BrandMark />
+        </div>
         <div className="flex shrink-0 items-center gap-0.5 text-sm sm:gap-1">
           <Link
             href="/insights"
@@ -170,7 +173,11 @@ function Sidebar({
   const [moreBelow, setMoreBelow] = useState(false);
   const measure = useCallback(() => {
     const el = asideRef.current;
-    if (el) setMoreBelow(el.scrollTop + el.clientHeight < el.scrollHeight - 4);
+    if (!el) return;
+    const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // Showing the hint takes room from the sidebar, so use two thresholds;
+    // otherwise a sidebar that overflows by a few px would flicker.
+    setMoreBelow((shown) => (shown ? remaining > 4 : remaining > 28));
   }, []);
   useEffect(() => {
     measure();
@@ -182,7 +189,7 @@ function Sidebar({
   }, [measure]);
 
   return (
-    <div className="relative flex max-h-[45%] w-full shrink-0 md:max-h-none md:w-80">
+    <div className="flex max-h-[45%] w-full shrink-0 flex-col md:max-h-none md:w-80">
     <aside
       ref={asideRef}
       onScroll={measure}
@@ -315,15 +322,13 @@ function Sidebar({
       </p>
     </aside>
     {moreBelow && (
-      <div
+      <p
         data-testid="sidebar-more"
         aria-hidden
-        className="pointer-events-none absolute inset-x-px bottom-px flex h-14 items-end justify-center rounded-b-xl bg-gradient-to-t from-white via-white/90 to-transparent pb-1.5"
+        className="shrink-0 pt-1 text-center text-[11px] font-medium text-zinc-600"
       >
-        <span className="rounded-full bg-zinc-900 px-2.5 py-0.5 text-[11px] font-medium text-white shadow-sm">
-          Fler filter ↓
-        </span>
-      </div>
+        Fler filter ↓
+      </p>
     )}
     </div>
   );
