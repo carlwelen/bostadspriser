@@ -9,6 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { formatSold } from "./plural";
 
 const SEK = new Intl.NumberFormat("sv-SE");
 
@@ -52,7 +53,7 @@ export function Histogram({
               borderRadius: 10,
               border: "1px solid #e4e4e7",
             }}
-            formatter={(v) => [`${v} sålda`, "Antal"]}
+            formatter={(v) => [formatSold(Number(v)), "Antal"]}
             labelFormatter={(label) => {
               const start = Number(label);
               return `${SEK.format(start)}–${SEK.format(start + bucketWidth - 1)} kr/m²`;

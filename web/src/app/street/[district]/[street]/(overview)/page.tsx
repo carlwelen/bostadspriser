@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHero } from "@/components/PageHero";
+import { formatSold } from "@/components/plural";
 import { PriceChart } from "@/components/PriceChart";
 import { RecentSalesTable } from "@/components/RecentSalesTable";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -116,7 +117,7 @@ export default async function StreetPage({
                       {street} {h.houseNumber}
                     </p>
                     <p className="mt-1 text-xs text-zinc-500">
-                      {h.count} sålda • {SEK.format(h.meanPricePerSqm)} kr/m²
+                      {formatSold(h.count)} • {SEK.format(h.meanPricePerSqm)} kr/m²
                     </p>
                   </Link>
                 </li>

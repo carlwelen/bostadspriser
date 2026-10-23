@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { Histogram } from "@/components/Histogram";
 import { PageHero } from "@/components/PageHero";
+import { formatSold } from "@/components/plural";
 import { PriceAreaScatter } from "@/components/PriceAreaScatter";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -196,7 +197,7 @@ function Movers({
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-zinc-900">{m.street}</p>
                     <p className="text-[11px] text-zinc-500">
-                      {districtName(m.district)} • {m.count} sålda • medel{" "}
+                      {districtName(m.district)} • {formatSold(m.count)} • medel{" "}
                       {SEK.format(m.meanPricePerSqm)} kr/m²
                     </p>
                   </div>
