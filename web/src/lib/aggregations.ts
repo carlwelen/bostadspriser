@@ -422,19 +422,82 @@ export async function districtSummary(
   };
 }
 
-/** Month-over-month change for the latest two complete buckets. */
-export async function districtMomChange(district: DistrictSlug): Promise<{
+/** A month-over-month change needs at least this many sales in *each* month. */
+export const MIN_MOM_SALES = 3;
+
+export type DistrictMomChange = {
+  /** Mean kr/m² of the latest complete month; null if it has no sales. */
   current: number | null;
+  /** Mean kr/m² of the month before that; null if it has no sales. */
   previous: number | null;
+  /** Percent change; null unless both months have at least `MIN_MOM_SALES` sales. */
   pctChange: number | null;
-} | null> {
-  const ts = await districtTimeseries(district, "month");
-  if (ts.length === 0) return null;
-  const current = ts.at(-1)?.meanPricePerSqm ?? null;
-  const previous = ts.at(-2)?.meanPricePerSqm ?? null;
+  /** First day (YYYY-MM-DD) of the two compared months. */
+  currentMonth: string;
+  previousMonth: string;
+  /** Sales behind each mean, so callers can say how thin the data is. */
+  currentCount: number;
+  previousCount: number;
+};
+
+/**
+ * Month-over-month change between the last two complete, adjacent calendar
+ * months. "Complete" means before the current month in Europe/Stockholm
+ * (`soldAt` is a Stockholm-local date), so in mid-April it compares March with
+ * February; the partial April is ignored. If either month is missing or has
+ * fewer than `MIN_MOM_SALES` sales, `pctChange` is null. Returns null when
+ * neither month has any sales.
+ *
+ * `asOf` is the instant treated as "now" (defaults to the current time).
+ */
+export async function districtMomChange(
+  district: DistrictSlug,
+  asOf: Date = new Date()
+): Promise<DistrictMomChange | null> {
+  // `back` = whole calendar months before `asOf`'s month (Stockholm): 1 is the
+  // latest complete month, 2 the one before it. Months with no sales have no row.
+  const rows = await prisma.$queryRaw<
+    Array<{ back: number; mean_pps: bigint; n: bigint; current_month: string; previous_month: string }>
+  >(Prisma.sql`
+    WITH bounds AS (
+      SELECT date_trunc('month', ${asOf}::timestamptz AT TIME ZONE 'Europe/Stockholm')::date AS cur
+    )
+    SELECT ((EXTRACT(YEAR FROM b.cur) * 12 + EXTRACT(MONTH FROM b.cur))
+          - (EXTRACT(YEAR FROM l."soldAt") * 12 + EXTRACT(MONTH FROM l."soldAt")))::int AS back,
+           AVG(l."pricePerSqmSek")::bigint                                     AS mean_pps,
+           COUNT(*)::bigint                                                    AS n,
+           to_char(b.cur - INTERVAL '1 month', 'YYYY-MM-DD')                   AS current_month,
+           to_char(b.cur - INTERVAL '2 months', 'YYYY-MM-DD')                  AS previous_month
+    FROM "DedupedListing" l, bounds b
+    WHERE l.district = ${district}::"District"
+      AND l."pricePerSqmSek" > 0
+      AND l."soldAt" >= (b.cur - INTERVAL '2 months')::date
+      AND l."soldAt" <  b.cur
+    GROUP BY back, b.cur
+  `);
+  if (rows.length === 0) return null;
+
+  const cur = rows.find((r) => r.back === 1);
+  const prev = rows.find((r) => r.back === 2);
+  const current = cur ? Number(cur.mean_pps) : null;
+  const previous = prev ? Number(prev.mean_pps) : null;
+  const currentCount = cur ? Number(cur.n) : 0;
+  const previousCount = prev ? Number(prev.n) : 0;
   const pctChange =
-    current !== null && previous !== null && previous > 0
+    current !== null &&
+    previous !== null &&
+    previous > 0 &&
+    currentCount >= MIN_MOM_SALES &&
+    previousCount >= MIN_MOM_SALES
       ? ((current - previous) / previous) * 100
       : null;
-  return { current, previous, pctChange };
+  return {
+    current,
+    previous,
+    pctChange,
+    currentMonth: rows[0].current_month,
+    previousMonth: rows[0].previous_month,
+    currentCount,
+    previousCount,
+  };
 }
