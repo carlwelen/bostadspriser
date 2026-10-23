@@ -51,8 +51,9 @@ export default function HomePage() {
     // and would push the map's bottom edge below the fold.
     <div className="flex h-dvh flex-col overflow-hidden bg-zinc-50">
       <TopNav />
-      <div className="flex flex-1 gap-3 overflow-hidden p-3">
-        <main className="relative flex-1 overflow-hidden rounded-xl border border-zinc-200 bg-white">
+      {/* Phones: map on top, sidebar scrolling below it. md+: side by side. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 md:flex-row">
+        <main className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-zinc-200 bg-white">
           <HeatmapMap
             districts={selected}
             showHeatmap={showHeatmap}
@@ -128,7 +129,7 @@ function Sidebar({
   onSetSinceDays,
 }: SidebarProps) {
   return (
-    <aside className="flex w-80 shrink-0 flex-col gap-5 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-5">
+    <aside className="flex max-h-[45%] w-full shrink-0 flex-col gap-5 overflow-y-auto md:max-h-none md:w-80 rounded-xl border border-zinc-200 bg-white p-5">
       <section>
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">

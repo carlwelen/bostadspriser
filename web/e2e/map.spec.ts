@@ -95,11 +95,30 @@ test("a missing Mapbox token shows a clear message and keeps the sidebar working
   consoleErrors,
 }) => {
   await page.goto("/");
-  await expect(page.getByRole("alert").filter({ hasText: "NEXT_PUBLIC_MAPBOX_TOKEN" })).toHaveText(
+  await expect(page.getByRole("status").filter({ hasText: "NEXT_PUBLIC_MAPBOX_TOKEN" })).toHaveText(
     "Kartan kunde inte laddas: Mapbox-token saknas (NEXT_PUBLIC_MAPBOX_TOKEN)."
   );
   // The sidebar is unaffected.
   await page.getByRole("button", { name: "Vasastan", exact: true }).click();
   await expect(page.getByText("3 av 4")).toBeVisible();
   expect(consoleErrors).toEqual([]);
+});
+
+// The long variable name is one unbreakable word; at Pixel 7 width the notice
+// used to overflow its container and clip on both sides.
+test("the missing-token notice stays inside the map area", async ({ page }) => {
+  await page.goto("/");
+  // The map must keep a usable width next to the sidebar (it stacks on phones).
+  const mapBox = await page.getByTestId("map-container").boundingBox();
+  expect(mapBox!.width).toBeGreaterThanOrEqual(300);
+  const notice = page.getByText("Kartan kunde inte laddas");
+  await expect(notice).toBeVisible();
+  const [box, container] = await Promise.all([
+    notice.boundingBox(),
+    page.getByTestId("map-container").boundingBox(),
+  ]);
+  expect(box!.x).toBeGreaterThanOrEqual(container!.x);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(container!.x + container!.width + 0.5);
+  // No horizontal overflow inside the notice itself.
+  expect(await notice.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
