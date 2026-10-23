@@ -1,6 +1,5 @@
 import Link from "next/link";
-
-const DISTRICTS = ["ostermalm", "vasastan", "norrmalm", "sodermalm"] as const;
+import { DISTRICTS } from "@/lib/districts";
 
 export function SiteFooter() {
   return (
@@ -20,13 +19,13 @@ export function SiteFooter() {
           <Link href="/compare" className="transition-colors duration-200 hover:text-zinc-900">
             Jämför
           </Link>
-          {DISTRICTS.map((slug) => (
+          {DISTRICTS.map(({ slug, displayName }) => (
             <Link
               key={slug}
               href={`/district/${slug}`}
               className="transition-colors duration-200 hover:text-zinc-900"
             >
-              {slug}
+              {displayName}
             </Link>
           ))}
         </nav>

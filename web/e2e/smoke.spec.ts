@@ -27,6 +27,22 @@ for (const { path } of PAGES) {
   });
 }
 
+test("the footer lists districts by display name and credits both sources", async ({ page }) => {
+  await page.goto("/insights");
+  const footer = page.locator("footer").last();
+  for (const name of ["Östermalm", "Vasastan", "Norrmalm", "Södermalm"]) {
+    await expect(footer.getByRole("link", { name, exact: true })).toBeVisible();
+  }
+  // Raw slugs must not leak into the copy.
+  await expect(footer).not.toContainText(/ostermalm|sodermalm/);
+  await expect(footer).toContainText("Hemnet");
+  await expect(footer).toContainText("Booli");
+  await expect(footer.getByRole("link", { name: "Östermalm" })).toHaveAttribute(
+    "href",
+    "/district/ostermalm"
+  );
+});
+
 test("the landing page renders the map container", async ({ page, consoleErrors }) => {
   await page.goto("/");
   await expect(page.getByTestId("map-container")).toBeVisible();

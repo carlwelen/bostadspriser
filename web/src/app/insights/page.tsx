@@ -54,7 +54,7 @@ export default async function InsightsPage() {
         subtitle={
           summary.earliest && summary.latest
             ? `Aggregerade slutpriser från ${summary.earliest} till ${summary.latest}. Allt räknas i SQL — inga sammanfattningar i frontend.`
-            : "Underlaget laddas in löpande från Hemnet."
+            : "Underlaget laddas in löpande från Hemnet och Booli."
         }
       />
       <main className="mx-auto max-w-6xl space-y-10 px-6 py-10">
