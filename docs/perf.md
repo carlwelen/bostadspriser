@@ -63,12 +63,12 @@ Design (migration `20261023160000_deduped_listing_mat`):
 - `"DedupedListing"` stays as the live view and the single definition of the
   dedup rules. The scraper's own tests keep using it.
 - `"DedupedListingMat"` = `SELECT * FROM "DedupedListing"`, with a unique index
-  on `id` (one canonical row per group, needed for `REFRESH ... CONCURRENTLY`)
+  on `id` (one canonical row per group)
   and indexes `(district, soldAt)`, `(district, street, houseNumber, soldAt)`,
   `(lat, lng)` and `(soldAt DESC)`.
-- `SELECT refresh_deduped_listing();` refreshes it concurrently (readers are
-  never blocked). **The scraper must call it after each run**; until then the
-  web app shows the previous snapshot. `web/tests/support/seed.ts` calls it, so
+- `SELECT refresh_deduped_listing();` refreshes it (a plain `REFRESH`; readers
+  wait ~1-3 s, see below). **The scraper must call it after each run**, in its
+  own short transaction; until then the web app shows the previous snapshot. `web/tests/support/seed.ts` calls it, so
   the integration and e2e fixtures are refreshed.
 - `web/src/lib/aggregations.ts` reads `"DedupedListingMat"`.
 - A migration that recreates `"DedupedListing"` must drop and recreate the
@@ -76,27 +76,45 @@ Design (migration `20261023160000_deduped_listing_mat`):
 
 ## After
 
+(Second run, on a machine that was also running other test suites, so a few
+numbers are noisier than the first run: every query stayed within 0-175 ms.)
+
 | query | median wall ms | statements | EXPLAIN execution ms | speed-up (wall) |
 |---|---|---|---|---|
-| districtTimeseries | 20 | 1 | 21 | 58x |
+| districtTimeseries | 29 | 1 | 33 | 40x |
 | streetTimeseries | 1 | 1 | 0 | 870x |
-| addressDrawerData (12mo) | 0 | 2 | 0 | >1000x |
-| heatmapPoints (district, 365d) | 4 | 1 | 3 | 220x |
-| heatmapPoints (everything, 50k rows) | 138 | 1 | 32 | 10x |
-| listStreets | 25 | 1 | 26 | 50x |
-| listAllStreets | 119 | 1 | 151 | 12x |
-| districtSummary | 26 | 1 | 29 | 67x |
-| globalSummary | 113 | 2 | 126 | 21x |
-| streetFromSlug | 3 | 1 | 3 | 480x |
-| topMovers | 14 | 1 | 16 | 117x |
-| `refresh_deduped_listing()` | 1683 | 1 | - | (new) |
+| addressDrawerData (12mo) | 1 | 2 | 0 | >1000x |
+| heatmapPoints (district, 365d) | 7 | 1 | 4 | 125x |
+| heatmapPoints (everything) | 103 | 1 | 26 | 14x |
+| listStreets | 38 | 1 | 42 | 33x |
+| listAllStreets | 174 | 1 | 206 | 8x |
+| districtSummary | 47 | 1 | 49 | 37x |
+| globalSummary | 160 | 2 | 241 | 15x |
+| streetFromSlug | 15 | 1 | 16 | 97x |
+| topMovers | 34 | 1 | 38 | 48x |
+| `refresh_deduped_listing()` | 2528 | 1 | - | (new) |
 
 The remaining cost is in whole-table aggregates (`listAllStreets`,
-`globalSummary`, the unfiltered heatmap, which also serializes 50k rows) and
-the per-district scans; all are at or below ~150 ms.
+`globalSummary`, the unfiltered heatmap, which also serializes the rows) and the
+per-district scans.
 
-A refresh takes about 1.7 s at 200k rows, so calling it once per scrape run (or
-per district) is fine; calling it per page is not.
+A refresh takes about 1.7-2.5 s at 200k rows, so calling it once per scrape run
+(or per district) is fine; calling it per page is not.
+
+### Why a plain REFRESH, not CONCURRENTLY
+
+The first version used `REFRESH MATERIALIZED VIEW CONCURRENTLY`. Twice the
+integration suite hung for 15+ minutes inside it (a single CPU-bound backend,
+every later `TRUNCATE` queued behind it) although the same call normally takes
+well under a second; I could not reproduce it in isolation. CONCURRENTLY diffs
+the new rows against the snapshot through a temporary table that has no
+statistics, so a bad plan is plausible, and that is not a risk worth taking for
+a once-per-run refresh. A plain refresh blocks readers for its duration
+(~1-3 s at 200k rows), is predictable, and has no diff step. The unique index
+on `id` is kept (cheap, and it allows going back to CONCURRENTLY if the data
+ever grows enough for the blocking to matter). Call the function in its own
+short transaction, not at the start of a long one, so the lock is not held
+while the scraper does other work.
 
 ## Not done / ideas
 

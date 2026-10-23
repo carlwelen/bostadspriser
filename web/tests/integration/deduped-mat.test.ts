@@ -79,6 +79,22 @@ describe("DedupedListingMat", () => {
     expect(await matCount()).toBe(0);
   });
 
+  it("refreshes with a plain REFRESH, not CONCURRENTLY (which hung the suite twice)", async () => {
+    const [{ src }] = await prisma.$queryRaw<Array<{ src: string }>>`
+      SELECT prosrc AS src FROM pg_proc WHERE proname = 'refresh_deduped_listing'`;
+    expect(src).toMatch(/REFRESH MATERIALIZED VIEW/);
+    expect(src).not.toMatch(/CONCURRENTLY/i);
+  });
+
+  it("copes with the snapshot growing and shrinking between refreshes", async () => {
+    const many = (tag: string, n: number) =>
+      Array.from({ length: n }, (_, i) => row(`${tag}-${i}`));
+    for (const [tag, n] of [["a", 3000], ["b", 5], ["c", 0], ["d", 3000]] as const) {
+      await seed(prisma, many(tag, n));
+      expect(await matCount()).toBe(n);
+    }
+  });
+
   it("follows deduplication (clusters, priced rows) like the live view", async () => {
     await seed(prisma, [
       row("h", { dedupKey: "k1", clusterId: "c" }),
@@ -91,7 +107,7 @@ describe("DedupedListingMat", () => {
     expect(m).toEqual({ id: "h", sources: ["booli", "hemnet", "other"] });
   });
 
-  it("has a unique id index (needed for CONCURRENTLY) and the query indexes", async () => {
+  it("has a unique id index (kept for lookups; allows CONCURRENTLY later) and the query indexes", async () => {
     const idx = await prisma.$queryRaw<Array<{ indexname: string; indexdef: string }>>`
       SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'DedupedListingMat'`;
     const defs = idx.map((i) => i.indexdef);
