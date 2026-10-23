@@ -46,7 +46,7 @@ def test_lock_is_released_when_the_body_raises() -> None:
         pass
 
 
-@pytest.mark.parametrize("command", [["scrape", "--district", "ostermalm", "--since", "2026-05-01"], ["update"], ["reparse"], ["backfill", "--district", "ostermalm", "--since", "2026-05-01"], ["geocode"], ["backfill-dedup"]])
+@pytest.mark.parametrize("command", [["scrape", "--district", "ostermalm", "--since", "2026-05-01"], ["update"], ["reparse"], ["backfill", "--district", "ostermalm", "--since", "2026-05-01"], ["geocode"], ["backfill-dedup"], ["refresh-view"]])
 def test_commands_refuse_to_run_while_another_run_holds_the_lock(command, monkeypatch) -> None:
     called: list[str] = []
     monkeypatch.setitem(run._SOURCE_ITER, "hemnet", lambda *a, **k: called.append("iter"))

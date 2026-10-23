@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from typing import Iterator
 
-from sqlalchemy import MetaData, Table, and_, case, create_engine, func
+from sqlalchemy import MetaData, Table, and_, case, create_engine, func, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from .config import load_config
+
+log = logging.getLogger("scraper.db")
 
 _engine: Engine | None = None
 _metadata: MetaData | None = None
@@ -171,3 +174,26 @@ def _upsert_stmt(rows: list[dict]):
         for c in _COORDINATE_COLS & cols:
             update_cols[c] = case((has_coords, stmt.excluded[c]), else_=table.c[c])
     return stmt.on_conflict_do_update(index_elements=["source", "sourceId"], set_=update_cols)
+
+
+def refresh_deduped() -> str:
+    """Refresh C's `DedupedListingMat` snapshot via `refresh_deduped_listing()`.
+
+    Runs in its own short transaction (never inside an upsert batch) and is
+    best-effort: returns "refreshed", "missing" (the function doesn't exist yet, e.g.
+    before that migration: silent apart from a DEBUG record) or "failed" (logged as a
+    warning). It never raises, so it can't fail a crawl.
+    """
+    try:
+        with engine().begin() as c:
+            exists = c.execute(
+                text("SELECT to_regprocedure('refresh_deduped_listing()') IS NOT NULL")
+            ).scalar_one()
+            if not exists:
+                log.debug("refresh_deduped_listing() does not exist; nothing to refresh")
+                return "missing"
+            c.execute(text("SELECT refresh_deduped_listing()"))
+        return "refreshed"
+    except Exception as e:  # noqa: BLE001
+        log.warning("refreshing the deduplicated snapshot failed error=%s", type(e).__name__)
+        return "failed"

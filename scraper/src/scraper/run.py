@@ -16,7 +16,7 @@ from .backfill import backfill_dedup_keys
 from .booli import DISTRICT_AREA_IDS as _BOOLI_DISTRICTS
 from .booli import iter_district as _booli_iter
 from . import crawl_state, scrape_run
-from .db import DEFAULT_BATCH_SIZE, engine, upsert_listings
+from .db import DEFAULT_BATCH_SIZE, engine, refresh_deduped, upsert_listings
 from .errors import CrawlIncomplete
 from .geocode import MAX_ATTEMPTS as MAX_GEOCODE_ATTEMPTS
 from .geocode import GeocodeConfigError, geocode_pending, mark_inline_pending
@@ -230,6 +230,8 @@ def scrape(district: str, since: date, source: str, max_pages: int) -> None:
     """Scrape SOURCE sold-listings for DISTRICT back to SINCE."""
     report = _run_recorded(source, district, since, max_pages=max_pages)
     click.echo(f"upserted {report.upserted} listings for {district} from {source}")
+    if report.upserted:
+        refresh_deduped()  # also after an incomplete crawl: its rows are stored
     if report.error is not None:
         click.echo(f"crawl incomplete: {report.error}", err=True)
         sys.exit(1)
@@ -292,6 +294,8 @@ def backfill(district: str, since: date, source: str, resume: bool, max_pages: i
             click.echo(f"resuming {source}/{district} at page {start_page} (recorded: {base_next})")
     report = _run_recorded(source, district, since, start_page=start_page, max_pages=max_pages)
     click.echo(f"upserted {report.upserted} listings for {district} from {source}")
+    if report.upserted:
+        refresh_deduped()
     # Only pages whose rows were committed count (not merely yielded).
     next_page = max(base_next, report.committed_page + 1)
     try:
@@ -359,15 +363,21 @@ def update(
     the same cutoff. Without recorded state it falls back to MAX(soldAt).
     """
     overlap = timedelta(days=7)
-    results = [
-        _refresh(source, d, overlap, lookback_days, max_pages) for source in sources for d in districts
-    ]
+    results: list[UpdateResult] = []
     try:
-        # Rows that shipped coordinates inline must not stay `pending` just because
-        # cron never runs `geocode`. Best-effort: it can't change the exit code.
-        mark_inline_pending()
-    except Exception as e:  # noqa: BLE001
-        click.echo(f"warning: could not relabel inline-coordinate rows: {e}", err=True)
+        for source in sources:
+            for d in districts:
+                results.append(_refresh(source, d, overlap, lookback_days, max_pages))
+        try:
+            # Rows that shipped coordinates inline must not stay `pending` just because
+            # cron never runs `geocode`. Best-effort: it can't change the exit code.
+            mark_inline_pending()
+        except Exception as e:  # noqa: BLE001
+            click.echo(f"warning: could not relabel inline-coordinate rows: {e}", err=True)
+    finally:
+        # Once, after every source/district (partial and failed runs stored rows too).
+        if any(r.upserted for r in results):
+            refresh_deduped()
     click.echo(_format_results(results))
     failed = [r for r in results if r.error is not None and not r.partial]
     partial = [r for r in results if r.partial]
@@ -512,6 +522,8 @@ def geocode(limit: int, max_attempts: int) -> None:
     click.echo(
         f"geocoded: ok {summary.ok}, not found {summary.not_found}, failed {summary.failed}"
     )
+    if summary.ok:  # only coordinates change what the deduplicated view shows
+        refresh_deduped()
     if summary.rate_limited:
         click.echo("rate limited by Mapbox: pass stopped early; run again later", err=True)
         sys.exit(EXIT_TEMPFAIL)
@@ -537,6 +549,8 @@ def backfill_dedup() -> None:
     """Populate dedupKey on legacy rows that predate the column."""
     n = backfill_dedup_keys()
     click.echo(f"backfilled {n} rows")
+    if n:
+        refresh_deduped()
 
 
 @cli.command("reparse")
@@ -551,7 +565,24 @@ def backfill_dedup() -> None:
 @exclusive
 def reparse_cmd(dry_run: bool, batch_size: int) -> None:
     """Re-derive street, house number, rooms, area, prices and dedupKey from `raw`."""
-    click.echo(format_summary(reparse(dry_run=dry_run, batch_size=batch_size)))
+    summary = reparse(dry_run=dry_run, batch_size=batch_size)
+    click.echo(format_summary(summary))
+    if not dry_run and summary.changed:
+        refresh_deduped()
+
+
+@cli.command("refresh-view")
+@exclusive
+def refresh_view() -> None:
+    """Refresh the DedupedListingMat snapshot now (what runs after a crawl)."""
+    outcome = refresh_deduped()
+    if outcome == "refreshed":
+        click.echo("refreshed DedupedListingMat")
+    elif outcome == "missing":
+        click.echo("refresh_deduped_listing() does not exist in this database; nothing to do")
+    else:
+        click.echo("refresh failed (see the log)", err=True)
+        sys.exit(1)
 
 
 @cli.command()
@@ -572,6 +603,24 @@ def stats() -> None:
     for d, n, earliest, latest, mean in rows:
         click.echo(
             f"{d:12} {n:>6} {str(earliest):>12} {str(latest):>12} {(mean or 0):>12,}"
+        )
+    _echo_snapshot_counts()
+
+
+def _echo_snapshot_counts() -> None:
+    """When the DedupedListingMat snapshot exists, show it next to the live view and
+    warn if their row counts differ (a refresh is due, or one failed)."""
+    with engine().connect() as c:
+        if not c.execute(text("SELECT to_regclass('\"DedupedListingMat\"') IS NOT NULL")).scalar_one():
+            return
+        live = c.execute(text('SELECT COUNT(*) FROM "DedupedListing"')).scalar_one()
+        snap = c.execute(text('SELECT COUNT(*) FROM "DedupedListingMat"')).scalar_one()
+    click.echo(f"DedupedListing {live:>8}  DedupedListingMat {snap:>8}")
+    if live != snap:
+        click.echo(
+            "warning: DedupedListing and DedupedListingMat row counts differ; "
+            "run `scraper refresh-view`",
+            err=True,
         )
 
 
