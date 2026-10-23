@@ -7,9 +7,8 @@ adding new sources or fixing a normalization bug.
 from __future__ import annotations
 
 from sqlalchemy import select, update
-from sqlalchemy.engine import Row
 
-from .db import engine, listing_table, session
+from .db import listing_table, session
 from .normalize import dedup_key
 
 

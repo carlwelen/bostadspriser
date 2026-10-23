@@ -9,7 +9,7 @@ import httpx
 from sqlalchemy import select, update
 
 from .config import load_config
-from .db import engine, listing_table, session
+from .db import listing_table, session
 
 MAPBOX_URL = "https://api.mapbox.com/geocoding/v5/mapbox.places/{q}.json"
 

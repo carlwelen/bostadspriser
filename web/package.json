@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
-    "@tailwindcss/oxide-linux-x64-gnu": "^4.2.4",
+    "@next/env": "15.5.15",
     "@tailwindcss/postcss": "^4",
     "@types/mapbox-gl": "^3.5.0",
     "@types/node": "^20",

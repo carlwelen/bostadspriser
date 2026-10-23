@@ -28,16 +28,16 @@ from pathlib import Path
 from typing import AsyncIterator
 from zoneinfo import ZoneInfo
 
-# Hemnet encodes `soldAt` as a Unix timestamp at Stockholm-local midnight.
-# Converting in UTC drops the day by one in summer (UTC+2). Use the Swedish
-# zone so the date in our DB matches the "Såld <day>" label users see.
-_STOCKHOLM = ZoneInfo("Europe/Stockholm")
-
 from playwright.async_api import Browser, BrowserContext, async_playwright
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from .config import Config, load_config
 from .normalize import dedup_key, parse_rooms, parse_sek, parse_sqm
+
+# Hemnet encodes `soldAt` as a Unix timestamp at Stockholm-local midnight.
+# Converting in UTC drops the day by one in summer (UTC+2). Use the Swedish
+# zone so the date in our DB matches the "Såld <day>" label users see.
+_STOCKHOLM = ZoneInfo("Europe/Stockholm")
 
 # Verified 2026-05-02 against https://www.hemnet.se/locations/show?q=...
 # Each ID is a `district` in `Stockholms kommun`.
