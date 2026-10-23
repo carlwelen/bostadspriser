@@ -45,6 +45,9 @@ run() { CURRENT="$1"; step "$@"; }
 
 cd "$ROOT/web"
 run "web: prisma generate" pnpm exec prisma generate --no-hints
+# Generated route types from an earlier `next build`/`next dev` go stale when
+# routes move, and tsconfig includes them; drop them (Next regenerates them).
+rm -rf .next/types
 run "web: typecheck" pnpm exec tsc --noEmit
 run "web: lint" pnpm lint
 run "test db: reset ($TEST_DB_NAME)" node scripts/test-db.cjs reset
