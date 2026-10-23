@@ -39,6 +39,7 @@ from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from .config import Config, load_config
 from .errors import CrawlIncomplete
+from .pagination import card_key
 from .normalize import (
     dedup_key,
     parse_rooms,
@@ -219,10 +220,11 @@ def _data_point_text(card: dict, predicate) -> str | None:
     return None
 
 
-# Hard ceiling on pages per crawl, far above real depth (~50 cards/page, a few
-# years of one district is well under 100 pages). A guard against a site that
-# keeps serving pages forever; hitting it is logged.
-MAX_PAGES = 500
+# Hard ceiling on pages per crawl: well above real depth (a few years of one
+# district is a few dozen pages at ~35 cards/page) but low enough that a site
+# serving pages forever costs minutes, not hours. Hitting it is logged and the
+# crawl is reported as incomplete.
+MAX_PAGES = 150
 
 
 def _card_id(card: dict) -> str | None:
@@ -377,7 +379,7 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
 
         try:
             page_num = 1
-            prev_ids: set[str] = set()
+            seen: set[str] = set()
             while True:
                 if page_num > MAX_PAGES:
                     incomplete = f"booli {district}: hit MAX_PAGES={MAX_PAGES}"
@@ -397,12 +399,23 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
                 if not cards:
                     break
 
-                # A site that serves its last page again for every page number
-                # past the end would otherwise be crawled forever.
-                ids = {i for i in map(_card_id, cards) if i}
-                if ids and ids == prev_ids:
+                # Stop when a page adds nothing unseen to this crawl: a site that
+                # serves its last page for every page number past the end, or
+                # wraps around (1, 2, 3, 1, 2, 3, ...), would otherwise be
+                # crawled until MAX_PAGES. Cards without an id are fingerprinted.
+                keys = [card_key(c, _card_id(c)) for c in cards]
+                if all(k in seen for k in keys):
+                    msg = f"booli {district} page {page_num} repeated pages already seen"
+                    print(f"[booli] {msg}; stopping pagination here", flush=True)
+                    in_range = any(
+                        (d := _parse_sold_at(c)) is not None and d >= since for c in cards
+                    )
+                    if in_range:
+                        # Still-current cards but nothing new: the site may be
+                        # clamping pagination before we reached `since`.
+                        incomplete = f"{msg} (cards still newer than {since.isoformat()})"
                     break
-                prev_ids = ids
+                seen.update(keys)
 
                 # Cards we skip (other area, no price, blank address, ...) must not
                 # end the crawl: only an explicit `soldAt < since`, or a page with

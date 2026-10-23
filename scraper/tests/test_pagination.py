@@ -196,18 +196,65 @@ def test_crawl_stops_on_a_page_without_any_dated_in_range_card(source, monkeypat
     assert _crawl(module, monkeypatch, extract, pages) == ["p1"]
 
 
+class _Wrap(dict):
+    """A site that wraps around: pages 1, 2, 3, 1, 2, 3, ..."""
+
+    def get(self, k, default=None):
+        return super().get((k - 1) % len(self) + 1, default)
+
+
+def _idless(card: dict, label: str) -> dict:
+    """The card without any id (Hemnet: listingId/id, Booli: id/booliId), made unique by address."""
+    return {**card, "listingId": None, "id": None, "booliId": None, "streetAddress": f"Gata{label} 1"}
+
+
 @pytest.mark.parametrize("source", SOURCES)
-def test_repeated_last_page_of_rejected_cards_terminates(source, monkeypatch) -> None:
+def test_repeated_last_page_of_rejected_cards_stops_and_is_incomplete(source, monkeypatch, capsys) -> None:
+    """Reviewer probe: p1 / all-unpriced / (same page forever). Terminates with ['p1'];
+    the repeated page still had in-range cards, so the crawl is flagged incomplete."""
     module, card, extract = SOURCES[source]
     pages = _Clamp({1: [card("p1")], 2: [card("u1", priced=False)]})
-    assert _crawl(module, monkeypatch, extract, pages) == ["p1"]
+    ids, incomplete = _run_crawl(module, monkeypatch, extract, pages)
+    assert ids == ["p1"]
+    assert incomplete is not None and "repeated" in str(incomplete)
+    assert "repeated" in capsys.readouterr().out  # the stop is logged
 
 
 @pytest.mark.parametrize("source", SOURCES)
-def test_repeated_last_page_of_valid_cards_terminates(source, monkeypatch) -> None:
+def test_repeated_last_page_of_valid_cards_stops_and_is_incomplete(source, monkeypatch) -> None:
     module, card, extract = SOURCES[source]
     pages = _Clamp({1: [card("p1")], 2: [card("p2a"), card("p2b")]})
-    assert _crawl(module, monkeypatch, extract, pages) == ["p1", "p2a", "p2b"]
+    ids, incomplete = _run_crawl(module, monkeypatch, extract, pages)
+    assert ids == ["p1", "p2a", "p2b"]
+    assert incomplete is not None and "page 3" in str(incomplete)
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_wrap_around_pagination_stops_at_the_first_page_with_nothing_new(source, monkeypatch) -> None:
+    """1, 2, 3, 1, 2, 3, ...: stop on page 4, don't re-fetch until MAX_PAGES."""
+    module, card, extract = SOURCES[source]
+    pages = _Wrap({1: [card("p1")], 2: [card("p2")], 3: [card("p3")]})
+    ids, incomplete = _run_crawl(module, monkeypatch, extract, pages)
+    assert ids == ["p1", "p2", "p3"]
+    assert incomplete is not None and "page 4" in str(incomplete)
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_idless_repeated_page_is_caught_by_fingerprint(source, monkeypatch) -> None:
+    module, card, extract = SOURCES[source]
+    pages = _Clamp({1: [_idless(card("a"), "A")], 2: [_idless(card("b"), "B"), _idless(card("c"), "C")]})
+    ids, incomplete = _run_crawl(module, monkeypatch, extract, pages)
+    assert ids == []  # id-less cards are rejected by _to_row
+    assert incomplete is not None and "page 3" in str(incomplete)
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_page_with_some_new_cards_is_not_a_duplicate_page(source, monkeypatch) -> None:
+    module, card, extract = SOURCES[source]
+    pages = {1: [card("a"), card("b")], 2: [card("b"), card("c")], 3: []}
+    ids, incomplete = _run_crawl(module, monkeypatch, extract, pages)
+    assert ids == ["a", "b", "b", "c"]  # overlap re-yields (upsert is idempotent) but continues
+    assert incomplete is None
 
 
 @pytest.mark.parametrize("source", SOURCES)
