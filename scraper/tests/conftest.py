@@ -20,7 +20,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, unquote, urlsplit, urlunsplit
 
 import pytest
 from dotenv import dotenv_values
@@ -60,10 +60,30 @@ def _test_database_url() -> str:
     return url
 
 
+def with_options(url: str, extra: str) -> str:
+    """`url` with libpq `options` extended by `extra` (appended to any existing value).
+
+    The space inside the value must be encoded as %20, not "+": libpq does not decode
+    "+" and rejects the option.
+    """
+    parts = urlsplit(url)
+    params = parse_qsl(parts.query, keep_blank_values=True)
+    existing = next((v for k, v in params if k == "options"), "")
+    others = [f"{k}={v}" for k, v in params if k != "options"]
+    options = f"{unquote(existing)} {extra}".strip()
+    query = "&".join([*others, f"options={quote(options, safe='=')}"])
+    return urlunsplit(parts._replace(query=query))
+
+
+# A runaway statement (e.g. a refresh waiting on a lock) must fail the test, not hang
+# the suite.
+STATEMENT_TIMEOUT_MS = 60_000
+
 # Point the scraper at the test DB up front so nothing can fall back to the dev
-# DATABASE_URL from .env, even tests that forget to request `db`.
+# DATABASE_URL from .env, even tests that forget to request `db`. Prisma (migrate
+# deploy) gets the plain URL; the scraper's connections also carry the timeout.
 TEST_DATABASE_URL = _test_database_url()
-os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+os.environ["DATABASE_URL"] = with_options(TEST_DATABASE_URL, f"-c statement_timeout={STATEMENT_TIMEOUT_MS}")
 
 
 def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ARG001
