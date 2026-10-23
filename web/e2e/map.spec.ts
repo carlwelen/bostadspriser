@@ -223,6 +223,7 @@ test("the price legend is computed from the displayed points", async ({ page }) 
   await page.goto("/");
   const legend = page.getByTestId("price-legend");
   await expect(legend.locator("span")).toHaveText(["52k", "62k", "75k", "87k", "97k+"]);
+  await expect(legend.getByText("Skalan anpassas efter urvalet.")).toBeVisible();
 });
 
 test("the price legend shows the default scale when there is no data", async ({ page }) => {
@@ -234,6 +235,8 @@ test("the price legend shows the default scale when there is no data", async ({ 
     "180k",
     "220k+",
   ]);
+  // The default scale is not adapted to anything, so no such claim.
+  await expect(page.getByText("Skalan anpassas efter urvalet.")).toHaveCount(0);
 });
 
 // F7: the sidebar note names both sources and follows the selected period.

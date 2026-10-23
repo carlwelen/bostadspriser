@@ -10,7 +10,7 @@ import type { DistrictSlug } from "@/lib/districts";
 import { fetchJson } from "./map/fetchJson";
 import { createHexHandlers, type HexMapLike } from "./map/hexHandlers";
 import { buildPricePopup } from "./map/popups";
-import { DEFAULT_PRICE_BREAKS, computePriceBreaks, priceColorExpression } from "./map/priceRamp";
+import { DEFAULT_PRICE_BREAKS, computePriceBreaks, pricePointPaint } from "./map/priceRamp";
 
 export type HeatmapMode = "price" | "frequency";
 
@@ -231,38 +231,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
         id: PRICE_POINT_LAYER,
         type: "circle",
         source: POINT_SOURCE,
-        paint: {
-          "circle-radius": expr([
-            "interpolate", ["linear"], ["zoom"],
-            10, 28,
-            12, 18,
-            14, 10,
-            16, 6,
-            18, 5,
-          ]),
-          "circle-blur": expr([
-            "interpolate", ["linear"], ["zoom"],
-            10, 0.85,
-            12, 0.55,
-            14, 0.25,
-            16, 0,
-          ]),
-          "circle-color": expr(priceColorExpression(priceBreaks)),
-          "circle-opacity": expr([
-            "interpolate", ["linear"], ["zoom"],
-            10, 0.18,
-            12, 0.32,
-            14, 0.6,
-            16, 0.9,
-            18, 0.95,
-          ]),
-          "circle-stroke-width": expr([
-            "interpolate", ["linear"], ["zoom"],
-            14, 0,
-            16, 1,
-          ]),
-          "circle-stroke-color": "#ffffff",
-        },
+        paint: expr(pricePointPaint(priceBreaks)) as mapboxgl.CirclePaint,
       });
 
       const popup = new mapboxgl.Popup({ closeButton: false, offset: 8 });
@@ -297,7 +266,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
         });
       });
     }
-    map.setPaintProperty(PRICE_POINT_LAYER, "circle-color", expr(priceColorExpression(priceBreaks)));
+    map.setPaintProperty(PRICE_POINT_LAYER, "circle-color", expr(pricePointPaint(priceBreaks)["circle-color"]));
   }, [points, styleReady, priceBreaks]);
 
   // (Re)build hex layer when frequency data changes.

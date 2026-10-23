@@ -5,6 +5,7 @@ import {
   computePriceBreaks,
   formatBreakLabels,
   priceColorExpression,
+  pricePointPaint,
 } from "./priceRamp";
 
 const strictlyIncreasing = (b: number[]) => b.every((v, i) => i === 0 || v > b[i - 1]);
@@ -65,6 +66,41 @@ describe("computePriceBreaks", () => {
       expect(b).toHaveLength(5);
       expect(strictlyIncreasing(b)).toBe(true);
     }
+  });
+});
+
+describe("computePriceBreaks, degenerate inputs (F17 review)", () => {
+  it("always yields five finite, strictly ascending breaks with distinct labels", () => {
+    const inc = (b: number[]) => b.every((v, i) => i === 0 || v > b[i - 1]);
+    const cases = [
+      Array(5).fill(4000),
+      [1000],
+      [300, 300],
+      [100, 200],
+      [123_456],
+      [100_000, 100_001],
+      [1e308, 1e308, 100_000],
+      [Number.MAX_VALUE, Number.MAX_VALUE],
+      [0.4, 0.4],
+      [999, 999, 999],
+    ];
+    for (const vals of cases) {
+      const b = computePriceBreaks(vals);
+      expect(b).toHaveLength(5);
+      expect(b.every(Number.isFinite)).toBe(true);
+      expect(inc(b)).toBe(true);
+      expect(new Set(formatBreakLabels(b)).size).toBe(5);
+    }
+  });
+});
+
+describe("pricePointPaint", () => {
+  it("colours circles with the given breaks", () => {
+    const breaks = [50_000, 60_000, 70_000, 80_000, 90_000];
+    expect(pricePointPaint(breaks)["circle-color"]).toEqual(priceColorExpression(breaks));
+    expect(pricePointPaint(DEFAULT_PRICE_BREAKS)["circle-color"]).not.toEqual(
+      pricePointPaint(breaks)["circle-color"]
+    );
   });
 });
 
