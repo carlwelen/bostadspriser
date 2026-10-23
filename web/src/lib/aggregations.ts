@@ -157,6 +157,18 @@ export async function listStreets(
   }));
 }
 
+/**
+ * Natural order for house numbers: numeric prefix, then letter ("3" before
+ * "3A"), then the end of a range ("10" before "10-12"). Unparseable values
+ * ("Kv") sort last; ties fall back to the text. POSIX classes rather than
+ * `\d`, because Prisma.sql reads the cooked template string.
+ */
+const HOUSE_NUMBER_ORDER = Prisma.sql`
+  NULLIF(substring("houseNumber" from '^[0-9]{1,9}'), '')::int ASC NULLS LAST,
+  upper(substring("houseNumber" from '^[0-9]+[[:space:]]*([[:alpha:]])')) ASC NULLS FIRST,
+  NULLIF(substring("houseNumber" from '^[0-9]+[[:space:]]*[[:alpha:]]?[[:space:]]*-[[:space:]]*([0-9]{1,9})'), '')::int ASC NULLS FIRST,
+  "houseNumber" ASC`;
+
 export async function listHouseNumbers(
   district: DistrictSlug,
   street: string
@@ -172,7 +184,7 @@ export async function listHouseNumbers(
       AND street    = ${street}
       AND "houseNumber" IS NOT NULL
     GROUP BY "houseNumber"
-    ORDER BY "houseNumber" ASC
+    ORDER BY ${HOUSE_NUMBER_ORDER}
   `);
 
   return rows.map((r) => ({
