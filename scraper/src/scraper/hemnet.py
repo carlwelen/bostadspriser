@@ -32,7 +32,7 @@ from playwright.async_api import Browser, BrowserContext, async_playwright
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from .config import Config, load_config
-from .normalize import dedup_key, parse_rooms, parse_sek, parse_sqm
+from .normalize import dedup_key, parse_rooms, parse_sek, parse_sqm, parse_street_address
 
 # Hemnet encodes `soldAt` as a Unix timestamp at Stockholm-local midnight.
 # Converting in UTC drops the day by one in summer (UTC+2). Use the Swedish
@@ -188,12 +188,10 @@ def _to_row(card: dict, district: str) -> dict | None:
     except (TypeError, ValueError):
         return None
 
-    # "Brahegatan 3A" → ("Brahegatan", "3A")
-    parts = addr.rsplit(" ", 1)
-    if len(parts) == 2 and any(c.isdigit() for c in parts[1]):
-        street, house = parts[0].strip(), parts[1].strip()
-    else:
-        street, house = addr.strip(), None
+    # "Sankt Eriksgatan 10 B" → ("Sankt Eriksgatan", "10B")
+    street, house = parse_street_address(addr)
+    if not street:
+        return None
 
     coords = card.get("coordinates") or {}
     price_sek = parse_sek(card.get("finalPrice", "")) or 0

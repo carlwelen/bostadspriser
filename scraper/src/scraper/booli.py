@@ -38,7 +38,7 @@ from playwright.async_api import Browser, BrowserContext, async_playwright
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from .config import Config, load_config
-from .normalize import dedup_key, parse_rooms, parse_sek, parse_sqm
+from .normalize import dedup_key, parse_rooms, parse_sek, parse_sqm, parse_street_address
 
 # Booli encodes `soldDate` as a plain ISO date string ("2026-05-02") so no
 # timezone math is needed here — but we keep ZoneInfo around in case Booli
@@ -233,13 +233,10 @@ def _to_row(card: dict, district: str) -> dict | None:
     except (TypeError, ValueError):
         return None
 
-    # "Brahegatan 3A" → ("Brahegatan", "3A"). Same heuristic as hemnet._to_row
-    # so downstream queries can join across sources by (street, houseNumber).
-    parts = addr.rsplit(" ", 1)
-    if len(parts) == 2 and any(c.isdigit() for c in parts[1]):
-        street, house = parts[0].strip(), parts[1].strip()
-    else:
-        street, house = addr.strip(), None
+    # "Sankt Eriksgatan 10 B" → ("Sankt Eriksgatan", "10B")
+    street, house = parse_street_address(addr)
+    if not street:
+        return None
 
     # Booli puts living area, rooms, and kr/m² in `displayAttributes.dataPoints`
     # as positional, label-less entries. Pick by content shape — the sample
