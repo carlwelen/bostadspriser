@@ -62,7 +62,7 @@ export function AddressDrawer({
   onClose: () => void;
 }) {
   const [period, setPeriod] = useState<Period>("12mo");
-  const { data, loading, error } = useAddressData(selection, period);
+  const { data, loading, error, reload } = useAddressData(selection, period);
 
   // Esc closes the drawer.
   useEffect(() => {
@@ -189,11 +189,17 @@ export function AddressDrawer({
               {error ? (
                 <div
                   role="alert"
-                  className="grid h-full place-items-center rounded-xl border border-dashed border-red-200 bg-red-50/60 text-sm text-red-700"
+                  className="flex h-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-red-200 bg-red-50/60 text-sm text-red-700"
                 >
                   Kunde inte hämta data.
+                  <button
+                    onClick={reload}
+                    className="rounded-md border border-red-200 bg-white px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                  >
+                    Försök igen
+                  </button>
                 </div>
-              ) : loading && !data ? (
+              ) : loading ? (
                 <div className="grid h-full place-items-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50/60 text-sm text-zinc-500">
                   Laddar…
                 </div>
