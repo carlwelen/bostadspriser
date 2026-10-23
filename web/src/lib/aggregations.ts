@@ -1,3 +1,6 @@
+// Reads go through "DedupedListingMat", a materialized snapshot of the live
+// "DedupedListing" view (the dedup rules), refreshed by refresh_deduped_listing()
+// after each scrape run. See docs/perf.md.
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import type { DistrictSlug } from "./districts";
@@ -71,7 +74,7 @@ export async function streetFromSlug(
 ): Promise<string | null> {
   const rows = await prisma.$queryRaw<Array<{ street: string }>>(Prisma.sql`
     SELECT DISTINCT street
-    FROM "DedupedListing"
+    FROM "DedupedListingMat"
     WHERE district = ${district}::"District"
   `);
   return rows.find((r) => slugifyStreet(r.street) === slug)?.street ?? null;
@@ -90,7 +93,7 @@ export async function districtTimeseries(
       AVG("pricePerSqmSek")::bigint        AS mean_price_per_sqm,
       ${MEDIAN_PPS}                        AS median_price_per_sqm,
       COUNT(*)::bigint                     AS n
-    FROM "DedupedListing"
+    FROM "DedupedListingMat"
     WHERE district = ${district}::"District"
       AND "pricePerSqmSek" > 0
     GROUP BY bucket
@@ -123,7 +126,7 @@ export async function streetTimeseries(
       AVG("pricePerSqmSek")::bigint        AS mean_price_per_sqm,
       ${MEDIAN_PPS}                        AS median_price_per_sqm,
       COUNT(*)::bigint                     AS n
-    FROM "DedupedListing"
+    FROM "DedupedListingMat"
     WHERE district = ${district}::"District"
       AND street    = ${street}
       ${houseFilter}
@@ -158,7 +161,7 @@ export async function listStreets(
            AVG("pricePerSqmSek")::bigint   AS mean_pps,
            ${MEDIAN_PPS}                   AS median_pps,
            MAX("soldAt")                   AS latest
-    FROM "DedupedListing"
+    FROM "DedupedListingMat"
     WHERE district = ${district}::"District"
       AND "pricePerSqmSek" > 0
     GROUP BY street
@@ -205,7 +208,7 @@ export async function listHouseNumbers(
            COUNT(*)::bigint                AS n,
            AVG("pricePerSqmSek")::bigint   AS mean_pps,
            ${MEDIAN_PPS}                   AS median_pps
-    FROM "DedupedListing"
+    FROM "DedupedListingMat"
     WHERE district = ${district}::"District"
       AND street    = ${street}
       AND "houseNumber" IS NOT NULL
@@ -242,7 +245,7 @@ export async function recentSales(
     }>
   >(Prisma.sql`
     SELECT street, "houseNumber", rooms, "areaSqm", "priceSek", "pricePerSqmSek", "soldAt", sources
-    FROM "DedupedListing"
+    FROM "DedupedListingMat"
     WHERE ${Prisma.join(conds, " AND ")}
     ORDER BY "soldAt" DESC
     LIMIT ${limit}
@@ -300,7 +303,7 @@ export async function topMovers(
         AVG("pricePerSqmSek") FILTER (WHERE "soldAt" >= ${today} - 90)::bigint  AS recent_mean,
         COUNT(*)::bigint                                                            AS hist_n,
         AVG("pricePerSqmSek")::bigint                                               AS hist_mean
-      FROM "DedupedListing"
+      FROM "DedupedListingMat"
       WHERE "pricePerSqmSek" > 0
       GROUP BY district, street
     )
@@ -336,7 +339,7 @@ export async function pricePerSqmDistribution(
   const rows = await prisma.$queryRaw<Array<{ bucket: number; n: bigint }>>(Prisma.sql`
     SELECT (FLOOR("pricePerSqmSek" / ${bucketWidth}::numeric)::int * ${bucketWidth}) AS bucket,
            COUNT(*)::bigint                                                          AS n
-    FROM "DedupedListing"
+    FROM "DedupedListingMat"
     WHERE "pricePerSqmSek" > 0
     GROUP BY bucket
     ORDER BY bucket ASC
@@ -371,7 +374,7 @@ export async function roomsBreakdown(): Promise<
            ${MEDIAN_PPS}                  AS median_pps,
            AVG("areaSqm")           AS mean_area,
            AVG("priceSek")::bigint  AS mean_price
-    FROM "DedupedListing"
+    FROM "DedupedListingMat"
     WHERE rooms IS NOT NULL
       AND "pricePerSqmSek" > 0
       AND rooms >= 1 AND rooms < 8
@@ -399,7 +402,7 @@ export async function priceAreaSample(limit = 600): Promise<
            "pricePerSqmSek"::int    AS "pricePerSqm",
            rooms::float8            AS rooms,
            district::text           AS district
-    FROM "DedupedListing"
+    FROM "DedupedListingMat"
     WHERE "areaSqm" IS NOT NULL AND "pricePerSqmSek" > 0
     ORDER BY ("id"::text)
     LIMIT ${limit}
@@ -435,7 +438,7 @@ export async function globalSummary(): Promise<{
            ${MEDIAN_PPS} AS median,
            MIN("soldAt") AS earliest,
            MAX("soldAt") AS latest
-    FROM "DedupedListing"
+    FROM "DedupedListingMat"
     WHERE "pricePerSqmSek" > 0
   `);
   const byDistrict = await prisma.$queryRaw<
@@ -443,7 +446,7 @@ export async function globalSummary(): Promise<{
   >(Prisma.sql`
     SELECT district::text AS district, COUNT(*)::bigint AS n,
            AVG("pricePerSqmSek")::bigint AS mean, ${MEDIAN_PPS} AS median
-    FROM "DedupedListing"
+    FROM "DedupedListingMat"
     WHERE "pricePerSqmSek" > 0
     GROUP BY district
     ORDER BY n DESC
@@ -497,7 +500,7 @@ async function summarize(
            ${MEDIAN_PPS}                                                         AS median,
            MIN("soldAt")                                                         AS earliest,
            MAX("soldAt")                                                         AS latest
-    FROM "DedupedListing"
+    FROM "DedupedListingMat"
     WHERE ${scope}
       AND "pricePerSqmSek" > 0
   `);
@@ -602,7 +605,7 @@ export async function districtMomChange(
            COUNT(*)::bigint                                                    AS n,
            to_char(b.cur - INTERVAL '1 month', 'YYYY-MM-DD')                   AS current_month,
            to_char(b.cur - INTERVAL '2 months', 'YYYY-MM-DD')                  AS previous_month
-    FROM "DedupedListing" l, bounds b
+    FROM "DedupedListingMat" l, bounds b
     WHERE l.district = ${district}::"District"
       AND l."pricePerSqmSek" > 0
       AND l."soldAt" >= (b.cur - INTERVAL '2 months')::date
@@ -711,7 +714,7 @@ export async function heatmapPoints(
            "pricePerSqmSek"::int AS "pricePerSqm",
            street, "houseNumber", district::text AS district,
            "soldAt", source, sources, "dedupKey"
-    FROM "DedupedListing"
+    FROM "DedupedListingMat"
     WHERE ${Prisma.join(conds, " AND ")}
     ORDER BY "soldAt" DESC
     LIMIT ${HEATMAP_LIMIT}
@@ -734,7 +737,7 @@ export async function listAllStreets(limit = 4000): Promise<StreetsAllItem[]> {
            COUNT(*)::bigint               AS n,
            AVG("pricePerSqmSek")::bigint  AS mean_pps,
            ${MEDIAN_PPS}                  AS median_pps
-    FROM "DedupedListing"
+    FROM "DedupedListingMat"
     WHERE "pricePerSqmSek" > 0
     GROUP BY district, street
     ORDER BY n DESC, street ASC
@@ -778,7 +781,7 @@ export async function addressDrawerData(
       Array<{ soldAt: Date; priceSek: bigint; pricePerSqmSek: bigint; sources: string[] | null }>
     >(Prisma.sql`
       SELECT "soldAt", "priceSek", "pricePerSqmSek", sources
-      FROM "DedupedListing"
+      FROM "DedupedListingMat"
       WHERE district = ${district}::"District"
         AND street    = ${street}
         ${houseClause}
@@ -795,7 +798,7 @@ export async function addressDrawerData(
         AVG("pricePerSqmSek")::bigint               AS mean_price_per_sqm,
         ${MEDIAN_PPS}                               AS median_price_per_sqm,
         COUNT(*)::bigint                            AS n
-      FROM "DedupedListing"
+      FROM "DedupedListingMat"
       WHERE district = ${district}::"District"
         AND street    = ${street}
         AND "pricePerSqmSek" > 0
