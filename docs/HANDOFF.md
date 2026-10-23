@@ -13,7 +13,9 @@ Written 2026-10-23 when the Claude Code orchestrator ran out of budget. Read thi
 - **No audit round has run yet.** The stop condition needs two consecutive clean ones (§5).
 - **Open owner decision:** the Mapbox geocoding storage terms. See "Owner decisions" in `docs/backlog.md`.
 
-## 2. Unmerged, reviewed work waiting on branches
+## 2. Unmerged work waiting on branches
+
+> **Update at the end of the Claude session:** §2a's B46 and B16 review 4 commits, and **all of §2b**, are now **merged on `main`**, with the gate green after each. **Still unmerged:** `d0e24c6` (B13 matcher, changes requested, see below) and **all of §2c**. The E batch was reviewed: 8 of 11 commits are approved, and F20, F11/F12 and F28 need fixes. See `docs/review-probes/e-batch-review.md`. Always confirm with `git cherry -v main <branch>`.
 
 Each block below is a branch with commits that are **not on `main` yet**. Merge each block in the order shown, **oldest commit first**, using `scripts/merge-seq.sh <sha> <sha> …`. The script cherry-picks one commit at a time and runs the full gate after each. List what is still unmerged with `git cherry -v main <branch>` (lines starting with `+`).
 
@@ -61,7 +63,7 @@ The B46 refresh calls are **guarded**: they do nothing until the SQL function ex
 
 `2ef182e 4257179 8a61a15 22a62cf 12d76ea 85fe265 c6d646c 5ab1bbf 4bd971d f07ca97 7627e4d`
 
-**Not yet reviewed:** a review was running at handoff. Review it before merging (§4).
+**Reviewed: 3 commits need changes first.** The findings and probe tests are in `docs/review-probes/e-batch-review.md` and `e_batch_probe.spec.ts`. Add the fixes as new commits on the branch, re-review them, then merge the whole branch.
 
 | Items | What |
 |---|---|
@@ -76,7 +78,7 @@ The B46 refresh calls are **guarded**: they do nothing until the SQL function ex
 | F18 | Data freshness indicator |
 | F28 + F29 | Recharts SSR warnings; copy fixes |
 
-E branched from a `main` that did not yet have C's 2b commits. Expect small conflicts in pages that consume `aggregations.ts`. Resolve them, then run the gate.
+E branched from a `main` that did not yet have C's 2b commits (now merged). Expect small conflicts in pages that consume `aggregations.ts`. Resolve them, then run the gate.
 
 ### After the merges
 
