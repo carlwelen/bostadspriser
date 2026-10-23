@@ -13,6 +13,7 @@ import {
 } from "recharts";
 
 import { SourceBadge } from "./SourceBadge";
+import { useAddressData, type Period } from "./map/useAddressData";
 
 const PERIODS = [
   { value: "30d" as const, label: "30 dagar" },
@@ -20,23 +21,6 @@ const PERIODS = [
   { value: "12mo" as const, label: "12 mån" },
   { value: "all" as const, label: "Allt" },
 ];
-
-type Period = (typeof PERIODS)[number]["value"];
-
-type AddressResponse = {
-  district: string;
-  street: string;
-  house: string | null;
-  period: Period;
-  granularity: "day" | "week" | "month";
-  streetSeries: Array<{ bucket: string; meanPricePerSqm: number; count: number }>;
-  addressSales: Array<{
-    soldAt: string;
-    priceSek: number;
-    pricePerSqmSek: number;
-    sources: string[];
-  }>;
-};
 
 export type AddressSelection = {
   district: string;
@@ -78,38 +62,7 @@ export function AddressDrawer({
   onClose: () => void;
 }) {
   const [period, setPeriod] = useState<Period>("12mo");
-  const [data, setData] = useState<AddressResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  // Fetch when drawer opens or period changes.
-  useEffect(() => {
-    if (!selection) return;
-    let cancelled = false;
-    setLoading(true);
-    const params = new URLSearchParams({
-      district: selection.district,
-      street: selection.street,
-      period,
-    });
-    if (selection.houseNumber) params.set("house", selection.houseNumber);
-    fetch(`/api/address?${params}`)
-      .then((r) => r.json() as Promise<AddressResponse>)
-      .then((d) => {
-        if (!cancelled) {
-          setData(d);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          console.error("address fetch failed", err);
-          setLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selection, period]);
+  const { data, loading, error } = useAddressData(selection, period);
 
   // Esc closes the drawer.
   useEffect(() => {
@@ -233,7 +186,14 @@ export function AddressDrawer({
               </p>
             </div>
             <div className="mt-2 h-64 w-full">
-              {loading && !data ? (
+              {error ? (
+                <div
+                  role="alert"
+                  className="grid h-full place-items-center rounded-xl border border-dashed border-red-200 bg-red-50/60 text-sm text-red-700"
+                >
+                  Kunde inte hämta data.
+                </div>
+              ) : loading && !data ? (
                 <div className="grid h-full place-items-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50/60 text-sm text-zinc-500">
                   Laddar…
                 </div>

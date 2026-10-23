@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { fetchJson } from "./map/fetchJson";
 import { districtName, type DistrictSlug } from "@/lib/districts";
 
 type StreetEntry = {
@@ -26,15 +27,20 @@ export function StreetSearch() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [streets, setStreets] = useState<StreetEntry[] | null>(null);
+  const [error, setError] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   // Lazy-load the street index when the search is first opened.
   useEffect(() => {
     if (!open || streets) return;
-    fetch("/api/streets/all")
-      .then((r) => r.json())
+    setError(false);
+    // TODO(F30): import StreetEntry from @/lib/api-types once it lands on main.
+    fetchJson<StreetEntry[]>("/api/streets/all")
       .then(setStreets)
-      .catch((err) => console.error("street index fetch failed", err));
+      .catch((err) => {
+        console.error("street index fetch failed", err);
+        setError(true);
+      });
   }, [open, streets]);
 
   useEffect(() => {
@@ -116,7 +122,11 @@ export function StreetSearch() {
               </button>
             </div>
             <div className="max-h-[60vh] overflow-y-auto">
-              {streets === null ? (
+              {error ? (
+                <p role="alert" className="px-4 py-6 text-sm text-red-700">
+                  Kunde inte hämta data.
+                </p>
+              ) : streets === null ? (
                 <p className="px-4 py-6 text-sm text-zinc-500">Laddar gator…</p>
               ) : filtered.length === 0 ? (
                 <p className="px-4 py-6 text-sm text-zinc-500">

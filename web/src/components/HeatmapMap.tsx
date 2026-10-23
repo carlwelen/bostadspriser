@@ -7,6 +7,7 @@ import { cellToBoundary, latLngToCell } from "h3-js";
 
 import { AddressDrawer, type AddressSelection } from "./AddressDrawer";
 import type { DistrictSlug } from "@/lib/districts";
+import { fetchJson } from "./map/fetchJson";
 import { buildHexPopup, buildPricePopup } from "./map/popups";
 
 export type HeatmapMode = "price" | "frequency";
@@ -114,6 +115,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
   const [styleReady, setStyleReady] = useState(false);
   const [points, setPoints] = useState<PointFC | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [selectedAddress, setSelectedAddress] = useState<AddressSelection | null>(null);
 
   // Initialize map once.
@@ -148,6 +150,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(false);
     const params = new URLSearchParams();
     if (districts.length) params.set("districts", districts.join(","));
     if (filters?.priceMin) params.set("priceMin", String(filters.priceMin));
@@ -155,8 +158,8 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
     if (filters?.rooms?.length) params.set("rooms", filters.rooms.join(","));
     if (filters?.sinceDays) params.set("sinceDays", String(filters.sinceDays));
     const qs = params.toString();
-    fetch(`/api/heatmap${qs ? `?${qs}` : ""}`)
-      .then((r) => r.json() as Promise<PointFC>)
+    // TODO(F30): import HeatmapResponse from @/lib/api-types once it lands on main.
+    fetchJson<PointFC>(`/api/heatmap${qs ? `?${qs}` : ""}`)
       .then((fc) => {
         if (!cancelled) {
           setPoints(fc);
@@ -165,7 +168,12 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
       })
       .catch((err) => {
         console.error("heatmap fetch failed", err);
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          // Don't keep showing the previous selection's points as current.
+          setPoints(null);
+          setError(true);
+          setLoading(false);
+        }
       });
     return () => {
       cancelled = true;
@@ -181,7 +189,15 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
   // Mount/update sources + layers once style is ready.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !styleReady || !points) return;
+    if (!map || !styleReady) return;
+    if (!points) {
+      // A failed fetch clears the points; don't leave the previous ones on the map.
+      (map.getSource(POINT_SOURCE) as mapboxgl.GeoJSONSource | undefined)?.setData({
+        type: "FeatureCollection",
+        features: [],
+      });
+      return;
+    }
 
     // Point source — used by price layers.
     const pSrc = map.getSource(POINT_SOURCE) as mapboxgl.GeoJSONSource | undefined;
@@ -378,7 +394,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
   }, [mode, showHeatmap, styleReady]);
 
   const featureCount = points?.features.length ?? 0;
-  const empty = !loading && featureCount === 0;
+  const empty = !loading && !error && featureCount === 0;
 
   const recent = useMemo(() => {
     if (!points) return [] as Array<{ address: string; pricePerSqm: number; soldAt: string }>;
@@ -395,24 +411,34 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
       <div ref={containerRef} data-testid="map-container" className="h-full w-full" />
 
       {/* coverage / loading badge */}
-      <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-2 rounded-full bg-white/85 px-3 py-1 text-xs text-zinc-700 shadow-sm ring-1 ring-zinc-200 backdrop-blur">
-        {loading ? (
-          <>
-            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-zinc-400" />
-            Laddar försäljningar…
-          </>
-        ) : (
-          <>
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-            {new Intl.NumberFormat("sv-SE").format(featureCount)} försäljningar i urvalet
-          </>
-        )}
-      </div>
+      {!error && (
+        <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-2 rounded-full bg-white/85 px-3 py-1 text-xs text-zinc-700 shadow-sm ring-1 ring-zinc-200 backdrop-blur">
+          {loading ? (
+            <>
+              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-zinc-400" />
+              Laddar försäljningar…
+            </>
+          ) : (
+            <>
+              <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+              {new Intl.NumberFormat("sv-SE").format(featureCount)} försäljningar i urvalet
+            </>
+          )}
+        </div>
+      )}
 
       <AddressDrawer
         selection={selectedAddress}
         onClose={() => setSelectedAddress(null)}
       />
+
+      {error && (
+        <div role="alert" className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
+          <div className="rounded-2xl bg-white/95 px-5 py-4 text-center text-sm text-red-700 shadow-md ring-1 ring-red-200">
+            Kunde inte hämta data.
+          </div>
+        </div>
+      )}
 
       {empty && (
         <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
