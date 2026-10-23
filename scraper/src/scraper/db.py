@@ -72,21 +72,73 @@ _COORDINATE_COLS = frozenset({"lat", "lng", "geocodedAt"})
 
 def upsert_listing(row: dict) -> None:
     """Insert or update by (source, sourceId) — idempotent re-scrapes."""
+    upsert_listings([row])
+
+
+DEFAULT_BATCH_SIZE = 100
+
+
+def upsert_listings(rows: list[dict], batch_size: int = DEFAULT_BATCH_SIZE) -> int:
+    """Insert or update many rows by (source, sourceId), one transaction per batch.
+
+    Each batch is a single multi-row INSERT ... ON CONFLICT DO UPDATE, so a failure
+    rolls back that batch only; batches already committed stay. Postgres refuses
+    to affect the same row twice in one statement, so duplicate natural keys
+    inside a batch are collapsed first (the last row wins, keeping the first
+    row's id). Returns the number of distinct rows written.
+    """
+    if batch_size < 1:
+        raise ValueError("batch_size must be >= 1")
+    written = 0
+    for start in range(0, len(rows), batch_size):
+        batch = _collapse_duplicates(rows[start : start + batch_size])
+        # One statement needs one column set; rows from the parsers always share
+        # it, but group defensively so a row missing e.g. lat/lng still works.
+        groups: dict[frozenset[str], list[dict]] = {}
+        for r in batch:
+            groups.setdefault(frozenset(r), []).append(r)
+        with session() as s:
+            for group in groups.values():
+                s.execute(_upsert_stmt(group))
+            s.commit()
+        written += len(batch)
+    return written
+
+
+def _has_coords(row: dict) -> bool:
+    return row.get("lat") is not None and row.get("lng") is not None
+
+
+def _collapse_duplicates(batch: list[dict]) -> list[dict]:
+    """Last row wins per (source, sourceId), as if the rows were upserted one by one.
+
+    So the first occurrence's id is kept, and an earlier row's coordinates survive
+    a later row that has none (the same rule the ON CONFLICT clause applies)."""
+    merged: dict[tuple, dict] = {}
+    for r in batch:
+        key = (r["source"], r["sourceId"])
+        prev = merged.get(key)
+        if prev is not None:
+            if "id" in prev:
+                r = {**r, "id": prev["id"]}
+            if _has_coords(prev) and not _has_coords(r):
+                r = {**r, **{c: prev[c] for c in _COORDINATE_COLS if c in prev and c in r}}
+        merged[key] = r
+    return list(merged.values())
+
+
+def _upsert_stmt(rows: list[dict]):
     table = listing_table()
-    stmt = pg_insert(table).values(**row)
+    stmt = pg_insert(table).values(rows)
+    cols = rows[0].keys()
     update_cols = {
-        c: stmt.excluded[c] for c in row.keys() if c not in _CONFLICT_KEPT | _COORDINATE_COLS
+        c: stmt.excluded[c] for c in cols if c not in _CONFLICT_KEPT | _COORDINATE_COLS
     }
     # A re-scrape without coordinates must not wipe good (or geocoded) ones:
     # the lat/lng/geocodedAt trio is replaced together, and only when the
-    # incoming row carries a complete lat+lng pair.
-    if "lat" in row and "lng" in row:
+    # incoming row carries a complete lat+lng pair. Evaluated per row.
+    if "lat" in cols and "lng" in cols:
         has_coords = and_(stmt.excluded["lat"].is_not(None), stmt.excluded["lng"].is_not(None))
-        for c in _COORDINATE_COLS & row.keys():
+        for c in _COORDINATE_COLS & cols:
             update_cols[c] = case((has_coords, stmt.excluded[c]), else_=table.c[c])
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["source", "sourceId"], set_=update_cols
-    )
-    with session() as s:
-        s.execute(stmt)
-        s.commit()
+    return stmt.on_conflict_do_update(index_elements=["source", "sourceId"], set_=update_cols)

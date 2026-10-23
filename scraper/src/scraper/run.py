@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
@@ -13,7 +14,7 @@ from sqlalchemy import text
 from .backfill import backfill_dedup_keys
 from .booli import DISTRICT_AREA_IDS as _BOOLI_DISTRICTS
 from .booli import iter_district as _booli_iter
-from .db import engine, upsert_listing
+from .db import DEFAULT_BATCH_SIZE, engine, upsert_listings
 from .errors import CrawlIncomplete
 from .geocode import geocode_pending
 from .hemnet import DISTRICT_LOCATION_IDS
@@ -42,6 +43,43 @@ def latest_sold_at(source: str, district: str) -> date | None:
         ).scalar_one()
 
 
+async def _ingest(
+    rows: AsyncIterator[dict],
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    on_batch: Callable[[int], None] | None = None,
+) -> int:
+    """Upsert `rows` in batches (one transaction each); returns rows written.
+
+    If the iterator fails (e.g. CrawlIncomplete), the rows already received are
+    flushed before the error propagates, so a partial crawl keeps what it got.
+    `on_batch(n)` is called after each batch is committed.
+    """
+    buf: list[dict] = []
+    written = 0
+
+    def flush() -> None:
+        nonlocal written
+        if not buf:
+            return
+        batch = list(buf)
+        buf.clear()
+        upsert_listings(batch)
+        written += len(batch)
+        if on_batch is not None:
+            on_batch(len(batch))
+
+    try:
+        async for row in rows:
+            buf.append(row)
+            if len(buf) >= batch_size:
+                flush()
+    except Exception:
+        flush()
+        raise
+    flush()
+    return written
+
+
 def _parse_date(s: str) -> date:
     return datetime.strptime(s, "%Y-%m-%d").date()
 
@@ -67,13 +105,11 @@ def scrape(district: str, since: date, source: str) -> None:
 
     counted = [0]
 
-    async def _run_counting() -> None:
-        async for row in iter_district(district, since):
-            upsert_listing(row)
-            counted[0] += 1
+    def _count(n: int) -> None:
+        counted[0] += n
 
     try:
-        asyncio.run(_run_counting())
+        asyncio.run(_ingest(iter_district(district, since), on_batch=_count))
     except CrawlIncomplete as e:
         click.echo(f"upserted {counted[0]} listings for {district} from {source}")
         click.echo(f"crawl incomplete: {e}", err=True)
@@ -145,11 +181,12 @@ def _refresh(source: str, district: str, overlap: timedelta, lookback_days: int)
     result = UpdateResult(source, district)
     iter_district = _SOURCE_ITER[source]
 
+    def _count(n: int) -> None:
+        result.upserted += n
+
     async def _run() -> None:
         assert result.since is not None
-        async for r in iter_district(district, result.since):
-            upsert_listing(r)
-            result.upserted += 1
+        await _ingest(iter_district(district, result.since), on_batch=_count)
 
     try:
         latest = latest_sold_at(source, district)
