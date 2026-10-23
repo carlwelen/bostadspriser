@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { GranularityToggle } from "@/components/GranularityToggle";
+import { granularityMeanLabel, parseGranularity } from "@/components/granularity";
 import { PageHero } from "@/components/PageHero";
 import { formatSales, formatSold } from "@/components/plural";
 import { PriceChart } from "@/components/PriceChart";
@@ -39,14 +41,17 @@ export async function generateMetadata({
 const SEK = new Intl.NumberFormat("sv-SE");
 export default async function DistrictPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ g?: string | string[] }>;
 }) {
   const { slug } = await params;
+  const granularity = parseGranularity((await searchParams).g);
   if (!isDistrictSlug(slug)) notFound();
 
   const [points, summary, mom, topStreets, sales] = await Promise.all([
-    districtTimeseries(slug, "month"),
+    districtTimeseries(slug, granularity),
     districtStreetCount(slug),
     districtMomChange(slug),
     listStreets(slug, 12),
@@ -96,16 +101,19 @@ export default async function DistrictPage({
               <h2 className="text-base font-medium text-zinc-900">
                 Pris/m² över tid
               </h2>
-              <p className="text-xs text-zinc-500">Månadsmedel</p>
+              <p className="text-xs text-zinc-500">{granularityMeanLabel(granularity)}</p>
             </div>
-            <Link
-              href={`/compare?series=district:${slug}`}
-              className="text-sm text-zinc-500 hover:text-zinc-900"
-            >
-              Jämför →
-            </Link>
+            <div className="flex items-center gap-3">
+              <GranularityToggle granularity={granularity} path={`/district/${slug}`} />
+              <Link
+                href={`/compare?series=district:${slug}`}
+                className="text-sm text-zinc-500 hover:text-zinc-900"
+              >
+                Jämför →
+              </Link>
+            </div>
           </div>
-          <PriceChart series={[{ name: districtName(slug), points }]} />
+          <PriceChart series={[{ name: districtName(slug), points }]} granularity={granularity} />
         </section>
 
         {topStreets.length > 0 && (

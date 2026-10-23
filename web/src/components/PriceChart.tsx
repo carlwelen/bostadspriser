@@ -12,6 +12,8 @@ import {
   YAxis,
 } from "recharts";
 
+import type { Granularity } from "@/lib/aggregations";
+
 export type Series = {
   name: string;
   color?: string;
@@ -37,17 +39,24 @@ function mergePoints(series: Series[]) {
   );
 }
 
-function formatBucket(b: string) {
-  // 2026-04-01 → "Apr 26". Year-only buckets ("2025-01-01") render as "2025".
+export function formatBucket(b: string, granularity: Granularity = "month") {
+  // Monthly: 2026-04-01 → "apr 26". Yearly: 2025-01-01 → "2025".
   const d = new Date(b);
   if (Number.isNaN(d.getTime())) return b;
   const month = d.getUTCMonth();
   const year = d.getUTCFullYear();
+  if (granularity === "year") return String(year);
   const monthLabel = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"][month];
   return `${monthLabel} ${String(year).slice(2)}`;
 }
 
-export function PriceChart({ series }: { series: Series[] }) {
+export function PriceChart({
+  series,
+  granularity = "month",
+}: {
+  series: Series[];
+  granularity?: Granularity;
+}) {
   const data = mergePoints(series);
   if (data.length === 0) {
     return (
@@ -76,7 +85,7 @@ export function PriceChart({ series }: { series: Series[] }) {
             <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
             <XAxis
               dataKey="bucket"
-              tickFormatter={formatBucket}
+              tickFormatter={(b) => formatBucket(String(b), granularity)}
               tick={{ fontSize: 11, fill: "#71717a" }}
               tickLine={false}
               axisLine={false}
@@ -98,7 +107,7 @@ export function PriceChart({ series }: { series: Series[] }) {
                 boxShadow: "0 4px 16px rgb(0 0 0 / 0.04)",
               }}
               formatter={(value) => [`${SEK.format(Number(value))} kr/m²`, "Medel"]}
-              labelFormatter={(label) => formatBucket(String(label))}
+              labelFormatter={(label) => formatBucket(String(label), granularity)}
             />
             <Area
               type="monotone"
@@ -123,7 +132,7 @@ export function PriceChart({ series }: { series: Series[] }) {
           <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
           <XAxis
             dataKey="bucket"
-            tickFormatter={formatBucket}
+            tickFormatter={(b) => formatBucket(String(b), granularity)}
             tick={{ fontSize: 11, fill: "#71717a" }}
             tickLine={false}
             axisLine={false}
@@ -145,7 +154,7 @@ export function PriceChart({ series }: { series: Series[] }) {
               boxShadow: "0 4px 16px rgb(0 0 0 / 0.04)",
             }}
             formatter={(value) => [`${SEK.format(Number(value))} kr/m²`, undefined]}
-            labelFormatter={(label) => formatBucket(String(label))}
+            labelFormatter={(label) => formatBucket(String(label), granularity)}
           />
           {series.map((s, i) => (
             <Line
