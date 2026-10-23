@@ -82,6 +82,25 @@ def parse_street_address(addr: str | None) -> tuple[str, str | None]:
     return m["street"].strip(), house
 
 
+def resolve_prices(
+    price_sek: int | None, per_sqm_sek: int | None, area_sqm: float | None
+) -> tuple[int, int] | None:
+    """Final price and kr/m² for a sale, or None if the row can't be stored.
+
+    A sale without a final price is skipped (the columns are NOT NULL and a 0
+    would drag averages down and produce `::0` dedup keys). A missing kr/m² is
+    derived as round(price / area); with neither kr/m² nor a usable area the
+    row is skipped rather than stored with 0.
+    """
+    if not price_sek:
+        return None
+    if not per_sqm_sek:
+        if not area_sqm:
+            return None
+        per_sqm_sek = int(round(price_sek / area_sqm))
+    return int(price_sek), int(per_sqm_sek)
+
+
 DISTRICT_ALIASES = {
     "östermalm": "ostermalm",
     "ostermalm": "ostermalm",

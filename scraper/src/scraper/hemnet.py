@@ -32,7 +32,14 @@ from playwright.async_api import Browser, BrowserContext, async_playwright
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from .config import Config, load_config
-from .normalize import dedup_key, parse_rooms, parse_sek, parse_sqm, parse_street_address
+from .normalize import (
+    dedup_key,
+    parse_rooms,
+    parse_sek,
+    parse_sqm,
+    parse_street_address,
+    resolve_prices,
+)
 
 # Hemnet encodes `soldAt` as a Unix timestamp at Stockholm-local midnight.
 # Converting in UTC drops the day by one in summer (UTC+2). Use the Swedish
@@ -198,7 +205,13 @@ def card_fields(card: dict, district: str) -> dict | None:
         return None
 
     coords = card.get("coordinates") or {}
-    price_sek = parse_sek(card.get("finalPrice", "")) or 0
+    area_sqm = parse_sqm(card.get("livingArea"))
+    prices = resolve_prices(
+        parse_sek(card.get("finalPrice")), parse_sek(card.get("squareMeterPrice")), area_sqm
+    )
+    if prices is None:
+        return None
+    price_sek, price_per_sqm = prices
     return {
         "sourceId": str(listing_id),
         "dedupKey": dedup_key(street, house, sold_at, price_sek),
@@ -206,9 +219,9 @@ def card_fields(card: dict, district: str) -> dict | None:
         "houseNumber": house,
         "district": district,
         "rooms": parse_rooms(card.get("rooms")),
-        "areaSqm": parse_sqm(card.get("livingArea")),
+        "areaSqm": area_sqm,
         "priceSek": price_sek,
-        "pricePerSqmSek": parse_sek(card.get("squareMeterPrice", "")) or 0,
+        "pricePerSqmSek": price_per_sqm,
         "soldAt": sold_at,
         "lat": coords.get("lat"),
         "lng": coords.get("long"),

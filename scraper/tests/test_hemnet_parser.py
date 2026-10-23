@@ -63,3 +63,40 @@ def test_to_row_handles_missing_coords() -> None:
     assert row["lat"] is None
     assert row["lng"] is None
     assert row["geocodedAt"] is None
+
+
+def test_to_row_skips_rows_without_a_final_price() -> None:
+    """No price means no row: columns are NOT NULL and 0 would poison averages/dedup keys."""
+    assert _to_row({**SAMPLE_CARD, "finalPrice": None}, "ostermalm") is None
+    assert _to_row({**SAMPLE_CARD, "finalPrice": ""}, "ostermalm") is None
+    assert _to_row({**SAMPLE_CARD, "finalPrice": "Pris på förfrågan"}, "ostermalm") is None
+    assert _to_row({**SAMPLE_CARD, "finalPrice": "0 kr"}, "ostermalm") is None
+    no_key = {k: v for k, v in SAMPLE_CARD.items() if k != "finalPrice"}
+    assert _to_row(no_key, "ostermalm") is None
+
+
+def test_to_row_derives_per_sqm_from_price_and_area() -> None:
+    card = {**SAMPLE_CARD, "squareMeterPrice": None, "finalPrice": "5 000 000 kr", "livingArea": "50 m²"}
+    row = _to_row(card, "ostermalm")
+    assert row is not None
+    assert row["pricePerSqmSek"] == 100_000
+    # Rounds like Booli does; non-breaking spaces and comma decimals are fine.
+    card = {**SAMPLE_CARD, "squareMeterPrice": "", "finalPrice": "4 900 000 kr", "livingArea": "79,5 m²"}
+    row = _to_row(card, "ostermalm")
+    assert row is not None
+    assert row["pricePerSqmSek"] == round(4_900_000 / 79.5)
+
+
+def test_to_row_skips_when_neither_per_sqm_nor_area_is_available() -> None:
+    card = {**SAMPLE_CARD, "squareMeterPrice": None, "livingArea": None}
+    assert _to_row(card, "ostermalm") is None
+    # A zero area cannot be divided by either.
+    card = {**SAMPLE_CARD, "squareMeterPrice": None, "livingArea": "0 m²"}
+    assert _to_row(card, "ostermalm") is None
+
+
+def test_to_row_keeps_row_with_per_sqm_but_no_area() -> None:
+    row = _to_row({**SAMPLE_CARD, "livingArea": None}, "ostermalm")
+    assert row is not None
+    assert row["areaSqm"] is None
+    assert row["pricePerSqmSek"] == 140_000

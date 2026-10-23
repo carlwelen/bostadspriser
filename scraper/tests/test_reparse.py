@@ -155,6 +155,32 @@ def test_reparse_reports_rows_that_no_longer_parse_and_keeps_them(db) -> None:
     assert ids["hemnet"] == rows["100"]["id"]
 
 
+def test_reparse_derives_missing_per_sqm_and_never_rewrites_to_zero(db) -> None:
+    """B4 rules apply to reparse: derive kr/m², report rows that would become invalid."""
+    # Legacy row stored with kr/m² 0 although price and area are in the card.
+    no_sqm_card = {**HEMNET_CARD, "listingId": "500", "squareMeterPrice": None}
+    legacy = _legacy(hemnet, HEMNET_CARD, "sodermalm", sourceId="500", pricePerSqmSek=0)
+    legacy["raw"] = no_sqm_card
+    upsert_listing(legacy)
+    # Legacy row whose card has no price at all: stored 0s, card can't be re-derived.
+    no_price_card = {k: v for k, v in HEMNET_CARD.items() if k != "finalPrice"}
+    dead = _legacy(
+        hemnet, HEMNET_CARD, "sodermalm",
+        sourceId="501", priceSek=0, pricePerSqmSek=0, dedupKey="old",
+    )
+    dead["raw"] = {**no_price_card, "listingId": "501"}
+    upsert_listing(dead)
+
+    summary = reparse()
+    assert summary.changed == 1
+    assert summary.by_field["pricePerSqmSek"] == 1
+    assert summary.unparseable == 1
+    rows = _rows(db)
+    assert rows["500"]["pricePerSqmSek"] == 140_000  # round(4_900_000 / 35)
+    assert rows["501"]["priceSek"] == 0 and rows["501"]["dedupKey"] == "old"  # reported, untouched
+    assert reparse().changed == 0
+
+
 def test_reparse_cli_dry_run_then_real(db) -> None:
     _seed(db)
     runner = CliRunner()

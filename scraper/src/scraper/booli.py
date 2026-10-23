@@ -38,7 +38,14 @@ from playwright.async_api import Browser, BrowserContext, async_playwright
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from .config import Config, load_config
-from .normalize import dedup_key, parse_rooms, parse_sek, parse_sqm, parse_street_address
+from .normalize import (
+    dedup_key,
+    parse_rooms,
+    parse_sek,
+    parse_sqm,
+    parse_street_address,
+    resolve_prices,
+)
 
 # Booli encodes `soldDate` as a plain ISO date string ("2026-05-02") so no
 # timezone math is needed here — but we keep ZoneInfo around in case Booli
@@ -256,17 +263,18 @@ def card_fields(card: dict, district: str) -> dict | None:
     if not isinstance(price_sek, int):
         price_sek = parse_sek(sold_price.get("formatted") or sold_price.get("value"))
 
-    # Booli does not always expose a per-sqm raw value; compute it ourselves
-    # when missing so all rows have a comparable kr/m² number.
-    price_per_sqm = parse_sek(sqm_price_text)
+    # Booli does not always expose a per-sqm value; derive it from price/area
+    # when missing. Rows with no final price (or neither kr/m² nor area) are
+    # skipped, not stored with 0.
     area_sqm = parse_sqm(area_text)
-    if price_per_sqm is None and price_sek and area_sqm:
-        price_per_sqm = int(round(price_sek / area_sqm))
+    prices = resolve_prices(price_sek, parse_sek(sqm_price_text), area_sqm)
+    if prices is None:
+        return None
+    final_price, price_per_sqm = prices
 
     lat = card.get("latitude")
     lng = card.get("longitude")
 
-    final_price = int(price_sek) if price_sek else 0
     return {
         "sourceId": str(booli_id),
         "dedupKey": dedup_key(street, house, sold_at, final_price),
@@ -276,7 +284,7 @@ def card_fields(card: dict, district: str) -> dict | None:
         "rooms": parse_rooms(rooms_text),
         "areaSqm": area_sqm,
         "priceSek": final_price,
-        "pricePerSqmSek": int(price_per_sqm) if price_per_sqm else 0,
+        "pricePerSqmSek": price_per_sqm,
         "soldAt": sold_at,
         "lat": lat,
         "lng": lng,

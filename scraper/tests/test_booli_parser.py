@@ -159,3 +159,35 @@ def test_to_row_accepts_epoch_sold_date() -> None:
     row = _to_row(card, "vasastan")
     assert row is not None
     assert row["soldAt"].isoformat() == "2026-04-24"
+
+
+def test_to_row_skips_rows_without_a_final_price() -> None:
+    """No price means no row: columns are NOT NULL and 0 would poison averages/dedup keys."""
+    assert _to_row({**SAMPLE_CARD, "soldPrice": None}, "vasastan") is None
+    assert _to_row({**SAMPLE_CARD, "soldPrice": {}}, "vasastan") is None
+    assert _to_row({**SAMPLE_CARD, "soldPrice": {"raw": 0, "formatted": "0 kr"}}, "vasastan") is None
+    assert _to_row({**SAMPLE_CARD, "soldPrice": {"formatted": "Slutpris saknas"}}, "vasastan") is None
+
+
+def test_to_row_skips_when_neither_per_sqm_nor_area_is_available() -> None:
+    card = {
+        **SAMPLE_CARD,
+        "displayAttributes": {"dataPoints": [{"value": {"plainText": "2 rum"}}]},
+    }
+    assert _to_row(card, "vasastan") is None
+
+
+def test_to_row_keeps_row_with_per_sqm_but_no_area() -> None:
+    card = {
+        **SAMPLE_CARD,
+        "displayAttributes": {
+            "dataPoints": [
+                {"value": {"plainText": "2 rum"}},
+                {"value": {"plainText": "141 100 kr/m²"}},
+            ]
+        },
+    }
+    row = _to_row(card, "vasastan")
+    assert row is not None
+    assert row["areaSqm"] is None
+    assert row["pricePerSqmSek"] == 141_100
