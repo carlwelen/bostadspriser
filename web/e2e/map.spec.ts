@@ -87,6 +87,24 @@ test("the sidebar source note names Hemnet and Booli and follows the period", as
   await page.getByRole("button", { name: "Allt", exact: true }).click();
   await expect(note).toContainText("hela perioden");
   await expect(note).not.toContainText("12 mån");
+
+  // WCAG AA (4.5:1) against the white sidebar.
+  const ratio = await note.evaluate((el) => {
+    const lum = (rgb: number[]) => {
+      const [r, g, b] = rgb.map((v) => {
+        const c = v / 255;
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    // Tailwind 4 colours are oklch(); rasterise one pixel to get sRGB.
+    const ctx = document.createElement("canvas").getContext("2d")!;
+    ctx.fillStyle = getComputedStyle(el).color;
+    ctx.fillRect(0, 0, 1, 1);
+    const fg = Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3));
+    return 1.05 / (lum(fg) + 0.05);
+  });
+  expect(ratio).toBeGreaterThanOrEqual(4.5);
 });
 
 // F6: the e2e build always has an empty NEXT_PUBLIC_MAPBOX_TOKEN.

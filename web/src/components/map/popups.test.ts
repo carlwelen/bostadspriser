@@ -10,7 +10,31 @@ const PAYLOADS = [
   "</strong><iframe src=javascript:alert(1)></iframe>",
 ];
 
+describe("regression proof for F3", () => {
+  // The pre-fix popup: Mapbox's setHTML parses the string as HTML.
+  const oldTemplate = (address: string) =>
+    `<div><strong>${address}</strong></div>`;
+
+  it("the old setHTML-style template materialises the injected element", () => {
+    const host = document.createElement("div");
+    host.innerHTML = oldTemplate(PAYLOADS[0]);
+    expect(host.querySelector("img")?.getAttribute("onerror")).toBe("alert(1)");
+  });
+
+  it("the DOM builder does not", () => {
+    const host = document.createElement("div");
+    host.appendChild(buildPricePopup({ ...base, address: PAYLOADS[0] }));
+    expect(host.querySelector("img")).toBeNull();
+    expect(host.querySelector("[onerror]")).toBeNull();
+  });
+});
+
 describe("buildPricePopup", () => {
+  it("joins several sources with non-breaking spaces so the chip cannot wrap at the plus", () => {
+    const el = buildPricePopup({ ...base, address: "Gatan 1" });
+    expect(el.textContent).toContain("H + B");
+  });
+
   it("renders the address, price, date and source chips", () => {
     const el = buildPricePopup({ ...base, address: "Karlavägen 10" });
     expect(el.textContent).toContain("Karlavägen 10");

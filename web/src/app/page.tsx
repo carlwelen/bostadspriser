@@ -248,7 +248,7 @@ function Sidebar({
         {mode === "price" ? <PriceLegend /> : <FrequencyLegend />}
       </section>
 
-      <p data-testid="source-note" className="mt-auto pt-3 text-[10px] text-zinc-400">
+      <p data-testid="source-note" className="mt-auto pt-3 text-[11px] text-zinc-500">
         Källa: sålda bostäder från Hemnet och Booli, {SINCE_OPTIONS.find((o) => o.value === sinceDays)?.phrase} i
         Stockholms innerstad.
       </p>

@@ -300,10 +300,14 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
 
     if (!hexes) {
       // Mode is price — drop hex layers/source if they were previously added.
+      const hadHexLayer = Boolean(map.getLayer(HEX_FILL_LAYER));
       if (map.getLayer(HEX_OUTLINE_LAYER)) map.removeLayer(HEX_OUTLINE_LAYER);
-      if (map.getLayer(HEX_FILL_LAYER)) map.removeLayer(HEX_FILL_LAYER);
+      if (hadHexLayer) map.removeLayer(HEX_FILL_LAYER);
       if (map.getSource(HEX_SOURCE)) map.removeSource(HEX_SOURCE);
-      hexHandlersRef.current?.release();
+      // Only when the layer really went away: this effect also runs on every
+      // points change in price mode, where release() would reset the cursor
+      // while the user hovers a price dot.
+      if (hadHexLayer) hexHandlersRef.current?.release();
       return;
     }
 
