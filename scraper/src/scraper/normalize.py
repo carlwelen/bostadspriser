@@ -39,22 +39,21 @@ def parse_rooms(text: str | None) -> float | None:
 # Street addresses
 # --------------------------------------------------------------------------
 
-# Trailing floor/apartment noise that sources append after the house number:
-# "lgh 1101", "1tr", "2 tr", "vån 3", "nb", "bv", a bare 4-digit apartment
-# number, or anything in parentheses.
-_ADDR_NOISE = (
-    r"(?:lgh\.?\s*\d+|\d+\s*(?:tr|trp|trappor?)\.?|vån\.?\s*\d+|nb|bv|\d{4}|\([^)]*\))"
-)
-# <street> <number>[ ]?<letter>? with an optional "-<number><letter>?" range,
-# then nothing but noise. The street is lazy so the *first* number that leaves
-# only noise behind wins ("Hornsgatan 64 1tr" -> 64, not 1).
+# <street> <number>[ ]?<letter>? with an optional "-<number><letter>?" range.
+# Everything after the first house number (floor, apartment, "lgh 1101", "1,5 tr",
+# "ög", "3 vån", "64/66", ...) is a tail we deliberately ignore, so the first
+# number always wins and no tail can leak into the street. The street is lazy:
+# the first "<space><digits>" ends it. A letter must stand alone ("3A", "3 A")
+# and not start a word ("64 nb", "7 vån") or an abbreviation ("o.g.").
 _ADDR_RE = re.compile(
     r"^(?P<street>.+?)\s+"
-    r"(?P<n1>\d{1,3})\s?(?P<l1>[A-Za-z])?(?!\w)"
-    r"(?:\s*[-–—]\s*(?P<n2>\d{1,3})\s?(?P<l2>[A-Za-z])?(?!\w))?"
-    rf"(?:\s+{_ADDR_NOISE})*$",
-    re.IGNORECASE,
+    r"(?P<n1>\d{1,3})\s?(?P<l1>[A-Za-z])?(?![\w.])"
+    r"(?:\s*[-–—]\s*(?P<n2>\d{1,3})\s?(?P<l2>[A-Za-z])?(?![\w.]))?"
 )
+
+
+# A real street name has a word of at least two letters; "12" and "12 B" don't.
+_STREET_WORD_RE = re.compile(r"[^\W\d_]{2}")
 
 
 def parse_street_address(addr: str | None) -> tuple[str, str | None]:
@@ -63,23 +62,32 @@ def parse_street_address(addr: str | None) -> tuple[str, str | None]:
     'Sankt Eriksgatan 10 B' -> ('Sankt Eriksgatan', '10B')
     'Ringvägen 12-14'       -> ('Ringvägen', '12-14')
     'Odengatan 5, lgh 1101' -> ('Odengatan', '5')
+    'Hornsgatan 64 1,5 tr'  -> ('Hornsgatan', '64')
+    'Fjällgatan 2A-B'       -> ('Fjällgatan', '2A')
     'Mariatorget'           -> ('Mariatorget', None)
 
-    The house number is digits plus an optional uppercase letter with no space;
-    ranges keep the hyphen; floor/apartment noise is dropped. The street name is
-    returned as spelled by the source (no S:t/Sankt rewriting). Anything that
-    doesn't look like "<street> <number>" comes back whole with house None.
+    The house number is digits plus an optional uppercase letter with no space.
+    Number ranges keep the hyphen ("12-14"); letter ranges ("2A-B") reduce to the
+    first entrance ("2A"); anything else after the number is dropped. The street
+    name is returned as spelled by the source (no S:t/Sankt rewriting). With no
+    number the whole address is the street and house is None. A street without
+    a word of two letters ("12", "12 B") is not an address: returns ("", None) so callers
+    skip the row.
     """
     text = re.sub(r"\s+", " ", (addr or "")).strip()
-    # "Odengatan 5, lgh 1101": a comma always starts the noise.
-    head = text.split(",", 1)[0].strip()
+    # "Odengatan 5, lgh 1101": a comma starts the tail, unless it is a decimal
+    # comma ("1,5 tr").
+    head = re.split(r",(?!\d)", text, maxsplit=1)[0].strip()
     m = _ADDR_RE.match(head)
-    if not m:
-        return head, None
-    house = f"{m['n1']}{(m['l1'] or '').upper()}"
-    if m["n2"]:
-        house += f"-{m['n2']}{(m['l2'] or '').upper()}"
-    return m["street"].strip(), house
+    street: str = m["street"].strip() if m else head
+    house: str | None = None
+    if m:
+        house = f"{m['n1']}{(m['l1'] or '').upper()}"
+        if m["n2"]:
+            house += f"-{m['n2']}{(m['l2'] or '').upper()}"
+    if not _STREET_WORD_RE.search(street):
+        return "", None
+    return street, house
 
 
 def resolve_prices(

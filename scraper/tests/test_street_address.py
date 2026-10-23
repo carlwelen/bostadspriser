@@ -52,6 +52,31 @@ NBSP = " "
         ("Vasagatan 7 bv", ("Vasagatan", "7")),
         ("Vasagatan 7 B nb", ("Vasagatan", "7B")),
         ("Vasagatan 7, bv", ("Vasagatan", "7")),
+        # Half floors: a comma followed by a digit is a decimal, not a separator
+        ("Hornsgatan 64 1,5 tr", ("Hornsgatan", "64")),
+        ("Hornsgatan 64 1,5tr", ("Hornsgatan", "64")),
+        ("Hornsgatan 64 B 1,5 tr", ("Hornsgatan", "64B")),
+        ("Odengatan 5 0,5 tr", ("Odengatan", "5")),
+        ("Hornsgatan 64 1/2 tr", ("Hornsgatan", "64")),
+        ("Hornsgatan 64 1½ tr", ("Hornsgatan", "64")),
+        ("Hornsgatan 64 1 1/2 tr", ("Hornsgatan", "64")),
+        # Any other tail after the first number is dropped, never promoted to street
+        ("Hornsgatan 64 ög", ("Hornsgatan", "64")),
+        ("Hornsgatan 64 Ö.g.", ("Hornsgatan", "64")),
+        ("Hornsgatan 64 o.g.", ("Hornsgatan", "64")),
+        ("Vasagatan 7 3 vån", ("Vasagatan", "7")),
+        ("Odengatan 5 Lägenhet 1101", ("Odengatan", "5")),
+        ("Hornsgatan 64/66", ("Hornsgatan", "64")),
+        # Letter ranges reduce to the first entrance; number ranges keep the hyphen
+        ("Fjällgatan 2A-B", ("Fjällgatan", "2A")),
+        ("Götgatan 22 A-C", ("Götgatan", "22A")),
+        # The first number wins over a bare trailing number
+        ("Odengatan 5 3", ("Odengatan", "5")),
+        ("Ringvägen 12 14", ("Ringvägen", "12")),
+        # A "street" without letters is not an address
+        ("12", ("", None)),
+        ("12 B", ("", None)),
+        ("12 14", ("", None)),
         # No house number
         ("Mariatorget", ("Mariatorget", None)),
         ("Mariatorget, lgh 1101", ("Mariatorget", None)),
@@ -102,9 +127,10 @@ BOOLI_CARD = {
 }
 
 
-def test_blank_address_rows_are_skipped() -> None:
-    assert hemnet._to_row({**HEMNET_CARD, "streetAddress": f" {NBSP} "}, "sodermalm") is None
-    assert booli._to_row({**BOOLI_CARD, "streetAddress": f" {NBSP} "}, "sodermalm") is None
+@pytest.mark.parametrize("addr", [f" {NBSP} ", "12", "12 B"])
+def test_blank_or_number_only_address_rows_are_skipped(addr: str) -> None:
+    assert hemnet._to_row({**HEMNET_CARD, "streetAddress": addr}, "sodermalm") is None
+    assert booli._to_row({**BOOLI_CARD, "streetAddress": addr}, "sodermalm") is None
 
 
 @pytest.mark.parametrize(
