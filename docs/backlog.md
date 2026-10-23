@@ -29,19 +29,22 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 
 | ID | P | Owner | Status | Acceptance | Commit | Notes |
 |---|---|---|---|---|---|---|
-| B1 | P0 | B | in-progress | `scraper update` MAX(soldAt) query works (no `:d::` bind bug); DB test covers it | | |
-| B2 | P0 | B | in-progress | One `parse_street_address()` in normalize.py used by both sources; table test incl. `S:t Eriksgatan`, `Karlavägen 1 A`, `Ringvägen 12-14`, `Hornsgatan 64 1tr`, `Odengatan 5, lgh 1101` | | |
-| B3 | P0 | B | in-progress | `scraper reparse [--dry-run]` re-derives street/house/rooms/area/prices/dedupKey from `raw`, batched, idempotent; backfill batched too | | Depends on B2 |
-| B4 | P0 | B | in-progress | Rows without a final price are skipped (no `0` prices / `::0` dedup keys); Hemnet derives kr/m² from price/area when missing | | Decision: skip, don't make columns nullable |
+| B1 | P0 | B | review | `scraper update` MAX(soldAt) query works (no `:d::` bind bug); DB test covers it | | |
+| B2 | P0 | B | review | One `parse_street_address()` in normalize.py used by both sources; table test incl. `S:t Eriksgatan`, `Karlavägen 1 A`, `Ringvägen 12-14`, `Hornsgatan 64 1tr`, `Odengatan 5, lgh 1101` | | |
+| B3 | P0 | B | review | `scraper reparse [--dry-run]` re-derives street/house/rooms/area/prices/dedupKey from `raw`, batched, idempotent; backfill batched too | | Depends on B2 |
+| B4 | P0 | B | review | Rows without a final price are skipped (no `0` prices / `::0` dedup keys); Hemnet derives kr/m² from price/area when missing | | Decision: skip, don't make columns nullable |
 | B5 | P0 | C | in-progress | `rooms=5` on /api/heatmap means `>= 5` ("5+"); integration test with a 6-room row | | |
 | B6 | P0 | C | in-progress | Every API route validates params (400 + JSON error on bad/negative/huge input); DB errors → 500 JSON + server log; tests per bad input | | |
 | B7 | P0 | C | in-progress | MoM uses the last two complete, adjacent months; `null` when either has < N sales | | |
 | B8 | P0 | C | in-progress | `/api/address` applies the period to `addressSales` | | |
 | B9 | P0 | C→B | in-progress | Prisma migration adds `lastSeenAt` (C); scraper sets it on every upsert and the view tie-breaks on it (B) | | Schema first (C), then Python (B) |
-| B10 | P0 | B | in-progress | Upsert keeps existing lat/lng/geocodedAt when incoming coords are NULL (DB test) | | |
-| B11 | P0 | B | in-progress | probe scripts fixed or deleted; nothing imports `DISTRICT_URLS` | | |
-| B12 | P0 | B | in-progress | `update` exits non-zero if any source/district fails and prints a summary table | | |
+| B10 | P0 | B | review | Upsert keeps existing lat/lng/geocodedAt when incoming coords are NULL (DB test) | | |
+| B11 | P0 | B | review | probe scripts fixed or deleted; nothing imports `DISTRICT_URLS` | | |
+| B12 | P0 | B | review | `update` exits non-zero if any source/district fails and prints a summary table | | |
 | B30 | P0 | C | in-progress | `isDistrictSlug` rejects prototype keys (`toString`, `constructor`, `__proto__`); unit test | | Found in Phase 0: `"toString" in SLUG_TO_NAME` is true, so it reaches the SQL enum cast → 500 |
+| B31 | P1 | B | todo | `db.engine()` pins session `timezone=UTC` so `timestamp(3)` columns don't depend on server TimeZone; test | | From B (P1 run) |
+| B32 | P1 | B | todo | Source iterators signal an incomplete crawl (page fetch failed mid-pagination) so `update` reports `partial` and exits non-zero | | From B (P1 run); overlaps B17/B18 |
+| B33 | P3 | B | todo | Unify Hemnet/Booli geocodedAt stamping (`is not None`) | | From B (P1 run); fold into B17 |
 | B13 | P1 | C+B | todo | Fuzzy cross-source matcher (same street+house, \|Δdate\| ≤ 3 d, price ±0.5%) assigns a cluster id; view groups on it; paired-fixture tests | | Schema (C) first |
 | B14 | P1 | B+C | todo | Ingest sanity bounds (area 10–400, kr/m² 20k–400k, rooms 1–15) reject + count; SQL exposes median + count everywhere; UI defaults to median | | |
 | B15 | P1 | B | todo | Check SaleCard for an area/location name and filter on it, or record that none exists | | |
@@ -96,7 +99,9 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 
 ## Owner decisions
 
-(None recorded yet. BLOCKED items get a one-paragraph recommendation here.)
+(BLOCKED items get a one-paragraph recommendation here.)
+
+- **Legacy 0-price rows (from B4):** not blocking. The dev DB currently has no tables, so there is nothing to clean. If an older DB with data is ever migrated, run `scraper reparse --dry-run` (read-only) first and decide by hand whether to delete the rows it reports as unparseable.
 
 ## Schema requests (B → C)
 
