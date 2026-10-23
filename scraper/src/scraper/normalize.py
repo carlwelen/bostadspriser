@@ -48,10 +48,9 @@ def parse_rooms(text: str | None) -> float | None:
 # and not start a word ("64 nb", "7 vån") or an abbreviation ("o.g.").
 _ADDR_RE = re.compile(
     r"^(?P<street>.+?)\s+"
-    r"(?P<n1>\d{1,3})\s?(?P<l1>[A-Za-z])?(?![\w.])"
-    r"(?:\s*[-–—]\s*(?P<n2>\d{1,3})\s?(?P<l2>[A-Za-z])?(?![\w.]))?"
+    r"(?P<n1>\d{1,3})(?:\s?(?P<l1>[A-Za-z])(?!\w|\.\w))?(?!\d)"
+    r"(?:\s*[-–—]\s*(?P<n2>\d{1,3})(?:\s?(?P<l2>[A-Za-z])(?!\w|\.\w))?(?!\d))?"
 )
-
 
 # A real street name has a word of at least two letters; "12" and "12 B" don't.
 _STREET_WORD_RE = re.compile(r"[^\W\d_]{2}")
@@ -77,14 +76,19 @@ def parse_street_address(addr: str | None) -> tuple[str, str | None]:
     """
     text = re.sub(r"\s+", " ", (addr or "")).strip()
     # "Odengatan 5, lgh 1101": a comma starts the tail, unless it is a decimal
-    # comma ("1,5 tr").
-    head = re.split(r",(?!\d)", text, maxsplit=1)[0].strip()
+    # comma, i.e. has a digit on both sides ("1,5 tr").
+    head = re.split(r"(?<!\d),|,(?!\d)", text, maxsplit=1)[0].strip()
     m = _ADDR_RE.match(head)
+    if not m and re.search(r"\s\d", head):
+        # Looks numeric but doesn't parse ("Hornsgatan 1234"): reject rather than
+        # store a street name with digits in it.
+        return "", None
     street: str = m["street"].strip() if m else head
     house: str | None = None
     if m:
         house = f"{m['n1']}{(m['l1'] or '').upper()}"
-        if m["n2"]:
+        # A range must ascend: "64 - 2 tr" is a floor, not "64-2".
+        if m["n2"] and int(m["n2"]) > int(m["n1"]):
             house += f"-{m['n2']}{(m['l2'] or '').upper()}"
     if not _STREET_WORD_RE.search(street):
         return "", None

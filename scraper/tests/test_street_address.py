@@ -73,6 +73,22 @@ NBSP = " "
         # The first number wins over a bare trailing number
         ("Odengatan 5 3", ("Odengatan", "5")),
         ("Ringvägen 12 14", ("Ringvägen", "12")),
+        # A comma is a decimal only with a digit on both sides
+        ("Mariatorget,2 tr", ("Mariatorget", None)),
+        ("Mariatorget,1101", ("Mariatorget", None)),
+        ("Odengatan 5,lgh 1101", ("Odengatan", "5")),
+        ("Odengatan 5,2 tr", ("Odengatan", "5")),
+        # A range must ascend; "64 - 2 tr" is a floor, not 64-2
+        ("Hornsgatan 64 - 2 tr", ("Hornsgatan", "64")),
+        ("Ringvägen 14-12", ("Ringvägen", "14")),
+        ("Ringvägen 12-12", ("Ringvägen", "12")),
+        # Stray punctuation / non-ASCII glued to the number
+        ("Hornsgatan 64.", ("Hornsgatan", "64")),
+        ("Hornsgatan 64A.", ("Hornsgatan", "64A")),
+        ("Hornsgatan 64½", ("Hornsgatan", "64")),
+        ("Hornsgatan 64Ö", ("Hornsgatan", "64")),
+        # Unparseable but numeric: rejected rather than stored as a street with digits
+        ("Hornsgatan 1234", ("", None)),
         # A "street" without letters is not an address
         ("12", ("", None)),
         ("12 B", ("", None)),
