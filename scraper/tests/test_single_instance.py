@@ -46,7 +46,7 @@ def test_lock_is_released_when_the_body_raises() -> None:
         pass
 
 
-@pytest.mark.parametrize("command", [["scrape", "--district", "ostermalm", "--since", "2026-05-01"], ["update"], ["reparse"]])
+@pytest.mark.parametrize("command", [["scrape", "--district", "ostermalm", "--since", "2026-05-01"], ["update"], ["reparse"], ["backfill", "--district", "ostermalm", "--since", "2026-05-01"]])
 def test_commands_refuse_to_run_while_another_run_holds_the_lock(command, monkeypatch) -> None:
     called: list[str] = []
     monkeypatch.setitem(run._SOURCE_ITER, "hemnet", lambda *a, **k: called.append("iter"))
@@ -117,7 +117,7 @@ def test_stale_lock_file_from_a_dead_process_does_not_block() -> None:
 
 
 def test_update_still_works_when_the_lock_is_free(monkeypatch) -> None:
-    async def it(district: str, since: date):
+    async def it(district: str, since: date, **kw):
         if False:
             yield {}
 

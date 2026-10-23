@@ -141,3 +141,65 @@ def db(_migrated_db: str):
     scraper_db._engine = None
     scraper_db._metadata = None
     scraper_db._SessionLocal = None
+
+
+@pytest.fixture(autouse=True)
+def _restore_scraper_logger():
+    """`scraper --log-level` configures the `scraper` logger; don't let one test's
+    level or stderr handler leak into the next."""
+    import logging
+
+    logger = logging.getLogger("scraper")
+    level, handlers = logger.level, logger.handlers[:]
+    yield
+    logger.setLevel(level)
+    logger.handlers[:] = handlers
+
+
+class FakeScrapeRuns:
+    """In-memory stand-in for scraper.scrape_run, so CLI tests need no database.
+
+    `runs` holds one dict per started run, updated by bump/finish like the table.
+    """
+
+    def __init__(self) -> None:
+        self.runs: list[dict] = []
+
+    def start_run(self, source: str, district: str) -> str:
+        self.runs.append(
+            {"id": f"run-{len(self.runs) + 1}", "source": source, "district": district,
+             "status": "running", "pages": 0, "rows_upserted": 0, "rows_rejected": 0,
+             "oldest_sold_at": None, "error": None}
+        )
+        return self.runs[-1]["id"]
+
+    def _get(self, run_id):
+        return next(r for r in self.runs if r["id"] == run_id) if run_id else None
+
+    def bump(self, run_id, *, pages, rows_upserted, rows_rejected, oldest_sold_at) -> None:
+        r = self._get(run_id)
+        if r:
+            r.update(pages=pages, rows_upserted=rows_upserted, rows_rejected=rows_rejected,
+                     oldest_sold_at=oldest_sold_at)
+
+    def finish_run(self, run_id, status, *, pages, rows_upserted, rows_rejected, oldest_sold_at, error=None) -> None:
+        assert status in ("ok", "partial", "failed")
+        r = self._get(run_id)
+        if r:
+            r.update(status=status, pages=pages, rows_upserted=rows_upserted,
+                     rows_rejected=rows_rejected, oldest_sold_at=oldest_sold_at, error=error)
+
+
+@pytest.fixture(autouse=True)
+def scrape_runs(request, monkeypatch):
+    """Tests without the `db` fixture get an in-memory ScrapeRun recorder (and so
+    never touch a possibly unmigrated database); tests with `db` use the real one."""
+    if "db" in request.fixturenames:
+        return None
+    fake = FakeScrapeRuns()
+    from scraper import scrape_run
+
+    monkeypatch.setattr(scrape_run, "start_run", fake.start_run)
+    monkeypatch.setattr(scrape_run, "bump", fake.bump)
+    monkeypatch.setattr(scrape_run, "finish_run", fake.finish_run)
+    return fake

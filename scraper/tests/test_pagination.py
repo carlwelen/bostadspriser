@@ -108,10 +108,19 @@ def _crawl(module, monkeypatch, extract_name: str, pages: dict[int, list[dict]])
 
 
 def _run_crawl(
-    module, monkeypatch, extract_name: str, pages: dict[int, list[dict]], fail_pages: tuple[int, ...] = ()
+    module,
+    monkeypatch,
+    extract_name: str,
+    pages: dict[int, list[dict]],
+    fail_pages: tuple[int, ...] = (),
+    fetched_out: list[int] | None = None,
+    **crawl_kwargs,
 ) -> tuple[list[str], CrawlIncomplete | None]:
-    """Drive iter_district over `pages`. Returns (sourceIds yielded, CrawlIncomplete or None)."""
-    fetched: list[int] = []
+    """Drive iter_district over `pages`. Returns (sourceIds yielded, CrawlIncomplete or None).
+
+    `fetched_out` receives the page numbers fetched; extra kwargs go to iter_district.
+    """
+    fetched: list[int] = fetched_out if fetched_out is not None else []
 
     async def fake_fetch(_ctx, _cfg, _source, url: str) -> str:
         n = int(url.rsplit("page=", 1)[1].split("&")[0])
@@ -135,7 +144,7 @@ def _run_crawl(
 
     async def collect() -> None:
         try:
-            async for r in module.iter_district("ostermalm", SINCE):
+            async for r in module.iter_district("ostermalm", SINCE, **crawl_kwargs):
                 ids.append(r["sourceId"])
         except CrawlIncomplete as e:
             incomplete.append(e)
@@ -211,7 +220,7 @@ def _idless(card: dict, label: str) -> dict:
 
 
 @pytest.mark.parametrize("source", SOURCES)
-def test_repeated_last_page_of_rejected_cards_stops_and_is_incomplete(source, monkeypatch, capsys) -> None:
+def test_repeated_last_page_of_rejected_cards_stops_and_is_incomplete(source, monkeypatch, caplog) -> None:
     """Reviewer probe: p1 / all-unpriced / (same page forever). Terminates with ['p1'];
     the repeated page still had in-range cards, so the crawl is flagged incomplete."""
     module, card, extract = SOURCES[source]
@@ -219,7 +228,7 @@ def test_repeated_last_page_of_rejected_cards_stops_and_is_incomplete(source, mo
     ids, incomplete = _run_crawl(module, monkeypatch, extract, pages)
     assert ids == ["p1"]
     assert incomplete is not None and "repeated" in str(incomplete)
-    assert "repeated" in capsys.readouterr().out  # the stop is logged
+    assert any(r.levelname == "WARNING" and "repeated" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.parametrize("source", SOURCES)
@@ -260,7 +269,7 @@ def test_page_with_some_new_cards_is_not_a_duplicate_page(source, monkeypatch) -
 
 
 @pytest.mark.parametrize("source", SOURCES)
-def test_max_pages_caps_the_crawl_and_logs(source, monkeypatch, capsys) -> None:
+def test_max_pages_caps_the_crawl_and_logs(source, monkeypatch, caplog) -> None:
     module, card, extract = SOURCES[source]
     monkeypatch.setattr(source_base, "MAX_PAGES", 4)
 
@@ -270,5 +279,84 @@ def test_max_pages_caps_the_crawl_and_logs(source, monkeypatch, capsys) -> None:
 
     ids, incomplete = _run_crawl(module, monkeypatch, extract, Endless())
     assert ids == ["p1", "p2", "p3", "p4"]
-    assert "MAX_PAGES" in capsys.readouterr().out
+    assert any(r.levelname == "WARNING" and "MAX_PAGES" in r.getMessage() for r in caplog.records)
     assert incomplete is not None and "MAX_PAGES" in str(incomplete)
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_page_failure_is_logged_as_a_warning(source, monkeypatch, caplog) -> None:
+    module, card, extract = SOURCES[source]
+    _run_crawl(module, monkeypatch, extract, {1: [card("p1")], 2: [card("p2")]}, fail_pages=(2,))
+    msgs = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(msgs) == 1 and "page=2" in msgs[0].getMessage() and "Cloudflare" in msgs[0].getMessage()
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_crawl_never_prints(source, monkeypatch, capsys) -> None:
+    module, card, extract = SOURCES[source]
+    _run_crawl(module, monkeypatch, extract, _Clamp({1: [card("p1")], 2: [card("u1", priced=False)]}))
+    out = capsys.readouterr()
+    assert out.out == "" and out.err == ""
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_start_page_resumes_from_the_given_page(source, monkeypatch) -> None:
+    module, card, extract = SOURCES[source]
+    pages = {1: [card("p1")], 2: [card("p2")], 3: [card("p3")], 4: []}
+    fetched: list[int] = []
+    ids, incomplete = _run_crawl(module, monkeypatch, extract, pages, fetched_out=fetched, start_page=3)
+    assert fetched == [3, 4] and ids == ["p3"] and incomplete is None
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_max_pages_argument_overrides_the_module_default(source, monkeypatch) -> None:
+    module, card, extract = SOURCES[source]
+
+    class Endless(dict):
+        def get(self, k, default=None):
+            return [card(f"p{k}")]
+
+    fetched: list[int] = []
+    ids, incomplete = _run_crawl(module, monkeypatch, extract, Endless(), fetched_out=fetched, max_pages=3)
+    assert fetched == [1, 2, 3] and ids == ["p1", "p2", "p3"]
+    assert incomplete is not None and "MAX_PAGES=3" in str(incomplete)
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_the_page_cap_counts_from_page_one_even_when_resuming(source, monkeypatch) -> None:
+    """max_pages is the highest page number allowed, not a count of pages fetched."""
+    module, card, extract = SOURCES[source]
+
+    class Endless(dict):
+        def get(self, k, default=None):
+            return [card(f"p{k}")]
+
+    fetched: list[int] = []
+    _run_crawl(module, monkeypatch, extract, Endless(), fetched_out=fetched, start_page=5, max_pages=6)
+    assert fetched == [5, 6]
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_progress_reports_pages_rejections_oldest_date_and_last_completed_page(source, monkeypatch) -> None:
+    module, card, extract = SOURCES[source]
+    old = {"hemnet": {"sold": EPOCH_TOO_OLD}, "booli": {"sold": "2026-04-24"}}[source]
+    pages = {
+        1: [card("p1"), card("u1", priced=False)],
+        2: [card("p2"), card("u2", priced=False), card("old", **old), card("after")],
+    }
+    progress = source_base.CrawlProgress()
+    ids, incomplete = _run_crawl(module, monkeypatch, extract, pages, progress=progress)
+    assert ids == ["p1", "p2"] and incomplete is None
+    assert progress.pages == 2  # pages fetched
+    assert progress.last_completed_page == 2
+    assert progress.rejected == 2  # the two unpriced cards (the old card ends the crawl, it isn't rejected)
+    assert progress.oldest_sold_at == date(2026, 4, 24)
+
+
+@pytest.mark.parametrize("source", SOURCES)
+def test_progress_after_a_failure_points_at_the_failed_page(source, monkeypatch) -> None:
+    module, card, extract = SOURCES[source]
+    pages = {1: [card("p1")], 2: [card("p2")], 3: [card("p3")]}
+    progress = source_base.CrawlProgress()
+    _run_crawl(module, monkeypatch, extract, pages, fail_pages=(3,), progress=progress)
+    assert progress.pages == 2 and progress.last_completed_page == 2  # resume at page 3

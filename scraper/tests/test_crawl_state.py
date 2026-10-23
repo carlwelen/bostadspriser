@@ -31,7 +31,7 @@ class World:
         self.since_seen: list[date] = []
 
     def iterator(self):
-        async def it(district: str, since: date):
+        async def it(district: str, since: date, **kw):
             self.since_seen.append(since)
             if self.row_date:
                 self.db_max = max(self.db_max or self.row_date, self.row_date)  # newest rows upserted
@@ -86,7 +86,7 @@ def test_complete_crawl_with_no_rows_must_not_jump_over_a_partial_gap(world, mon
     world.mode, world.row_date = "partial", date(2026, 5, 20)
     assert _update().exit_code == 1
 
-    async def empty(district, since):
+    async def empty(district, since, **kw):
         world.since_seen.append(since)
         if False:
             yield {}

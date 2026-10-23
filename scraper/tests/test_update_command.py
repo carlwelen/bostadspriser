@@ -19,7 +19,7 @@ def fake_world(monkeypatch):
     since_seen: dict[tuple[str, str], date] = {}
 
     def make_iter(source: str):
-        async def iter_district(district: str, since: date):
+        async def iter_district(district: str, since: date, **kw):
             since_seen[(source, district)] = since
             yield {"source": source, "district": district, "n": 1}
             if source == "booli" and district == "vasastan":
@@ -99,7 +99,7 @@ def test_update_marks_an_incomplete_crawl_partial_keeps_rows_and_exits_nonzero(
 ) -> None:
     upserted, _ = fake_world
 
-    async def truncated(district: str, since: date):
+    async def truncated(district: str, since: date, **kw):
         yield {"source": "booli", "district": district, "n": 1}
         yield {"source": "booli", "district": district, "n": 2}
         raise CrawlIncomplete(f"booli {district} page 3 failed: RuntimeError: challenge")
@@ -126,7 +126,7 @@ def test_update_reports_failed_not_partial_when_an_incomplete_crawl_yielded_noth
     """A page-1 block is a failure, not 'partial': nothing was fetched."""
     upserted, _ = fake_world
 
-    async def blocked(district: str, since: date):
+    async def blocked(district: str, since: date, **kw):
         raise CrawlIncomplete(f"booli {district} page 1 failed: RuntimeError: challenge")
         yield  # pragma: no cover - makes this an async generator
 
@@ -143,7 +143,7 @@ def test_update_reports_failed_not_partial_when_an_incomplete_crawl_yielded_noth
 def test_scrape_command_exits_nonzero_on_an_incomplete_crawl(fake_world, monkeypatch) -> None:
     upserted, _ = fake_world
 
-    async def truncated(district: str, since: date):
+    async def truncated(district: str, since: date, **kw):
         yield {"source": "hemnet", "district": district, "n": 1}
         raise CrawlIncomplete("hemnet ostermalm page 2 failed")
 
@@ -154,3 +154,87 @@ def test_scrape_command_exits_nonzero_on_an_incomplete_crawl(fake_world, monkeyp
     assert result.exit_code == 1, result.output
     assert len(upserted) == 1
     assert "upserted 1" in result.output and "incomplete" in result.output
+
+
+# ---------------------------------------------------------------------------
+# ScrapeRun recording (B18) and --max-pages / --log-level
+# ---------------------------------------------------------------------------
+
+
+def _progress_iter(*, rows: int, pages: int, rejected: int, oldest: date, error: Exception | None = None):
+    """An iterator that fills in the CrawlProgress it is handed, like source_base.crawl."""
+
+    async def it(district: str, since: date, *, progress=None, max_pages=None, start_page=1, **kw):
+        it.calls.append({"district": district, "since": since, "max_pages": max_pages, "start_page": start_page})
+        for i in range(rows):
+            yield {"source": "x", "district": district, "n": i}
+        progress.pages, progress.rejected, progress.oldest_sold_at = pages, rejected, oldest
+        progress.last_completed_page = pages
+        if error:
+            raise error
+
+    it.calls = []
+    return it
+
+
+def test_update_records_one_scrape_run_per_combination(fake_world, scrape_runs, monkeypatch) -> None:
+    it = _progress_iter(rows=3, pages=2, rejected=1, oldest=date(2026, 5, 2))
+    monkeypatch.setitem(run._SOURCE_ITER, "hemnet", it)
+    result = CliRunner().invoke(run.cli, ["update", "--source", "hemnet", "--district", "ostermalm", "--district", "vasastan"])
+    assert result.exit_code == 0, result.output
+    assert [(r["source"], r["district"], r["status"]) for r in scrape_runs.runs] == [
+        ("hemnet", "ostermalm", "ok"), ("hemnet", "vasastan", "ok"),
+    ]
+    first = scrape_runs.runs[0]
+    assert (first["pages"], first["rows_upserted"], first["rows_rejected"]) == (2, 3, 1)
+    assert first["oldest_sold_at"] == date(2026, 5, 2) and first["error"] is None
+
+
+def test_update_records_partial_and_failed_runs_with_the_error(fake_world, scrape_runs, monkeypatch) -> None:
+    partial = _progress_iter(rows=2, pages=3, rejected=0, oldest=date(2026, 5, 4), error=CrawlIncomplete("page 4 failed"))
+    monkeypatch.setitem(run._SOURCE_ITER, "hemnet", partial)
+    boom = _progress_iter(rows=0, pages=0, rejected=0, oldest=date(2026, 5, 4), error=RuntimeError("boom"))
+    monkeypatch.setitem(run._SOURCE_ITER, "booli", boom)
+    result = CliRunner().invoke(run.cli, ["update", "--source", "hemnet", "--source", "booli", "--district", "ostermalm"])
+    assert result.exit_code == 1
+    by_source = {r["source"]: r for r in scrape_runs.runs}
+    assert by_source["hemnet"]["status"] == "partial" and "page 4 failed" in by_source["hemnet"]["error"]
+    assert by_source["hemnet"]["rows_upserted"] == 2 and by_source["hemnet"]["pages"] == 3
+    assert by_source["booli"]["status"] == "failed" and "boom" in by_source["booli"]["error"]
+
+
+def test_update_records_a_failed_run_when_the_cutoff_lookup_fails(fake_world, scrape_runs, monkeypatch) -> None:
+    def boom(source, district):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(run, "latest_sold_at", boom)
+    CliRunner().invoke(run.cli, ["update", "--source", "hemnet", "--district", "ostermalm"])
+    (r,) = scrape_runs.runs
+    assert r["status"] == "failed" and "db down" in r["error"]
+
+
+def test_update_passes_max_pages_to_the_crawl(fake_world, monkeypatch) -> None:
+    from scraper import source_base
+
+    it = _progress_iter(rows=0, pages=0, rejected=0, oldest=date(2026, 5, 2))
+    monkeypatch.setitem(run._SOURCE_ITER, "hemnet", it)
+    CliRunner().invoke(run.cli, ["update", "--source", "hemnet", "--district", "ostermalm"])
+    CliRunner().invoke(run.cli, ["update", "--source", "hemnet", "--district", "ostermalm", "--max-pages", "7"])
+    assert [c["max_pages"] for c in it.calls] == [source_base.MAX_PAGES, 7]
+    assert all(c["start_page"] == 1 for c in it.calls)
+
+
+def test_log_level_option_configures_the_scraper_logger(fake_world) -> None:
+    import logging
+
+    logger = logging.getLogger("scraper")
+    before = logger.level
+    try:
+        assert CliRunner().invoke(run.cli, ["--log-level", "debug", "stats"]).exit_code in (0, 1)
+        assert logger.level == logging.DEBUG
+        assert CliRunner().invoke(run.cli, ["--log-level", "warning", "stats"]).exit_code in (0, 1)
+        assert logger.level == logging.WARNING
+        bad = CliRunner().invoke(run.cli, ["--log-level", "loud", "stats"])
+        assert bad.exit_code == 2 and "loud" in bad.output
+    finally:
+        logger.setLevel(before)

@@ -75,14 +75,8 @@ def complete_through(source: str, district: str) -> date | None:
         return None
 
 
-def record_complete(source: str, district: str, through: date) -> None:
-    """Persist `through` for a crawl that finished (atomic replace).
-
-    Other keys are preserved as they are. Raises CorruptCrawlState (writing
-    nothing) if the existing file can't be parsed.
-    """
-    state = _read()
-    state[_key(source, district)] = through.isoformat()
+def _write(state: dict) -> None:
+    """Atomically replace the state file (unique temp file in the same directory)."""
     path = state_path()
     fd, tmp = tempfile.mkstemp(prefix="crawl_state.", suffix=".tmp", dir=path.parent)
     try:
@@ -92,3 +86,62 @@ def record_complete(source: str, district: str, through: date) -> None:
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+
+
+def record_complete(source: str, district: str, through: date) -> None:
+    """Persist `through` for a crawl that finished (atomic replace).
+
+    Other keys are preserved as they are. Raises CorruptCrawlState (writing
+    nothing) if the existing file can't be parsed.
+    """
+    state = _read()
+    state[_key(source, district)] = through.isoformat()
+    _write(state)
+
+
+# --- backfill resume points (B19) -------------------------------------------
+# A deep backfill can span hundreds of result pages; if it stops, the next
+# `backfill --resume` continues at `next_page` instead of page 1. Stored under
+# "backfill/<source>/<district>" in the same file, never touching the update
+# cutoffs above (a backfill must not claim coverage for `update`).
+
+
+def _backfill_key(source: str, district: str) -> str:
+    return f"backfill/{source}/{district}"
+
+
+def backfill_progress(source: str, district: str) -> dict | None:
+    """{"since": date, "next_page": int, "oldest_sold_at": date | None}, or None.
+
+    Raises CorruptCrawlState if the file can't be parsed.
+    """
+    raw = _read().get(_backfill_key(source, district))
+    if not isinstance(raw, dict):
+        return None
+    try:
+        oldest = raw.get("oldest_sold_at")
+        return {
+            "since": date.fromisoformat(raw["since"]),
+            "next_page": int(raw["next_page"]),
+            "oldest_sold_at": date.fromisoformat(oldest) if oldest else None,
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def save_backfill_progress(
+    source: str, district: str, *, since: date, next_page: int, oldest_sold_at: date | None
+) -> None:
+    state = _read()
+    state[_backfill_key(source, district)] = {
+        "since": since.isoformat(),
+        "next_page": next_page,
+        "oldest_sold_at": oldest_sold_at.isoformat() if oldest_sold_at else None,
+    }
+    _write(state)
+
+
+def clear_backfill_progress(source: str, district: str) -> None:
+    state = _read()
+    if state.pop(_backfill_key(source, district), None) is not None:
+        _write(state)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
@@ -14,7 +15,7 @@ from sqlalchemy import text
 from .backfill import backfill_dedup_keys
 from .booli import DISTRICT_AREA_IDS as _BOOLI_DISTRICTS
 from .booli import iter_district as _booli_iter
-from . import crawl_state
+from . import crawl_state, scrape_run
 from .db import DEFAULT_BATCH_SIZE, engine, upsert_listings
 from .errors import CrawlIncomplete
 from .geocode import geocode_pending
@@ -22,6 +23,7 @@ from .hemnet import DISTRICT_LOCATION_IDS
 from .hemnet import iter_district as _hemnet_iter
 from .lock import exclusive
 from .reparse import format_summary, reparse
+from .source_base import MAX_PAGES, CrawlProgress
 
 # Both sources cover the same four districts; the CLI accepts the union of slugs.
 _ALL_DISTRICTS = sorted(set(DISTRICT_LOCATION_IDS) | set(_BOOLI_DISTRICTS))
@@ -86,9 +88,97 @@ def _parse_date(s: str) -> date:
     return datetime.strptime(s, "%Y-%m-%d").date()
 
 
+class _LazyStderrHandler(logging.StreamHandler):
+    """Writes to whatever sys.stderr is at emit time (CliRunner swaps it per invocation)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+
+    @property
+    def stream(self):  # type: ignore[override]
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, _value) -> None:
+        pass
+
+
+def configure_logging(level: str) -> None:
+    """Send `scraper.*` log records to stderr at LEVEL (once; re-running only re-levels)."""
+    logger = logging.getLogger("scraper")
+    logger.setLevel(level.upper())
+    if not any(isinstance(h, _LazyStderrHandler) for h in logger.handlers):
+        logger.addHandler(_LazyStderrHandler())
+
+
 @click.group()
-def cli() -> None:
+@click.option(
+    "--log-level",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+    default="INFO",
+    show_default=True,
+    help="Verbosity of the crawl log on stderr.",
+)
+def cli(log_level: str) -> None:
     """Bostadspriser scraper."""
+    configure_logging(log_level)
+
+
+# `update` stops at MAX_PAGES (a runaway guard for a week or two of new sales). A
+# deep backfill legitimately needs far more (a 1.5-year Södermalm is ~170 pages),
+# so it gets its own, explicit, higher ceiling. Pacing and single-worker behaviour
+# are unchanged.
+BACKFILL_MAX_PAGES = 1000
+
+
+@dataclass
+class RunReport:
+    upserted: int
+    progress: CrawlProgress
+    error: str | None = None
+    partial: bool = False  # some rows landed before the crawl ended early
+
+
+def _run_recorded(
+    source: str, district: str, since: date, *, start_page: int = 1, max_pages: int = MAX_PAGES
+) -> RunReport:
+    """Crawl one source/district from `since`, upserting in batches and recording a
+    ScrapeRun row. Never raises (KeyboardInterrupt aside): errors land in the report."""
+    iter_district = _SOURCE_ITER[source]
+    progress = CrawlProgress()
+    report = RunReport(0, progress)
+    run_id = scrape_run.start_run(source, district)
+
+    def _count(n: int) -> None:
+        report.upserted += n
+        scrape_run.bump(
+            run_id,
+            pages=progress.pages,
+            rows_upserted=report.upserted,
+            rows_rejected=progress.rejected,
+            oldest_sold_at=progress.oldest_sold_at,
+        )
+
+    try:
+        rows = iter_district(district, since, progress=progress, max_pages=max_pages, start_page=start_page)
+        asyncio.run(_ingest(rows, on_batch=_count))
+    except CrawlIncomplete as e:
+        report.partial = report.upserted > 0
+        report.error = " ".join(str(e).split())
+    except Exception as e:  # noqa: BLE001
+        report.partial = report.upserted > 0
+        report.error = " ".join(f"{type(e).__name__}: {e}".split())
+    scrape_run.finish_run(
+        run_id,
+        "ok" if report.error is None else ("partial" if report.partial else "failed"),
+        pages=progress.pages,
+        rows_upserted=report.upserted,
+        rows_rejected=progress.rejected,
+        oldest_sold_at=progress.oldest_sold_at,
+        error=report.error,
+    )
+    return report
 
 
 @cli.command()
@@ -101,23 +191,91 @@ def cli() -> None:
     show_default=True,
     help="Which sold-listings source to scrape.",
 )
+@click.option(
+    "--max-pages",
+    default=MAX_PAGES,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="Highest result page to fetch (a runaway guard). Use `backfill` for deep history.",
+)
 @exclusive
-def scrape(district: str, since: date, source: str) -> None:
+def scrape(district: str, since: date, source: str, max_pages: int) -> None:
     """Scrape SOURCE sold-listings for DISTRICT back to SINCE."""
-    iter_district = _SOURCE_ITER[source]
-
-    counted = [0]
-
-    def _count(n: int) -> None:
-        counted[0] += n
-
-    try:
-        asyncio.run(_ingest(iter_district(district, since), on_batch=_count))
-    except CrawlIncomplete as e:
-        click.echo(f"upserted {counted[0]} listings for {district} from {source}")
-        click.echo(f"crawl incomplete: {e}", err=True)
+    report = _run_recorded(source, district, since, max_pages=max_pages)
+    click.echo(f"upserted {report.upserted} listings for {district} from {source}")
+    if report.error is not None:
+        click.echo(f"crawl incomplete: {report.error}", err=True)
         sys.exit(1)
-    click.echo(f"upserted {counted[0]} listings for {district} from {source}")
+
+
+@cli.command()
+@click.option("--district", required=True, type=click.Choice(_ALL_DISTRICTS))
+@click.option("--since", required=True, callback=lambda c, p, v: _parse_date(v))
+@click.option(
+    "--source",
+    type=click.Choice(sorted(_SOURCE_ITER.keys())),
+    default="hemnet",
+    show_default=True,
+    help="Which sold-listings source to backfill.",
+)
+@click.option(
+    "--resume",
+    is_flag=True,
+    help="Continue from the page where the previous backfill of this source/district "
+    "(same --since) stopped, instead of starting at page 1.",
+)
+@click.option(
+    "--max-pages",
+    default=BACKFILL_MAX_PAGES,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="Highest result page to fetch.",
+)
+@exclusive
+def backfill(district: str, since: date, source: str, resume: bool, max_pages: int) -> None:
+    """Deep, resumable history load for DISTRICT back to SINCE.
+
+    Progress (the next page to fetch and the oldest sale reached) is recorded when a
+    run stops early, and each run is logged in ScrapeRun. Result pages are
+    newest-first and shift as new sales arrive, so resuming re-reads a little
+    rather than skipping anything; upserts are idempotent. A backfill does not move
+    the `update` cutoff.
+    """
+    start_page = 1
+    if resume:
+        try:
+            saved = crawl_state.backfill_progress(source, district)
+        except crawl_state.CorruptCrawlState as e:
+            click.echo(f"warning: cannot read resume point, starting at page 1: {e}", err=True)
+            saved = None
+        if saved is None:
+            click.echo("no recorded progress for this source/district; starting at page 1")
+        elif saved["since"] != since:
+            click.echo(
+                f"recorded progress is for a different --since ({saved['since']}); starting at page 1"
+            )
+        else:
+            start_page = saved["next_page"]
+            click.echo(f"resuming {source}/{district} at page {start_page}")
+    report = _run_recorded(source, district, since, start_page=start_page, max_pages=max_pages)
+    click.echo(f"upserted {report.upserted} listings for {district} from {source}")
+    next_page = max(start_page, report.progress.last_completed_page + 1)
+    try:
+        if report.error is None:
+            crawl_state.clear_backfill_progress(source, district)
+        else:
+            crawl_state.save_backfill_progress(
+                source, district, since=since, next_page=next_page,
+                oldest_sold_at=report.progress.oldest_sold_at,
+            )
+    except crawl_state.CorruptCrawlState as e:
+        click.echo(f"warning: progress not saved: {e}", err=True)
+        next_page = None
+    if report.error is not None:
+        click.echo(f"crawl incomplete: {report.error}", err=True)
+        if next_page is not None:
+            click.echo(f"progress saved; continue with: backfill ... --resume (next page {next_page})", err=True)
+        sys.exit(1)
 
 
 @cli.command()
@@ -145,8 +303,17 @@ def scrape(district: str, since: date, source: str) -> None:
     type=int,
     help="Floor for the since cutoff when no rows exist for the district yet.",
 )
+@click.option(
+    "--max-pages",
+    default=MAX_PAGES,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="Highest result page to fetch per source/district (a runaway guard).",
+)
 @exclusive
-def update(districts: tuple[str, ...], sources: tuple[str, ...], lookback_days: int) -> None:
+def update(
+    districts: tuple[str, ...], sources: tuple[str, ...], lookback_days: int, max_pages: int
+) -> None:
     """Incrementally refresh: scrape from (newest complete date - 7d) per district per source.
 
     Designed to run from cron daily/weekly. Idempotent — re-scrapes about a week
@@ -157,7 +324,7 @@ def update(districts: tuple[str, ...], sources: tuple[str, ...], lookback_days: 
     """
     overlap = timedelta(days=7)
     results = [
-        _refresh(source, d, overlap, lookback_days) for source in sources for d in districts
+        _refresh(source, d, overlap, lookback_days, max_pages) for source in sources for d in districts
     ]
     click.echo(_format_results(results))
     failed = [r for r in results if r.error is not None and not r.partial]
@@ -182,13 +349,24 @@ class UpdateResult:
     partial: bool = False
 
 
-def _refresh(source: str, district: str, overlap: timedelta, lookback_days: int) -> UpdateResult:
+def _refresh(
+    source: str, district: str, overlap: timedelta, lookback_days: int, max_pages: int = MAX_PAGES
+) -> UpdateResult:
     """Refresh one source/district. Never raises: failures land in the result."""
     result = UpdateResult(source, district)
     iter_district = _SOURCE_ITER[source]
+    progress = CrawlProgress()
+    run_id = scrape_run.start_run(source, district)
 
     def _count(n: int) -> None:
         result.upserted += n
+        scrape_run.bump(
+            run_id,
+            pages=progress.pages,
+            rows_upserted=result.upserted,
+            rows_rejected=progress.rejected,
+            oldest_sold_at=progress.oldest_sold_at,
+        )
 
     run_newest: list[date] = []  # newest soldAt this crawl yielded (0 or 1 item)
 
@@ -201,7 +379,8 @@ def _refresh(source: str, district: str, overlap: timedelta, lookback_days: int)
 
     async def _run() -> None:
         assert result.since is not None
-        await _ingest(_tracked(iter_district(district, result.since)), on_batch=_count)
+        rows = iter_district(district, result.since, progress=progress, max_pages=max_pages)
+        await _ingest(_tracked(rows), on_batch=_count)
 
     try:
         # The cutoff comes from the last *finished* crawl (B39), not MAX(soldAt):
@@ -235,6 +414,15 @@ def _refresh(source: str, district: str, overlap: timedelta, lookback_days: int)
     except Exception as e:  # noqa: BLE001
         result.error = " ".join(f"{type(e).__name__}: {e}".split())
         click.echo(f"  {source}/{district} failed: {result.error}", err=True)
+    scrape_run.finish_run(
+        run_id,
+        "ok" if result.error is None else ("partial" if result.partial else "failed"),
+        pages=progress.pages,
+        rows_upserted=result.upserted,
+        rows_rejected=progress.rejected,
+        oldest_sold_at=progress.oldest_sold_at,
+        error=result.error,
+    )
     return result
 
 

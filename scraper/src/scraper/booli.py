@@ -240,10 +240,10 @@ SOURCE = Source(
 )
 
 
-def iter_district(district: str, since: date) -> AsyncIterator[dict]:
+def iter_district(district: str, since: date, **kwargs) -> AsyncIterator[dict]:
     """Yield normalized listing dicts for a district, stopping when soldAt < `since`.
 
     The crawl itself (browser, cache, pagination, CrawlIncomplete) is shared: see
     `source_base.crawl`. Cards from other areas are filtered via `_accept_card`.
     """
-    return crawl(SOURCE, district, since)
+    return crawl(SOURCE, district, since, **kwargs)

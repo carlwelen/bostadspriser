@@ -47,13 +47,19 @@ def engine() -> Engine:
     return _engine
 
 
-def listing_table() -> Table:
-    """Reflect the Listing table managed by Prisma migrations."""
+def table(name: str) -> Table:
+    """Reflect (once) a table managed by Prisma migrations."""
     global _metadata
     if _metadata is None:
         _metadata = MetaData()
-        _metadata.reflect(bind=engine(), only=["Listing"])
-    return _metadata.tables["Listing"]
+    if name not in _metadata.tables:
+        _metadata.reflect(bind=engine(), only=[name])
+    return _metadata.tables[name]
+
+
+def listing_table() -> Table:
+    """Reflect the Listing table managed by Prisma migrations."""
+    return table("Listing")
 
 
 @contextmanager

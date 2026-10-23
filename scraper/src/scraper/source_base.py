@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import random
 from collections.abc import AsyncIterator, Callable, Collection
 from dataclasses import dataclass
@@ -38,6 +39,18 @@ from .pagination import card_key
 # serving pages forever costs minutes, not hours. Hitting it is logged and the
 # crawl is reported as incomplete.
 MAX_PAGES = 150
+
+log = logging.getLogger("scraper.crawl")
+
+
+@dataclass
+class CrawlProgress:
+    """What a crawl did, filled in as it runs (also when it ends in CrawlIncomplete)."""
+
+    pages: int = 0  # pages fetched this run
+    last_completed_page: int = 0  # highest page whose cards were all processed (resume point - 1)
+    rejected: int = 0  # in-range cards the source refused (no price, other area, ...)
+    oldest_sold_at: date | None = None  # oldest sale date seen on any card
 
 
 @dataclass(frozen=True)
@@ -149,7 +162,15 @@ async def fetch(ctx: BrowserContext, cfg: Config, source: Source, url: str) -> s
     return last_html
 
 
-async def crawl(source: Source, district: str, since: date) -> AsyncIterator[dict]:
+async def crawl(
+    source: Source,
+    district: str,
+    since: date,
+    *,
+    start_page: int = 1,
+    max_pages: int | None = None,
+    progress: CrawlProgress | None = None,
+) -> AsyncIterator[dict]:
     """Yield normalized listing dicts for a district, newest first.
 
     Pagination ends on:
@@ -164,11 +185,17 @@ async def crawl(source: Source, district: str, since: date) -> AsyncIterator[dic
     skipped but never end the crawl. When the crawl ends early, every row fetched
     so far has been yielded and CrawlIncomplete is raised afterwards, once the
     browser is closed.
+
+    `start_page` resumes a long crawl; `max_pages` is the highest page number
+    allowed (default MAX_PAGES); `progress`, if given, is filled in as pages are
+    processed so callers can record coverage and where to resume.
     """
     if district not in source.districts:
         raise ValueError(f"unknown district: {district}")
     cfg = load_config()
     name = source.name
+    limit = MAX_PAGES if max_pages is None else max_pages
+    progress = progress if progress is not None else CrawlProgress()
 
     incomplete: str | None = None
     async with async_playwright() as p:
@@ -214,12 +241,12 @@ async def crawl(source: Source, district: str, since: date) -> AsyncIterator[dic
             await warmup(ctx, cfg, source)
 
         try:
-            page_num = 1
+            page_num = start_page
             seen: set[str] = set()
             while True:
-                if page_num > MAX_PAGES:
-                    incomplete = f"{name} {district}: hit MAX_PAGES={MAX_PAGES}"
-                    print(f"[{name}] {incomplete}; stopping pagination here", flush=True)
+                if page_num > limit:
+                    incomplete = f"{name} {district}: hit MAX_PAGES={limit}"
+                    log.warning("crawl stopped source=%s district=%s reason=%r", name, district, incomplete)
                     break
                 url = source.district_url(district, page_num)
                 try:
@@ -229,11 +256,16 @@ async def crawl(source: Source, district: str, since: date) -> AsyncIterator[dic
                     # yielded stay upserted and the crawl ends in CrawlIncomplete
                     # below; `update` keeps its cutoff behind the gap (B39).
                     incomplete = f"{name} {district} page {page_num} failed: {type(e).__name__}: {e}"
-                    print(f"[{name}] {incomplete}; stopping pagination here", flush=True)
+                    log.warning(
+                        "page failed source=%s district=%s page=%d error=%r",
+                        name, district, page_num, f"{type(e).__name__}: {e}",
+                    )
                     break
+                progress.pages += 1
 
                 cards = source.extract_cards(html)
                 if not cards:
+                    log.info("empty page, crawl complete source=%s district=%s page=%d", name, district, page_num)
                     break
 
                 # Stop when a page adds nothing unseen to this crawl: a site that
@@ -243,7 +275,9 @@ async def crawl(source: Source, district: str, since: date) -> AsyncIterator[dic
                 keys = [card_key(c, source.card_id(c)) for c in cards]
                 if all(k in seen for k in keys):
                     msg = f"{name} {district} page {page_num} repeated pages already seen"
-                    print(f"[{name}] {msg}; stopping pagination here", flush=True)
+                    log.warning(
+                        "repeated page, stopping source=%s district=%s page=%d", name, district, page_num
+                    )
                     in_range = any(
                         (d := source.parse_sold_at(c)) is not None and d >= since for c in cards
                     )
@@ -264,10 +298,13 @@ async def crawl(source: Source, district: str, since: date) -> AsyncIterator[dic
                     sold_at = source.parse_sold_at(c)
                     if sold_at is None:
                         continue
+                    if progress.oldest_sold_at is None or sold_at < progress.oldest_sold_at:
+                        progress.oldest_sold_at = sold_at
                     # Drop cards that leaked across district boundaries.
                     if source.accept_card is not None and not source.accept_card(c, district):
                         if sold_at >= since:
                             in_range_on_page += 1
+                            progress.rejected += 1
                         continue
                     if sold_at < since:
                         stop = True
@@ -275,9 +312,15 @@ async def crawl(source: Source, district: str, since: date) -> AsyncIterator[dic
                     in_range_on_page += 1
                     row = source.to_row(c, district)
                     if row is None:
+                        progress.rejected += 1
                         continue
                     yield row
 
+                progress.last_completed_page = page_num
+                log.info(
+                    "page done source=%s district=%s page=%d cards=%d in_range=%d",
+                    name, district, page_num, len(cards), in_range_on_page,
+                )
                 if stop or in_range_on_page == 0:
                     break
                 page_num += 1
