@@ -70,6 +70,25 @@ def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ARG001
     shutil.rmtree(_TMP, ignore_errors=True)
 
 
+def reset_db_timezone(url: str) -> None:
+    """`ALTER DATABASE <test db> RESET timezone` (idempotent, test databases only).
+
+    The timezone test sets a non-UTC database default; a killed run could leave it
+    behind on a shared test DB and skew every later run.
+    """
+    from sqlalchemy import create_engine, text
+
+    name = urlsplit(url).path.lstrip("/")
+    if not _TEST_NAME_RE.search(name):
+        raise RuntimeError(f'refusing to alter non-test database "{name}"')
+    eng = create_engine(url.replace("postgresql://", "postgresql+psycopg://", 1), isolation_level="AUTOCOMMIT")
+    try:
+        with eng.connect() as c:
+            c.execute(text(f'ALTER DATABASE "{name}" RESET timezone'))
+    finally:
+        eng.dispose()
+
+
 @pytest.fixture(scope="session")
 def _migrated_db() -> str:
     """Create (if missing) and migrate the test DB once per session."""
@@ -88,6 +107,7 @@ def _migrated_db() -> str:
             "prisma migrate deploy failed for the test database "
             f"(try `node web/scripts/test-db.cjs reset`):\n{proc.stdout}\n{proc.stderr}"
         )
+    reset_db_timezone(TEST_DATABASE_URL)
     return TEST_DATABASE_URL
 
 

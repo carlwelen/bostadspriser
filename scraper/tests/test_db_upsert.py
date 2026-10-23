@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from scraper.db import upsert_listing
 from scraper.normalize import dedup_key
+from tests.conftest import _TEST_NAME_RE
 
 
 def _row(**overrides) -> dict:
@@ -108,7 +109,7 @@ def test_session_timezone_is_pinned_to_utc_whatever_the_server_default(db) -> No
     datetime must not depend on the DB's TimeZone setting."""
     with db.connect() as c:
         name = c.execute(text("SELECT current_database()")).scalar_one()
-    assert "test" in name  # only ever alter a throwaway test database
+    assert _TEST_NAME_RE.search(name)  # only ever alter a throwaway test database
     with db.begin() as c:
         c.execute(text(f'ALTER DATABASE "{name}" SET timezone = \'Asia/Tokyo\''))
     try:

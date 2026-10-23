@@ -5,7 +5,7 @@ from typing import Iterator
 
 from sqlalchemy import MetaData, Table, and_, case, create_engine
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from .config import load_config
@@ -13,6 +13,16 @@ from .config import load_config
 _engine: Engine | None = None
 _metadata: MetaData | None = None
 _SessionLocal: sessionmaker[Session] | None = None
+
+
+def pg_options(url: str) -> str:
+    """libpq `options` for every connection: the URL's own `options` (if any),
+    then `-c timezone=UTC`. connect_args would otherwise replace the URL's value;
+    ours comes last so it wins over any timezone set there."""
+    existing = make_url(url).query.get("options")
+    if isinstance(existing, tuple):
+        existing = " ".join(existing)
+    return f"{existing} -c timezone=UTC" if existing else "-c timezone=UTC"
 
 
 def engine() -> Engine:
@@ -31,7 +41,7 @@ def engine() -> Engine:
             url,
             future=True,
             pool_pre_ping=True,
-            connect_args={"options": "-c timezone=UTC"},
+            connect_args={"options": pg_options(url)},
         )
         _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
     return _engine
