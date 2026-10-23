@@ -171,6 +171,39 @@ describe("DedupedListing clusters (B13)", () => {
     expect(await count()).toBe(1);
   });
 
+  it("collapses a later exact copy of an already-clustered sale (upserts never set clusterId)", async () => {
+    await seed(prisma, [
+      row("hemnet-1", { dedupKey: "key-a", clusterId: "c1" }),
+      row("booli-1", { source: "booli", dedupKey: "key-b", clusterId: "c1" }),
+      row("other-1", { source: "other", dedupKey: "key-b" }), // later exact copy of booli-1
+    ]);
+    expect(await count()).toBe(1);
+    const [w] = await prisma.$queryRaw<Array<{ id: string; sources: string[] }>>`
+      SELECT id, sources FROM "DedupedListing"`;
+    expect(w).toEqual({ id: "hemnet-1", sources: ["booli", "hemnet", "other"] });
+  });
+
+  it("does not merge unrelated clusters or unclustered rows", async () => {
+    await seed(prisma, [
+      row("a1", { dedupKey: "ka1", clusterId: "c1" }),
+      row("a2", { dedupKey: "ka2", clusterId: "c1" }),
+      row("b1", { dedupKey: "kb1", clusterId: "c2" }),
+      row("b1-copy", { source: "booli", dedupKey: "kb1" }),
+      row("solo", { dedupKey: "ks" }),
+      row("legacy", { dedupKey: null }),
+    ]);
+    // c1, c2 (with its exact copy), solo and the NULL-dedupKey legacy row.
+    expect(await count()).toBe(4);
+  });
+
+  it("ranks a copy with both coordinates above one with only a latitude", async () => {
+    await seed(prisma, [
+      row("lat-only", { lng: null, lastSeenAt: new Date("2026-09-01T00:00:00Z") }),
+      row("full", { lastSeenAt: new Date("2026-01-01T00:00:00Z") }),
+    ]);
+    expect((await winner()).id).toBe("full");
+  });
+
   it("indexes clusterId", async () => {
     const [{ n }] = await prisma.$queryRaw<Array<{ n: bigint }>>`
       SELECT COUNT(*)::bigint AS n FROM pg_indexes

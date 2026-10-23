@@ -54,6 +54,7 @@ model Listing {
 
   @@unique([source, sourceId])
   @@index([dedupKey])
+  // Serves the fuzzy matcher's lookups; DedupedListing does not use it.
   @@index([clusterId])
   @@index([district, soldAt])
   @@index([street, houseNumber, soldAt])
