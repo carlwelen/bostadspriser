@@ -61,10 +61,16 @@ export default async function InsightsPage() {
       <main className="mx-auto max-w-6xl space-y-10 px-6 py-10">
 
 
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <StatCard label="Försäljningar" value={SEK.format(summary.total)} />
           <StatCard
-            label="Medel pris/m²"
+            label="Median pris/m²"
+            value={summary.medianPricePerSqm
+              ? `${SEK.format(summary.medianPricePerSqm)} kr`
+              : "—"}
+          />
+          <StatCard
+            label="Medelpris/m²"
             value={summary.meanPricePerSqm
               ? `${SEK.format(summary.meanPricePerSqm)} kr`
               : "—"}
@@ -117,7 +123,7 @@ export default async function InsightsPage() {
           <div>
             <h2 className="text-base font-medium text-zinc-900">Rumssegment</h2>
             <p className="text-xs text-zinc-500">
-              Medelvärden grupperade efter antal rum
+              Median och medelvärden grupperade efter antal rum
             </p>
           </div>
           <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
@@ -128,13 +134,14 @@ export default async function InsightsPage() {
                   <th className="px-4 py-3 font-medium">Antal</th>
                   <th className="px-4 py-3 text-right font-medium">Medel yta</th>
                   <th className="px-4 py-3 text-right font-medium">Medel pris</th>
+                  <th className="px-4 py-3 text-right font-medium">Median pris/m²</th>
                   <th className="px-4 py-3 text-right font-medium">Medel pris/m²</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
                 {rooms.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-6 text-sm text-zinc-500">
+                    <td colSpan={6}className="px-4 py-6 text-sm text-zinc-500">
                       Inga försäljningar i underlaget ännu.
                     </td>
                   </tr>
@@ -151,7 +158,10 @@ export default async function InsightsPage() {
                       <td className="px-4 py-2.5 text-right tabular-nums text-zinc-700">
                         {SEK.format(r.meanPriceSek)} kr
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-zinc-900">
+                      <td className="px-4 py-2.5 text-right tabular-nums font-medium text-zinc-900">
+                        {SEK.format(r.medianPricePerSqm)} kr
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-zinc-700">
                         {SEK.format(r.meanPricePerSqm)} kr
                       </td>
                     </tr>

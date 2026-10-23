@@ -67,5 +67,5 @@ test("an unknown g value falls back to months", async ({ page }) => {
 
 test("the yearly subtitle says year means", async ({ page }) => {
   await page.goto("/district/ostermalm?g=year");
-  await expect(page.getByText("Årsmedel")).toBeVisible();
+  await expect(page.getByText("Median kr/m² per år")).toBeVisible();
 });

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { GranularityToggle } from "@/components/GranularityToggle";
-import { granularityHref, granularityMeanLabel, parseGranularity } from "@/components/granularity";
+import { granularityHref, granularityCaption, parseGranularity } from "@/components/granularity";
 import { PageHero } from "@/components/PageHero";
 import { PriceChart, type Series } from "@/components/PriceChart";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -83,7 +83,7 @@ export default async function ComparePage({
         }
         subtitle={
           <span>
-            {granularityMeanLabel(granularity)} kr/m². Lägg till serier via URL:
+            {granularityCaption(granularity)}. Lägg till serier via URL:
             <code className="mx-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-zinc-100">
               ?series=district:ostermalm,district:vasastan
             </code>
