@@ -86,6 +86,33 @@ describe("DedupedListing tie-breaker", () => {
   });
 });
 
+describe("DedupedListing prefers priced rows (B38)", () => {
+  it("picks the copy with a price over a better-ranked copy priced 0", async () => {
+    await seed(prisma, [
+      // Hemnet + coordinates would normally win, but this copy has no kr/m².
+      row("unpriced", { pricePerSqmSek: BigInt(0), priceSek: BigInt(0) }),
+      row("priced", { source: "booli", lat: null, lng: null }),
+    ]);
+    const w = await winner();
+    expect(w.id).toBe("priced");
+    expect(w.sources).toEqual(["booli", "hemnet"]);
+    const [{ n }] = await prisma.$queryRaw<Array<{ n: bigint }>>`
+      SELECT COUNT(*)::bigint AS n FROM "DedupedListing" WHERE "pricePerSqmSek" > 0`;
+    expect(Number(n)).toBe(1);
+  });
+
+  it("is independent of insertion order and still falls back to the unpriced row", async () => {
+    await seed(prisma, [
+      row("priced", { source: "booli", lat: null, lng: null }),
+      row("unpriced", { pricePerSqmSek: BigInt(0), priceSek: BigInt(0) }),
+    ]);
+    expect((await winner()).id).toBe("priced");
+
+    await seed(prisma, [row("only-unpriced", { pricePerSqmSek: BigInt(0), priceSek: BigInt(0) })]);
+    expect((await winner()).id).toBe("only-unpriced");
+  });
+});
+
 describe("Listing.lastSeenAt column", () => {
   beforeEach(async () => {
     await seed(prisma, []);
