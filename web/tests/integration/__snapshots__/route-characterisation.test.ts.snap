@@ -248,20 +248,20 @@ exports[`/api/heatmap > response for "?sinceDays=3650&districts=ostermalm&priceM
 exports[`/api/streets/all > response for "" is unchanged 1`] = `
 {
   "count": 12,
-  "sha": "6a149570dc4902c0",
+  "sha": "35a0208d1023915c",
 }
 `;
 
 exports[`/api/streets/all > response for "?limit=1" is unchanged 1`] = `
 {
   "count": 1,
-  "sha": "81fc6e51b595ffa7",
+  "sha": "860ddb020cd84659",
 }
 `;
 
 exports[`/api/streets/all > response for "?limit=5" is unchanged 1`] = `
 {
   "count": 5,
-  "sha": "eddba78b8b45a181",
+  "sha": "ba0e54adc37e6f23",
 }
 `;

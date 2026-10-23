@@ -5,6 +5,7 @@ import {
   districtSummary,
   districtTimeseries,
   globalSummary,
+  listAllStreets,
   listHouseNumbers,
   listStreets,
   roomsBreakdown,
@@ -144,6 +145,27 @@ describe("summaries", () => {
     expect(g.byDistrict).toEqual([
       { district: "vasastan", count: 6, meanPricePerSqm: 266_667, medianPricePerSqm: 100_000 },
       { district: "norrmalm", count: 1, meanPricePerSqm: 500_000, medianPricePerSqm: 500_000 },
+    ]);
+  });
+
+  it("listAllStreets", async () => {
+    expect(await listAllStreets()).toEqual([
+      { district: "vasastan", street: "Odengatan", slug: "odengatan", count: 6, meanPricePerSqm: 266_667, medianPricePerSqm: 100_000 },
+      { district: "norrmalm", street: "Kungsgatan", slug: "kungsgatan", count: 1, meanPricePerSqm: 500_000, medianPricePerSqm: 500_000 },
+    ]);
+  });
+
+  it("listHouseNumbers and listStreets ignore unpriced sales alike", async () => {
+    await seed(prisma, [
+      sale(100_000, "2026-01-05"),
+      sale(0, "2026-01-06"),
+      sale(0, "2026-01-07", { houseNumber: "9" }), // only unpriced sales: not listed
+    ]);
+    expect(await listHouseNumbers("vasastan", "Odengatan")).toEqual([
+      { houseNumber: "7", count: 1, meanPricePerSqm: 100_000, medianPricePerSqm: 100_000 },
+    ]);
+    expect(await listStreets("vasastan")).toMatchObject([
+      { street: "Odengatan", count: 1, meanPricePerSqm: 100_000, medianPricePerSqm: 100_000 },
     ]);
   });
 

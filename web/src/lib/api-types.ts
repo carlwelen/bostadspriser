@@ -75,6 +75,7 @@ export type StreetsAllItem = {
   slug: string;
   count: number;
   meanPricePerSqm: number;
+  medianPricePerSqm: number;
 };
 
 export type StreetsAllResponse = StreetsAllItem[];

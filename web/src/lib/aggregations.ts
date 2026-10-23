@@ -188,6 +188,7 @@ const HOUSE_NUMBER_ORDER = Prisma.sql`
   NULLIF(substring(btrim("houseNumber") from '^[0-9]+[[:space:]]*[[:alpha:]]?[[:space:]]*[-–][[:space:]]*([0-9]{1,9})'), '')::int ASC NULLS FIRST,
   "houseNumber" ASC`;
 
+/** Houses with at least one priced sale; count, mean and median are over priced sales (as in listStreets). */
 export async function listHouseNumbers(
   district: DistrictSlug,
   street: string
@@ -205,6 +206,7 @@ export async function listHouseNumbers(
     WHERE district = ${district}::"District"
       AND street    = ${street}
       AND "houseNumber" IS NOT NULL
+      AND "pricePerSqmSek" > 0
     GROUP BY "houseNumber"
     ORDER BY ${HOUSE_NUMBER_ORDER}
   `);
@@ -445,8 +447,8 @@ export async function globalSummary(): Promise<{
   `);
   return {
     total: Number(tot?.n ?? 0),
-    meanPricePerSqm: tot?.mean ? Number(tot.mean) : null,
-    medianPricePerSqm: tot?.median ? Number(tot.median) : null,
+    meanPricePerSqm: tot?.mean != null ? Number(tot.mean) : null,
+    medianPricePerSqm: tot?.median != null ? Number(tot.median) : null,
     earliest: tot?.earliest?.toISOString().slice(0, 10) ?? null,
     latest: tot?.latest?.toISOString().slice(0, 10) ?? null,
     byDistrict: byDistrict.map((r) => ({
@@ -489,7 +491,7 @@ async function summarize(
     SELECT COUNT(*)::bigint                                                      AS n,
            COUNT(DISTINCT street)::bigint                                        AS streets,
            AVG("pricePerSqmSek")::bigint                                         AS mean,
-           ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY "pricePerSqmSek"))::numeric)::bigint AS median,
+           ${MEDIAN_PPS}                                                         AS median,
            MIN("soldAt")                                                         AS earliest,
            MAX("soldAt")                                                         AS latest
     FROM "DedupedListing"
@@ -716,12 +718,19 @@ export async function heatmapPoints(
 /** Every street with sales, busiest first (ties by name), across all districts. */
 export async function listAllStreets(limit = 4000): Promise<StreetsAllItem[]> {
   const rows = await prisma.$queryRaw<
-    Array<{ district: DistrictSlug; street: string; n: bigint; mean_pps: bigint }>
+    Array<{
+      district: DistrictSlug;
+      street: string;
+      n: bigint;
+      mean_pps: bigint;
+      median_pps: bigint;
+    }>
   >(Prisma.sql`
     SELECT district::text AS district,
            street,
            COUNT(*)::bigint               AS n,
-           AVG("pricePerSqmSek")::bigint  AS mean_pps
+           AVG("pricePerSqmSek")::bigint  AS mean_pps,
+           ${MEDIAN_PPS}                  AS median_pps
     FROM "DedupedListing"
     WHERE "pricePerSqmSek" > 0
     GROUP BY district, street
@@ -734,6 +743,7 @@ export async function listAllStreets(limit = 4000): Promise<StreetsAllItem[]> {
     slug: slugifyStreet(r.street),
     count: Number(r.n),
     meanPricePerSqm: Number(r.mean_pps),
+    medianPricePerSqm: Number(r.median_pps),
   }));
 }
 
