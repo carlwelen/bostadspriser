@@ -323,9 +323,11 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
                 try:
                     html = await _fetch(ctx, cfg, url)
                 except Exception as e:  # noqa: BLE001
-                    # Stuck on a CF challenge or transient error — keep what we
-                    # already yielded; subsequent runs will fill the gap because
-                    # we re-scrape the last 7 days each time (`scraper update`).
+                    # Stuck on a CF challenge or transient error. Rows already
+                    # yielded stay upserted and the crawl ends in CrawlIncomplete
+                    # below. Note the missing tail is NOT refetched automatically:
+                    # `update` derives its cutoff from MAX(soldAt), which the
+                    # newer rows just advanced (backlog B39).
                     incomplete = (
                         f"hemnet {district} page {page_num} failed: {type(e).__name__}: {e}"
                     )

@@ -117,6 +117,26 @@ def test_update_marks_an_incomplete_crawl_partial_keeps_rows_and_exits_nonzero(
     assert "failed" not in result.output.lower().replace("page 3 failed", "")
 
 
+def test_update_reports_failed_not_partial_when_an_incomplete_crawl_yielded_nothing(
+    fake_world, monkeypatch
+) -> None:
+    """A page-1 block is a failure, not 'partial': nothing was fetched."""
+    upserted, _ = fake_world
+
+    async def blocked(district: str, since: date):
+        raise CrawlIncomplete(f"booli {district} page 1 failed: RuntimeError: challenge")
+        yield  # pragma: no cover - makes this an async generator
+
+    monkeypatch.setitem(run._SOURCE_ITER, "booli", blocked)
+    result = CliRunner().invoke(run.cli, ["update", "--source", "booli", "--district", "ostermalm"])
+    assert result.exit_code == 1, result.output
+    assert upserted == []
+    line = next(ln for ln in result.output.splitlines() if ln.startswith("booli "))
+    assert "FAILED" in line and "partial" not in line
+    assert "1 of 1 failed" in result.output
+    assert "partial" not in result.output
+
+
 def test_scrape_command_exits_nonzero_on_an_incomplete_crawl(fake_world, monkeypatch) -> None:
     upserted, _ = fake_world
 

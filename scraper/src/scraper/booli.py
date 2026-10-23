@@ -9,8 +9,8 @@ schema is stable.
 Like Hemnet, Booli sits behind Cloudflare — plain HTTP returns a 403 challenge,
 so Playwright (real Chromium) is required. Bot-protection guarantees match
 hemnet.py: single-worker, jittered 3–5 s pacing, persistent storageState, on-disk
-HTML cache that skips CF challenge pages, partial-page failures break the loop
-rather than raise (`scraper update` overlaps a week so misses heal next run).
+HTML cache that skips CF challenge pages. A failed page ends the crawl after the
+rows already yielded, with CrawlIncomplete (the CLI reports it as partial).
 
 URL pattern (verified 2026-05-03):
     https://www.booli.se/sok/slutpriser?areaIds=<id>&objectType=Lägenhet&page=<n>
@@ -332,7 +332,8 @@ async def iter_district(district: str, since: date) -> AsyncIterator[dict]:
     Pagination ends on:
       - empty page (no SoldProperty cards),
       - first card with `soldAt < since` (Booli sorts by soldDate desc),
-      - fetch failure (we break, not raise — the next `scraper update` overlap heals it).
+      - fetch failure or MAX_PAGES: rows already yielded are kept, then
+        CrawlIncomplete is raised so callers can mark the crawl partial.
     """
     if district not in DISTRICT_AREA_IDS:
         raise ValueError(f"unknown district: {district}")

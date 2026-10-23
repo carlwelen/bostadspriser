@@ -160,9 +160,13 @@ def _refresh(source: str, district: str, overlap: timedelta, lookback_days: int)
         asyncio.run(_run())
         click.echo(f"  upserted {result.upserted} for {source}/{district}")
     except CrawlIncomplete as e:
-        result.partial = True
+        # Partial means some rows landed. An incomplete crawl with none (e.g. a
+        # page-1 block) is a plain failure.
+        result.partial = result.upserted > 0
         result.error = " ".join(str(e).split())
-        click.echo(f"  {source}/{district} partial: {result.error}", err=True)
+        click.echo(
+            f"  {source}/{district} {'partial' if result.partial else 'failed'}: {result.error}", err=True
+        )
     except Exception as e:  # noqa: BLE001
         result.error = " ".join(f"{type(e).__name__}: {e}".split())
         click.echo(f"  {source}/{district} failed: {result.error}", err=True)
