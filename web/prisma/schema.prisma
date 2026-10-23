@@ -15,37 +15,51 @@ enum District {
 }
 
 model Listing {
-  id             String    @id @default(uuid())
-  source         String
-  sourceId       String
+  id              String        @id @default(uuid())
+  source          String
+  sourceId        String
   // Deterministic hash of (normalized street, houseNumber, soldAt, priceSek) —
   // collapses the same real-world sale observed via Hemnet and Booli.
   // Multiple rows can share a dedupKey; aggregations select DISTINCT ON it.
   // Nullable while we backfill the legacy Hemnet rows; new writes always set it.
-  dedupKey       String?   @db.VarChar(64)
-  street         String
-  houseNumber    String?
-  district       District
-  rooms          Decimal?  @db.Decimal(4, 1)
-  areaSqm        Decimal?  @db.Decimal(6, 1)
-  priceSek       BigInt
-  pricePerSqmSek BigInt
-  soldAt         DateTime  @db.Date
-  lat            Float?
-  lng            Float?
-  raw            Json
-  scrapedAt      DateTime  @default(now())
+  dedupKey        String?       @db.VarChar(64)
+  street          String
+  houseNumber     String?
+  district        District
+  rooms           Decimal?      @db.Decimal(4, 1)
+  areaSqm         Decimal?      @db.Decimal(6, 1)
+  priceSek        BigInt
+  pricePerSqmSek  BigInt
+  soldAt          DateTime      @db.Date
+  lat             Float?
+  lng             Float?
+  raw             Json
+  scrapedAt       DateTime      @default(now())
   // When a scraper last saw this sale (set on insert, refreshed by every
   // upsert). `scrapedAt` is only the first insert. DedupedListing's final
   // tie-breaker.
-  lastSeenAt     DateTime  @default(now())
-  geocodedAt     DateTime?
+  lastSeenAt      DateTime      @default(now())
+  geocodedAt      DateTime?
+  // Outcome of the last geocoding attempt (`geocodedAt` alone can't tell a
+  // successful lookup from one that found nothing). `inline` = the source
+  // shipped the coordinates itself; `pending` = never tried or retry wanted.
+  geocodeStatus   GeocodeStatus @default(pending)
+  geocodeAttempts Int           @default(0)
 
   @@unique([source, sourceId])
   @@index([dedupKey])
   @@index([district, soldAt])
   @@index([street, houseNumber, soldAt])
   @@index([lat, lng])
+  @@index([geocodeStatus])
+}
+
+enum GeocodeStatus {
+  pending
+  ok
+  not_found
+  failed
+  inline
 }
 
 enum ScrapeStatus {
