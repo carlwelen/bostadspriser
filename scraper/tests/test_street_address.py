@@ -89,6 +89,25 @@ NBSP = " "
         ("Hornsgatan 64Ö", ("Hornsgatan", "64")),
         # Unparseable but numeric: rejected rather than stored as a street with digits
         ("Hornsgatan 1234", ("", None)),
+        # A floor after a dash is not a range end
+        ("Hornsgatan 2 - 3 tr", ("Hornsgatan", "2")),
+        ("Götgatan 1-4 tr", ("Götgatan", "1")),
+        ("Hornsgatan 2 -3tr", ("Hornsgatan", "2")),
+        ("Hornsgatan 2 - 3 vån", ("Hornsgatan", "2")),
+        ("Hornsgatan 2-3", ("Hornsgatan", "2-3")),
+        # A street never contains digits: reject instead of storing one
+        ("Hornsgatan 9999 5", ("", None)),
+        ("Hornsgatan64", ("", None)),
+        ("Hornsgatan-64", ("", None)),
+        ("1 Hornsgatan", ("", None)),
+        ("Hornsgatan ٦٤", ("", None)),  # Arabic-Indic digits
+        ("Hornsgatan ６４", ("", None)),  # full-width digits
+        ("Karl XII:s torg 5", ("Karl XII:s torg", "5")),
+        ("Karl XII:s torg", ("Karl XII:s torg", None)),
+        # Leading zeros are stripped
+        ("Hornsgatan 064", ("Hornsgatan", "64")),
+        ("Hornsgatan 064A", ("Hornsgatan", "64A")),
+        ("Ringvägen 012-014", ("Ringvägen", "12-14")),
         # A "street" without letters is not an address
         ("12", ("", None)),
         ("12 B", ("", None)),

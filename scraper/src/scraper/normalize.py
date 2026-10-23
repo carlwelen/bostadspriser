@@ -46,10 +46,17 @@ def parse_rooms(text: str | None) -> float | None:
 # number always wins and no tail can leak into the street. The street is lazy:
 # the first "<space><digits>" ends it. A letter must stand alone ("3A", "3 A")
 # and not start a word ("64 nb", "7 vån") or an abbreviation ("o.g.").
+# [0-9], not \d: \d also matches Arabic-Indic and full-width digits.
+# A floor or apartment marker right after the range's second number means it is
+# not a range end ("2 - 3 tr" is house 2, third floor).
+_FLOOR_MARKER = r"(?!\s*(?:tr|trp|trappa|trappor|vån|lgh|nb|bv|[½/]))"
 _ADDR_RE = re.compile(
     r"^(?P<street>.+?)\s+"
-    r"(?P<n1>\d{1,3})(?:\s?(?P<l1>[A-Za-z])(?!\w|\.\w))?(?!\d)"
-    r"(?:\s*[-–—]\s*(?P<n2>\d{1,3})(?:\s?(?P<l2>[A-Za-z])(?!\w|\.\w))?(?!\d))?"
+    r"(?P<n1>[0-9]{1,3})(?:\s?(?P<l1>[A-Za-z])(?!\w|\.\w))?(?![0-9])"
+    r"(?:\s*[-–—]\s*(?P<n2>[0-9]{1,3})(?:\s?(?P<l2>[A-Za-z])(?!\w|\.\w))?(?![0-9])"
+    + _FLOOR_MARKER
+    + r")?",
+    re.IGNORECASE,
 )
 
 # A real street name has a word of at least two letters; "12" and "12 B" don't.
@@ -77,20 +84,23 @@ def parse_street_address(addr: str | None) -> tuple[str, str | None]:
     text = re.sub(r"\s+", " ", (addr or "")).strip()
     # "Odengatan 5, lgh 1101": a comma starts the tail, unless it is a decimal
     # comma, i.e. has a digit on both sides ("1,5 tr").
-    head = re.split(r"(?<!\d),|,(?!\d)", text, maxsplit=1)[0].strip()
+    head = re.split(r"(?<![0-9]),|,(?![0-9])", text, maxsplit=1)[0].strip()
     m = _ADDR_RE.match(head)
-    if not m and re.search(r"\s\d", head):
+    if not m and re.search(r"\s[0-9]", head):
         # Looks numeric but doesn't parse ("Hornsgatan 1234"): reject rather than
         # store a street name with digits in it.
         return "", None
     street: str = m["street"].strip() if m else head
     house: str | None = None
     if m:
-        house = f"{m['n1']}{(m['l1'] or '').upper()}"
+        # int() strips leading zeros ("064" -> "64").
+        house = f"{int(m['n1'])}{(m['l1'] or '').upper()}"
         # A range must ascend: "64 - 2 tr" is a floor, not "64-2".
         if m["n2"] and int(m["n2"]) > int(m["n1"]):
-            house += f"-{m['n2']}{(m['l2'] or '').upper()}"
-    if not _STREET_WORD_RE.search(street):
+            house += f"-{int(m['n2'])}{(m['l2'] or '').upper()}"
+    # A street name has a real word and no digits ("Hornsgatan64", "1 Hornsgatan"
+    # are not addresses). Roman numerals ("Karl XII:s torg") are letters.
+    if not _STREET_WORD_RE.search(street) or any(c.isdigit() for c in street):
         return "", None
     return street, house
 
