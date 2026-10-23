@@ -9,6 +9,7 @@ Single source of truth for the hardening loop. A resumed session told "continue 
 - **Process:** implementer agents (B scraper, C data/API, D map UI, E analytics UI) work in their own git worktrees, at most 3 at a time, one commit per backlog ID. A fresh reviewer (R) checks each task's diff and proving test. Only the orchestrator merges into `main`, one task at a time, re-running the gate after each merge. **Only the orchestrator edits this file**, so it never conflicts across worktrees; agents report status back to it.
 - **Per-worktree isolation:** each role uses its own test DB and e2e port: B → `TEST_DB_NAME=bostadspriser_test_b E2E_PORT=3102`, C → `_c`/3103, D → `_d`/3104, E → `_e`/3105, orchestrator on `main` → `bostadspriser_test` (default)/3100. Never the dev DB `bostadspriser`.
 - **Known-failing pins:** baseline bugs with a reproducing e2e test are marked `test.fail(...)` (or in `KNOWN_CONSOLE_ERRORS`) in `web/e2e/` with their ID. The fixing commit flips them to normal tests.
+- **Gotcha (from E):** Recharts 3.8.1 + React 19 — `isAnimationActive={false}` silently broke client-side `<Link>` navigation on production builds; e2e granularity spec guards it (pending R confirmation).
 - **Platform gotchas fixed on main:** hidden `.pth` files on macOS/Python 3.13 (pytest `pythonpath`, check.sh `chflags`); stale `.next/types` after route moves (check.sh drops them).
 - **Worktree note:** agent worktrees start from the initial commit; implementers fast-forward to `main` first (they did so in P1). Worktrees live in `.claude/worktrees/` (gitignored).
 - **Audit rounds completed:** 0 (stop condition needs two consecutive rounds with no new P0/P1).
@@ -61,7 +62,7 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | B48 | P2 | B | done | Geocode exit codes: 75 rate-limited/unavailable, 78 bad token, 1 internal, 0 ok |  | R approved; 75 rate-limited/unavailable, 78 bad token, 1 internal, 0 ok |
 | B49 | P2 | B | todo | Scraper calls `POST /api/revalidate` (Bearer REVALIDATE_SECRET, APP_URL) right after `refresh_deduped_listing()`; failure logs, never aborts | | From R review of B24 |
 | B13 | P1 | C+B | in-progress | Fuzzy cross-source matcher (same street+house, \ | ae5be64, 0d3c916 | Schema + canonical-key view merged (R approved). Matcher → B (now unblocked) |  | Schema (C) first |
-| B14 | P1 | B+C | in-progress | Ingest sanity bounds (area 10–400, kr/m² 20k–400k, rooms 1–15) reject + count; SQL exposes median + count everywhere; UI defaults to median | 272f279, 6435fe3 | SQL merged (R approved); ingest bounds → B; UI default median → E (in progress) |
+| B14 | P1 | B+C | in-progress | Ingest sanity bounds (area 10–400, kr/m² 20k–400k, rooms 1–15) reject + count; SQL exposes median + count everywhere; UI defaults to median | 272f279, 6435fe3 | SQL merged; UI default median in E review; ingest bounds → B |
 | B15 | P1 | B | todo | Check SaleCard for an area/location name and filter on it, or record that none exists | | |
 | B16 | P1 | B(+C) | in-progress | Geocode: status/retry column, 429 backoff, display-name query, inner-Stockholm bbox + reject outside; (d) storage terms | a9ca105, 2e3669e, , 5b3428b,  | R approved through review 3. Remaining minors (starvation by persistently-5xx rows, reduced-budget charging, documented bound) → B. Mapbox storage terms → owner decision |
 | B17 | P1 | B | done | Shared browser/source base; sources only define URL, `_looks_real`, extraction, `_to_row`; characterisation tests first | cdc61ba, 930c658 | R approved; guardrail diff byte-identical; shared core in source_base.py |
@@ -89,34 +90,35 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | F5 | P0 | D | done | Hex layer handlers registered once (no pile-up across mode switches) | 8a9e499 | R approved; real-mapbox-gl integration test → D nits |
 | F6 | P0 | D | done | Missing Mapbox token → clear in-app message; remove the F6 entry from `KNOWN_CONSOLE_ERRORS` | 44b504c, 28003a6 | R approved; mobile layout now stacks map above sidebar (part of F20) |
 | F7 | P0 | E/D | done | Copy reflects Booli + selected period; footer uses `DISTRICTS` display names | 384d821, 149a692 | E + D parts, R approved |
-| F8 | P1 | E | todo | Månad/År toggle on every time-series chart, in URL (`?g=year`), year buckets formatted `2025` | | |
+| F8 | P1 | E | review | Månad/År toggle on every time-series chart, in URL (`?g=year`), year buckets formatted `2025` |  | E batch (worktree-agent-aee149097f532ed4f) in review |
 | F9 | P1 | E | todo | Compare builder: add-series combobox (streets + districts), removable chips, "Jämför" buttons, dedupe, shared palette | | |
-| F10 | P1 | E | todo | House page shows address vs street vs district | | |
-| F11 | P1 | E/D | todo | Numeric time axis with honest gaps (PriceChart E, AddressDrawer D) | | |
-| F12 | P1 | E/D | todo | Tooltips show n; buckets with n < 3 de-emphasised | | |
-| F13 | P1 | C+E | in-progress | SQL `streetSummary` / `addressSummary` / `districtStreetCount`; correct labelled stats | 48d7aa0 | SQL side merged; UI wiring → E |
+| F10 | P1 | E | review | House page shows address vs street vs district |  | E batch (worktree-agent-aee149097f532ed4f) in review |
+| F11 | P1 | E/D | review | Numeric time axis with honest gaps (PriceChart E, AddressDrawer D) |  | E batch (worktree-agent-aee149097f532ed4f) in review |
+| F12 | P1 | E/D | review | Tooltips show n; buckets with n < 3 de-emphasised |  | E batch (worktree-agent-aee149097f532ed4f) in review |
+| F13 | P1 | C+E | review | SQL `streetSummary` / `addressSummary` / `districtStreetCount`; correct labelled stats | 48d7aa0 | SQL merged; UI (SummaryCards) in E batch review |
 | F14 | P1 | C | done | House numbers sort naturally in SQL | a5b5813, 1ced813 | R approved |
 | F15 | P1 | D | done | Map filters round-trip through searchParams | 120347d, 7869c5a, 4efd397 | R approved; server-rendered from searchParams |
-| F16 | P1 | E(+C) | todo | Room/size segmentation chips on district + street pages | | |
+| F16 | P1 | E(+C) | todo | Room/size segmentation chips on district + street pages |  | Needs C: rooms?: number[] on districtTimeseries/streetTimeseries/streetSummary/districtStreetCount (5 = 5+). Then E wires chips |
 | F17 | P1 | D(+C) | done | Data-driven quantile price legend; ramp + legend in one module | 2de7d86, 2aa4c76, 4efd397 | R approved; outlier-stretch follow-up in F38 |
-| F18 | P1 | E | todo | "Senast uppdaterad …" + per-source coverage | | Depends on B18 |
+| F18 | P1 | E | review | "Senast uppdaterad …" + per-source coverage |  | E batch (worktree-agent-aee149097f532ed4f) in review |
 | F30 | P1 | D/E | done | UI fetches check `res.ok` and handle `ApiErrorBody`; consume `@/lib/api-types` instead of local shapes (AddressDrawer, HeatmapMap, StreetSearch, compare) | b6400f1, cab4487 | R approved |
-| F31 | P1 | E | todo | District MoM card shows "för få affärer" when `pctChange` is null (use `currentCount`/`previousCount`) |  | From C B7 + R: hide "prev → cur" hint or show months/counts when pctChange is null |
+| F31 | P1 | E | review | District MoM card shows "för få affärer" when `pctChange` is null (use `currentCount`/`previousCount`) |  | E batch (worktree-agent-aee149097f532ed4f) in review |
 | F19 | P1 | E/D | todo | error.tsx per segment, inline retry (drawer, map, search), loading.tsx for insights/compare/house | | |
 | F26 | P1 | E | done | Unknown district/street/house responds HTTP 404 (not a streamed 200); flip the pinned e2e test | 23a5ba3 | R approved. Layout-level validation + `(overview)` route group + `resolveStreet.ts` cache(). Nit: house page still runs its queries on 404 (→ B22) |
-| F20 | P2 | D | in-progress | Mobile layout for `/` (bottom sheet/drawer below md; mobile nav) | 28003a6, 79d90e9, 95658e9 | D part merged (R approved at 320–915px). Remaining: SiteHeader mobile nav (E), landscape-phone layout (F36) |
+| F20 | P2 | D | review | Mobile layout for `/` (bottom sheet/drawer below md; mobile nav) | 28003a6, 79d90e9, 95658e9 | D part merged; E part (MobileNav, BrandMark compact) in review; landscape → F36 |
 | F21 | P2 | D/E | in-progress | aria-pressed toggles, drawer focus trap/return/aria-modal, StreetSearch combobox, SVG icon, contrast | 25810ae, , abcda9d | D part merged (modal stack). Remaining: E part (charts/tables/header), follow-ups F37 |
 | F22 | P2 | E | todo | One chart colour token source; colour-blind-safe district colours, identical everywhere | | |
 | F23 | P2 | E | todo | Per-page metadata, OG defaults, `metadataBase`, `/insights` in sitemap | | |
-| F27 | P2 | E | todo | Recent-sales table doesn't clip horizontally on mobile (scroll container or stacked rows) | | Found in P0 screenshot of /district/ostermalm at Pixel 7 width |
-| F28 | P2 | E | todo | Recharts `ResponsiveContainer` SSR warnings ("width(-1) and height(-1)") gone from server logs (initialDimension/minHeight) in PriceChart, Histogram, PriceAreaScatter | | From E (P1 run) |
-| F29 | P2 | E | todo | Insights subtitle "Allt räknas i SQL — inga sammanfattningar i frontend" is developer copy; rewrite for end users (Swedish) | | From E (P1 run) |
-| F32 | P1 | E | todo | No horizontal page overflow on mobile secondary pages (footer nav `flex-wrap`); e2e asserts `scrollWidth <= clientWidth` at Pixel 7 | | From R review of F1 |
-| F34 | P2 | D | in-progress | Singular/plural copy ("1 försäljning") | ee437af | D part done; E files (district/street/insights/Histogram) → E |
-| F35 | P1 | E | in-progress | Insights movers card/subtitle match B26 (90 d vs prior 12 mo, medians, recent/prior n) | | From R review of B26 |
+| F27 | P2 | E | review | Recent-sales table doesn't clip horizontally on mobile (scroll container or stacked rows) |  | E batch (worktree-agent-aee149097f532ed4f) in review |
+| F28 | P2 | E | review | Recharts `ResponsiveContainer` SSR warnings ("width(-1) and height(-1)") gone from server logs (initialDimension/minHeight) in PriceChart, Histogram, PriceAreaScatter |  | E batch (worktree-agent-aee149097f532ed4f) in review |
+| F29 | P2 | E | review | Insights subtitle "Allt räknas i SQL — inga sammanfattningar i frontend" is developer copy; rewrite for end users (Swedish) |  | E batch (worktree-agent-aee149097f532ed4f) in review |
+| F32 | P1 | E | review | No horizontal page overflow on mobile secondary pages (footer nav `flex-wrap`); e2e asserts `scrollWidth <= clientWidth` at Pixel 7 |  | E batch (worktree-agent-aee149097f532ed4f) in review |
+| F34 | P2 | D | review | Singular/plural copy ("1 försäljning") | ee437af | D part merged; E part (plural.ts) in review |
+| F35 | P1 | E | todo | Insights movers card/subtitle match B26 (90 d vs prior 12 mo, medians, recent/prior n) |  | Pending B26 on main (E skipped as instructed) |
 | F36 | P2 | D | todo | Landscape-phone layout below md (map 110px / sidebar 81px at 568×320); search dialog fits short viewports / soft keyboard | | From R review of F20/F21 |
 | F37 | P2 | D | todo | Modals below the top one get `inert`; drawer restores focus only if on top; search results keep real links (open in new tab); IME composition guard | | From R review of F21 |
 | F38 | P2 | D | todo | Tied price breaks spread over [q05,q95] not min..max (outlier stretch); diacritic-insensitive district params | | From R review of F17 nits |
+| F39 | P3 | E | todo | PriceAreaScatter median/n-awareness; SummaryCards grid empty cell at lg | | From E |
 | F24 | P3 | D | todo | Hex click → sales list; shared-coordinate popups list all sales | | |
 | F25 | P3 | E | todo | Optional dark mode via F22 tokens | | |
 
