@@ -23,9 +23,21 @@ Each block below is a branch with commits that are **not on `main` yet**. Merge 
 
 | sha | Item | Review state when handed off |
 |---|---|---|
-| `bf9588f`, `3854f27`, `d02d789` | **B46**: the scraper calls `refresh_deduped_listing()` after writing commands; `refresh-view`; `stats` compares mat vs live | First review requested changes (two test blockers); `d02d789` fixes them. A re-review was running. |
-| `c2ed80f` | B16 review 4: geocode order rotates, only full-budget rows are charged | Re-review running |
-| `d0e24c6` | **B13 matcher**: `scraper cluster`, plus a check for one clusterId per dedupKey | Re-review running |
+| `bf9588f`, `3854f27`, `d02d789` | **B46**: the scraper calls `refresh_deduped_listing()` after writing commands; `refresh-view`; `stats` compares mat vs live | **Approved.** The integration with C's 13 commits was verified: web, then pytest, then web, then e2e all passed on one DB. |
+| `c2ed80f` | B16 review 4: geocode order rotates, only full-budget rows are charged | **Approved** |
+| `d0e24c6` | **B13 matcher**: `scraper cluster`, plus a check for one clusterId per dedupKey | **CHANGES REQUESTED. Do not merge as is.** See below. |
+
+**B13 matcher review findings (to fix before merging `d0e24c6`):**
+1. *Major:* false positives chain. Two flats at one address, each reported by both sources, sold 2 days apart at prices within 0.5% get cross-matched and merged into one sale. On the 200k perf copy, 127 clusters merged two real sales.
+   - Require `|ΔareaSqm| ≤ 1 m²` (or ≤ 2%) and `|Δrooms| ≤ 0.5` when both are known.
+   - **Never** union components so that one cluster holds two different dedupKeys from the same source.
+   - Process candidate pairs closest-first.
+2. *Major:* clusters are never undone. A row re-scraped or reparsed to a different price stays merged and hides a sale. Either clear `clusterId` on upsert or reparse when `dedupKey` changes, or recompute all components each run (about 1.5 s at 200k rows) and write only the diffs.
+3. *Minor:* `--dry-run` over-counts `rows_updated`.
+4. *Minor:* a dedupKey split across clusters with no cross-source partner is never healed; seed the union-find from `dedup_keys_in_multiple_clusters()`.
+5. *Nit:* translate both cases of åäöéè in the SQL key.
+
+The reviewer's probe tests are in the B13 notes of `docs/backlog.md`.
 
 The B46 refresh calls are **guarded**: they do nothing until the SQL function exists. That is why B merges before C.
 
