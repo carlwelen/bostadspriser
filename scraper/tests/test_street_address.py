@@ -95,6 +95,14 @@ NBSP = " "
         ("Hornsgatan 2 -3tr", ("Hornsgatan", "2")),
         ("Hornsgatan 2 - 3 1/2 tr", ("Hornsgatan", "2")),
         ("Hornsgatan 2 - 3 trappor", ("Hornsgatan", "2")),
+        ("Hornsgatan 2-3tr", ("Hornsgatan", "2")),
+        ("Hornsgatan 2-3 tr.", ("Hornsgatan", "2")),
+        ("Hornsgatan 2-3 TR", ("Hornsgatan", "2")),
+        # "tr" must be a whole word: words that merely start with it are not floors
+        ("Hornsgatan 2-3 Trädgårdshus", ("Hornsgatan", "2-3")),
+        ("Hornsgatan 2-3 tre", ("Hornsgatan", "2-3")),
+        ("Hornsgatan 2-3 trappan", ("Hornsgatan", "2-3")),
+        ("Hornsgatan 2-3 Trappuppgång", ("Hornsgatan", "2-3")),
         ("Hornsgatan 2 - 1/2 tr", ("Hornsgatan", "2")),
         # Markers that precede a number or stand alone do not block a range
         ("Ringvägen 12-14 lgh 1101", ("Ringvägen", "12-14")),

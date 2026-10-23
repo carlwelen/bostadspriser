@@ -53,7 +53,11 @@ def parse_rooms(text: str | None) -> float | None:
 # or stand alone ("nb", "bv") don't: "12-14 lgh 1101" is the range 12-14.
 # The marker is scoped ASCII + case-insensitive; the rest of the pattern is
 # case-sensitive so Unicode case folds (long s, Kelvin sign) are not house letters.
-_FLOOR_MARKER = r"(?!\s*(?ai:(?:[0-9]+\s*)?[½/]|trappor|trappa|trp|tr))"
+# "tr" & co must be whole words: the Unicode lookahead sits outside the ASCII
+# scoped group so "Trädgårdshus" / "tre" / "trappan" don't count as floors.
+_FLOOR_MARKER = (
+    r"(?!\s*(?:(?ai:(?:[0-9]+\s*)?[½/])|(?ai:trappor|trappa|trp|tr)(?![^\W\d_])))"
+)
 _ADDR_RE = re.compile(
     r"^(?P<street>.+?)\s+"
     r"(?P<n1>[0-9]{1,3})(?:\s?(?P<l1>[A-Za-z])(?!\w|\.\w))?(?!\d)"
