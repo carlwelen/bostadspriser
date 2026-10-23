@@ -14,6 +14,10 @@ enum District {
   sodermalm
 }
 
+// DedupedListing (the live dedup view) and DedupedListingMat (its materialized
+// snapshot, which the web app reads) are not modelled here. A migration that
+// changes this table's columns must recreate both: drop the Mat first, then the
+// view, then create them again with their indexes.
 model Listing {
   id              String        @id @default(uuid())
   source          String

@@ -131,6 +131,27 @@ describe("DedupedListingMat", () => {
     expect(statement_timeout).toBe("1min");
   });
 
+  it("has the same column list as the live view (recreate both together)", async () => {
+    const cols = async (rel: string) =>
+      (
+        await prisma.$queryRawUnsafe<Array<{ attname: string; type: string }>>(
+          `SELECT a.attname, format_type(a.atttypid, a.atttypmod) AS type
+           FROM pg_attribute a
+           WHERE a.attrelid = '"${rel}"'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+           ORDER BY a.attnum`
+        )
+      ).map((c) => `${c.attname}:${c.type}`);
+    const live = await cols("DedupedListing");
+    expect(await cols("DedupedListingMat")).toEqual(live);
+    // And both carry every Listing column plus the aggregated `sources`.
+    const listing = (
+      await prisma.$queryRaw<Array<{ column_name: string }>>`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'Listing' ORDER BY ordinal_position`
+    ).map((c) => c.column_name);
+    expect(live.map((c) => c.split(":")[0])).toEqual([...listing, "sources"]);
+  });
+
   it("follows deduplication (clusters, priced rows) like the live view", async () => {
     await seed(prisma, [
       row("h", { dedupKey: "k1", clusterId: "c" }),
