@@ -263,20 +263,40 @@ export async function recentSales(
   }));
 }
 
+/** A street needs at least this many sales in the recent window to be ranked... */
+export const MIN_MOVER_RECENT_SALES = 5;
+/** ...and at least this many in the prior window it is compared with. */
+export const MIN_MOVER_PRIOR_SALES = 10;
+/** The "recent" window is the last 90 days. */
+const MOVER_RECENT_DAYS = 90;
+/** The "prior" window is the 12 months (365 days) before the recent one. */
+const MOVER_PRIOR_DAYS = 365;
+
 export type StreetMover = {
   street: string;
   slug: string;
   district: DistrictSlug;
+  /** Sales in both windows together (legacy; see recentCount/priorCount). */
   count: number;
+  /** Mean kr/m² over both windows (legacy). */
   meanPricePerSqm: number;
+  /** Mean kr/m² in the recent window (legacy; the change is median-based). */
   windowMeanPricePerSqm: number;
+  /** Change of the median kr/m², recent vs prior window, in percent. */
   pctChange: number;
+  recentCount: number;
+  priorCount: number;
+  recentMedianPricePerSqm: number;
+  priorMedianPricePerSqm: number;
 };
 
 /**
- * Streets whose mean price/m² changed the most between the trailing 12-month
- * window and the most recent 90-day window. Excludes streets with too few data
- * points to be meaningful (`minRecent` / `minHistorical`).
+ * Streets whose median price/m² moved the most between two disjoint windows
+ * ending today (Stockholm): the last 90 days, against the 12 months before
+ * them. Streets need `MIN_MOVER_RECENT_SALES` sales in the recent and
+ * `MIN_MOVER_PRIOR_SALES` in the prior window. Both windows' sizes are returned
+ * so the UI can show how much data stands behind a percentage. `asOf` pins
+ * "now" for tests.
  */
 export async function topMovers(
   direction: "up" | "down",
@@ -285,13 +305,24 @@ export async function topMovers(
 ): Promise<StreetMover[]> {
   const op = direction === "up" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
   const today = stockholmToday(asOf);
+  const recentFrom = Prisma.sql`(${today} - ${MOVER_RECENT_DAYS}::int)`;
+  const priorFrom = Prisma.sql`(${today} - ${MOVER_RECENT_DAYS + MOVER_PRIOR_DAYS}::int)`;
+  const isRecent = Prisma.sql`"soldAt" >= ${recentFrom}`;
+  const isPrior = Prisma.sql`"soldAt" >= ${priorFrom} AND "soldAt" < ${recentFrom}`;
+  const median = (cond: Prisma.Sql) =>
+    Prisma.sql`ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY "pricePerSqmSek") FILTER (WHERE ${cond}))::numeric)::bigint`;
+
   const rows = await prisma.$queryRaw<
     Array<{
       district: DistrictSlug;
       street: string;
       n: bigint;
       mean_pps: bigint;
-      window_mean_pps: bigint;
+      recent_n: bigint;
+      prior_n: bigint;
+      recent_mean: bigint;
+      recent_median: bigint;
+      prior_median: bigint;
       pct: number;
     }>
   >(Prisma.sql`
@@ -299,25 +330,26 @@ export async function topMovers(
       SELECT
         district,
         street,
-        COUNT(*) FILTER (WHERE "soldAt" >= ${today} - 90)::bigint               AS recent_n,
-        AVG("pricePerSqmSek") FILTER (WHERE "soldAt" >= ${today} - 90)::bigint  AS recent_mean,
-        COUNT(*)::bigint                                                            AS hist_n,
-        AVG("pricePerSqmSek")::bigint                                               AS hist_mean
+        COUNT(*)::bigint                                                  AS n,
+        AVG("pricePerSqmSek")::bigint                                     AS mean_pps,
+        COUNT(*) FILTER (WHERE ${isRecent})::bigint                       AS recent_n,
+        COUNT(*) FILTER (WHERE ${isPrior})::bigint                        AS prior_n,
+        AVG("pricePerSqmSek") FILTER (WHERE ${isRecent})::bigint          AS recent_mean,
+        ${median(isRecent)}                                               AS recent_median,
+        ${median(isPrior)}                                                AS prior_median
       FROM "DedupedListingMat"
       WHERE "pricePerSqmSek" > 0
+        AND "soldAt" >= ${priorFrom}
+        AND "soldAt" <= ${today}
       GROUP BY district, street
     )
-
-
-    SELECT district,
-           street,
-           hist_n               AS n,
-           hist_mean            AS mean_pps,
-           recent_mean          AS window_mean_pps,
-           ((recent_mean - hist_mean)::float8 / NULLIF(hist_mean, 0)::float8) * 100 AS pct
+    SELECT district, street, n, mean_pps, recent_n, prior_n, recent_mean, recent_median, prior_median,
+           ((recent_median - prior_median)::float8 / prior_median::float8) * 100 AS pct
     FROM agg
-    WHERE recent_n >= 2 AND hist_n >= 4 AND recent_mean IS NOT NULL
-    ORDER BY pct ${op} NULLS LAST
+    WHERE recent_n >= ${MIN_MOVER_RECENT_SALES}
+      AND prior_n  >= ${MIN_MOVER_PRIOR_SALES}
+      AND prior_median > 0
+    ORDER BY pct ${op}, street ASC
     LIMIT ${limit}
   `);
 
@@ -327,8 +359,12 @@ export async function topMovers(
     slug: slugifyStreet(r.street),
     count: Number(r.n),
     meanPricePerSqm: Number(r.mean_pps),
-    windowMeanPricePerSqm: Number(r.window_mean_pps),
+    windowMeanPricePerSqm: Number(r.recent_mean),
     pctChange: Number(r.pct),
+    recentCount: Number(r.recent_n),
+    priorCount: Number(r.prior_n),
+    recentMedianPricePerSqm: Number(r.recent_median),
+    priorMedianPricePerSqm: Number(r.prior_median),
   }));
 }
 
