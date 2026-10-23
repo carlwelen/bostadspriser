@@ -10,10 +10,10 @@ import { StatCard } from "@/components/StatCard";
 import {
   listHouseNumbers,
   recentSales,
-  streetFromSlug,
   streetTimeseries,
 } from "@/lib/aggregations";
-import { districtName, isDistrictSlug } from "@/lib/districts";
+import { districtName } from "@/lib/districts";
+import { resolveStreet } from "../../../resolveStreet";
 
 export const dynamic = "force-dynamic";
 
@@ -22,10 +22,10 @@ export async function generateMetadata({
 }: {
   params: Promise<{ district: string; street: string }>;
 }): Promise<Metadata> {
-  const { district, street: streetSlug } = await params;
-  if (!isDistrictSlug(district)) return {};
-  const street = await streetFromSlug(district, streetSlug);
-  if (!street) return {};
+  const { district: districtParam, street: streetSlug } = await params;
+  const resolved = await resolveStreet(districtParam, streetSlug);
+  if (!resolved) return {};
+  const { district, street } = resolved;
   return {
     title: `${street}, ${districtName(district)} — bostadspriser`,
     description: `Slutpriser för ${street} i ${districtName(district)}.`,
@@ -39,11 +39,10 @@ export default async function StreetPage({
 }: {
   params: Promise<{ district: string; street: string }>;
 }) {
-  const { district, street: streetSlug } = await params;
-  if (!isDistrictSlug(district)) notFound();
-
-  const street = await streetFromSlug(district, streetSlug);
-  if (!street) notFound();
+  const { district: districtParam, street: streetSlug } = await params;
+  const resolved = await resolveStreet(districtParam, streetSlug);
+  if (!resolved) notFound();
+  const { district, street } = resolved;
 
   const [points, houses, sales] = await Promise.all([
     streetTimeseries(district, street, "month"),

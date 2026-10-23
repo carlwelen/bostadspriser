@@ -5,12 +5,9 @@ import { RecentSalesTable } from "@/components/RecentSalesTable";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { StatCard } from "@/components/StatCard";
-import {
-  recentSales,
-  streetFromSlug,
-  streetTimeseries,
-} from "@/lib/aggregations";
-import { districtName, isDistrictSlug } from "@/lib/districts";
+import { recentSales, streetTimeseries } from "@/lib/aggregations";
+import { districtName } from "@/lib/districts";
+import { resolveStreet } from "../../../resolveStreet";
 
 export const dynamic = "force-dynamic";
 
@@ -21,11 +18,10 @@ export default async function AddressPage({
 }: {
   params: Promise<{ district: string; street: string; house: string }>;
 }) {
-  const { district, street: streetSlug, house } = await params;
-  if (!isDistrictSlug(district)) notFound();
-
-  const street = await streetFromSlug(district, streetSlug);
-  if (!street) notFound();
+  const { district: districtParam, street: streetSlug, house } = await params;
+  const resolved = await resolveStreet(districtParam, streetSlug);
+  if (!resolved) notFound();
+  const { district, street } = resolved;
   const houseNumber = decodeURIComponent(house);
 
   const [streetPoints, addressPoints, sales] = await Promise.all([

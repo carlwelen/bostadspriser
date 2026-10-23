@@ -38,13 +38,23 @@ test("unknown districts render the not-found page", async ({ page }) => {
   await expect(page.getByText("404", { exact: true })).toBeVisible();
 });
 
-test("unknown districts respond with HTTP 404", async ({ page }) => {
-  // F26: district/[slug]/loading.tsx starts streaming a 200 before notFound()
-  // runs. Expected to fail until F26 lands; flip to a plain test then.
-  test.fail(true, "F26: soft 404 on unknown district");
-  const res = await page.goto("/district/gamla-stan");
-  expect(res?.status()).toBe(404);
-});
+// F26: a loading.tsx Suspense boundary above notFound() commits a 200 before the
+// page can reject the URL, so unknown params are validated in layouts above it.
+const UNKNOWN_PATHS = [
+  "/district/gamla-stan",
+  "/street/gamla-stan/karlavagen",
+  "/street/ostermalm/no-such-street",
+  "/street/ostermalm/karlavagen/9999",
+  "/street/ostermalm/no-such-street/10",
+  "/street/gamla-stan/karlavagen/10",
+];
+for (const path of UNKNOWN_PATHS) {
+  test(`${path} responds with HTTP 404 and the not-found UI`, async ({ page }) => {
+    const res = await page.goto(path);
+    expect(res?.status()).toBe(404);
+    await expect(page.getByText("404", { exact: true })).toBeVisible();
+  });
+}
 
 test("the landing page stays full-bleed and does not scroll", async ({ page }) => {
   await page.goto("/");
