@@ -14,7 +14,9 @@ from datetime import date
 
 import pytest
 
-from scraper import booli, hemnet
+import dataclasses
+
+from scraper import booli, hemnet, source_base
 from scraper.errors import CrawlIncomplete
 
 SINCE = date(2026, 5, 1)
@@ -112,7 +114,7 @@ def _run_crawl(
     """Drive iter_district over `pages`. Returns (sourceIds yielded, CrawlIncomplete or None)."""
     fetched: list[int] = []
 
-    async def fake_fetch(_ctx, _cfg, url: str) -> str:
+    async def fake_fetch(_ctx, _cfg, _source, url: str) -> str:
         n = int(url.rsplit("page=", 1)[1].split("&")[0])
         fetched.append(n)
         if len(fetched) >= 20:
@@ -123,10 +125,11 @@ def _run_crawl(
 
     async def noop(*_a, **_k) -> None: ...
 
-    monkeypatch.setattr(module, "async_playwright", lambda: _PW())
-    monkeypatch.setattr(module, "_fetch", fake_fetch)
-    monkeypatch.setattr(module, extract_name, lambda html: pages.get(int(html), []))
-    monkeypatch.setattr(module, "_warmup", noop)
+    monkeypatch.setattr(source_base, "async_playwright", lambda: _PW())
+    monkeypatch.setattr(source_base, "fetch", fake_fetch)
+    patched = dataclasses.replace(module.SOURCE, extract_cards=lambda html: pages.get(int(html), []))
+    monkeypatch.setattr(module, "SOURCE", patched)
+    monkeypatch.setattr(source_base, "warmup", noop)
 
     ids: list[str] = []
     incomplete: list[CrawlIncomplete] = []
@@ -260,7 +263,7 @@ def test_page_with_some_new_cards_is_not_a_duplicate_page(source, monkeypatch) -
 @pytest.mark.parametrize("source", SOURCES)
 def test_max_pages_caps_the_crawl_and_logs(source, monkeypatch, capsys) -> None:
     module, card, extract = SOURCES[source]
-    monkeypatch.setattr(module, "MAX_PAGES", 4)
+    monkeypatch.setattr(source_base, "MAX_PAGES", 4)
 
     class Endless(dict):
         def get(self, k, default=None):

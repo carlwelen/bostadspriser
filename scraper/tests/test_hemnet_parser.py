@@ -65,6 +65,12 @@ def test_to_row_handles_missing_coords() -> None:
     assert row["geocodedAt"] is None
 
 
+def test_geocoded_at_is_stamped_whenever_coordinates_are_present() -> None:
+    """Same rule as Booli (`is not None`): a 0.0 coordinate is still a coordinate (B33)."""
+    row = _to_row({**SAMPLE_CARD, "coordinates": {"lat": 0.0, "long": 0.0}}, "ostermalm")
+    assert row is not None and row["geocodedAt"] is not None
+
+
 def test_to_row_skips_rows_without_a_final_price() -> None:
     """No price means no row: columns are NOT NULL and 0 would poison averages/dedup keys."""
     assert _to_row({**SAMPLE_CARD, "finalPrice": None}, "ostermalm") is None
