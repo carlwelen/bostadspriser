@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyFilters,
   DEFAULT_FILTERS,
   parseFilters,
   periodToSinceDays,
@@ -93,6 +94,31 @@ describe("serializeFilters", () => {
       { ...DEFAULT_FILTERS, mode: "frequency", showHeatmap: false, period: "all" },
     ];
     for (const c of cases) expect(parse(serializeFilters(c))).toEqual(c);
+  });
+});
+
+describe("strict room parsing", () => {
+  it("rejects exponent, hex, signed, padded and decimal forms", () => {
+    expect(parse("rooms=1e0,0x2,%2B3,03,2.0,4").rooms).toEqual([4]);
+  });
+});
+
+describe("applyFilters", () => {
+  it("keeps unrelated parameters and rewrites only the filter keys", () => {
+    const current = new URLSearchParams("utm_source=x&mode=3d&districts=nope&foo=bar%20baz");
+    const next = { ...DEFAULT_FILTERS, mode: "frequency" as const };
+    expect(applyFilters(current, next)).toBe("utm_source=x&foo=bar+baz&mode=frequency");
+  });
+
+  it("removes filter keys that are back at their defaults", () => {
+    const current = new URLSearchParams("rooms=2&period=all&keep=1");
+    expect(applyFilters(current, DEFAULT_FILTERS)).toBe("keep=1");
+  });
+
+  it("does not mutate its input", () => {
+    const current = new URLSearchParams("mode=frequency");
+    applyFilters(current, DEFAULT_FILTERS);
+    expect(current.toString()).toBe("mode=frequency");
   });
 });
 

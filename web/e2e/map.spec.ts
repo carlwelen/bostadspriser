@@ -160,6 +160,42 @@ test("/?districts= opens the empty state without a request", async ({ page }) =>
   expect(reqs).toHaveLength(0);
 });
 
+// F15 review: the landing page is server-rendered, so nav and sidebar exist
+// before hydration and without JavaScript.
+test.describe("without JavaScript", () => {
+  test.use({ javaScriptEnabled: false });
+
+  test("the landing page still renders the nav and the filtered sidebar", async ({ page }) => {
+    await page.goto("/?districts=vasastan");
+    await expect(page.getByText("1 av 4")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Insikter" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Jämför" })).toBeVisible();
+    for (const name of ["Östermalm", "Vasastan", "Norrmalm", "Södermalm"]) {
+      await expect(page.getByRole("link", { name })).toBeVisible();
+    }
+    await expect(page.getByRole("button", { name: "Vasastan", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+  });
+});
+
+test("filter changes keep unrelated parameters and the hash; junk is cleaned up on load", async ({
+  page,
+}) => {
+  await page.goto("/?utm_source=newsletter&mode=3d#karta");
+  // `mode=3d` is invalid: the URL is canonicalised once, the rest stays.
+  await expect.poll(() => new URL(page.url()).search).toBe("?utm_source=newsletter");
+  expect(new URL(page.url()).hash).toBe("#karta");
+
+  await page.getByRole("button", { name: "Vasastan", exact: true }).click();
+  await page.getByRole("button", { name: "Frekvens", exact: true }).click();
+  await expect.poll(() => new URL(page.url()).search).toBe(
+    "?utm_source=newsletter&districts=ostermalm%2Cnorrmalm%2Csodermalm&mode=frequency"
+  );
+  expect(new URL(page.url()).hash).toBe("#karta");
+});
+
 // F17: the price legend follows the points on screen.
 test("the price legend is computed from the displayed points", async ({ page }) => {
   const features = Array.from({ length: 50 }, (_, i) => ({

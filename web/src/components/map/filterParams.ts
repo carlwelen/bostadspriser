@@ -57,8 +57,8 @@ export function parseFilters(params: URLSearchParams): MapFilterState {
   const rooms = [
     ...new Set(
       csv(params.get("rooms"))
-        .map((s) => (s === "" ? NaN : Number(s)))
-        .filter((n) => Number.isInteger(n) && n >= 1 && n <= 5)
+        .filter((s) => /^[1-5]$/.test(s))
+        .map(Number)
     ),
   ].sort((a, b) => a - b);
 
@@ -72,6 +72,20 @@ export function parseFilters(params: URLSearchParams): MapFilterState {
     mode: MODES.includes(mode) ? mode : DEFAULT_FILTERS.mode,
     showHeatmap: params.get("heatmap") !== "0",
   };
+}
+
+const FILTER_KEYS = ["districts", "rooms", "period", "mode", "heatmap"];
+
+/**
+ * `current` with the five filter keys rewritten to `state` (defaults omitted)
+ * and every other parameter (utm_*, ...) left alone. Returns the query string
+ * without "?".
+ */
+export function applyFilters(current: URLSearchParams, state: MapFilterState): string {
+  const next = new URLSearchParams(current);
+  for (const key of FILTER_KEYS) next.delete(key);
+  for (const [key, value] of new URLSearchParams(serializeFilters(state))) next.append(key, value);
+  return next.toString();
 }
 
 /** Query string (no leading "?") holding only the non-default values. */
