@@ -55,6 +55,11 @@ if [[ $QUICK -eq 0 ]]; then
 fi
 
 cd "$ROOT/scraper"
+# macOS: Python >= 3.13 ignores .pth files flagged `hidden` (iCloud-synced
+# folders set it), which breaks the editable install and the `scraper` CLI.
+if [[ "$(uname)" == "Darwin" && -d .venv ]]; then
+  find .venv -name '*.pth' -flags +hidden -exec chflags nohidden {} + 2>/dev/null || true
+fi
 run "scraper: ruff" uv run ruff check
 run "scraper: pytest" uv run pytest -q
 

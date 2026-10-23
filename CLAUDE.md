@@ -21,6 +21,7 @@ macOS (darwin/arm64), Node 26, pnpm 12, uv, Python 3.12. The docker CLI lives at
 - pnpm 10+ ignores dependency build scripts unless allowlisted; the allowlist is `allowBuilds` in `web/pnpm-workspace.yaml` (Prisma, sharp, unrs-resolver).
 - The single `.env` lives at the repo root. `web/next.config.ts` loads it via `@next/env`; the scraper's `config.py` loads it with python-dotenv. Prisma CLI commands need `DATABASE_URL` in the environment (export it, or run from a shell that sourced `.env`).
 - Next.js is still pinned to 15 and Prisma to 6. Node ≥ 20 is available now, so both *can* be upgraded, but only as a separate, reviewed task (see backlog).
+- **macOS + Python ≥ 3.13 gotcha:** `.pth` files flagged `hidden` (iCloud-synced `~/Documents` sets it) are skipped, so `import scraper` / `uv run scraper` fail with `ModuleNotFoundError`. pytest is immune (`pythonpath = ["src"]`); `scripts/check.sh` clears the flag; manually: `chflags nohidden scraper/.venv/lib/python3*/site-packages/*.pth`.
 - The Python scraper uses `psycopg` (v3); SQLAlchemy's default `postgresql://` URL routes to psycopg2, so `db.engine()` rewrites the URL to `postgresql+psycopg://`.
 
 ## Common commands

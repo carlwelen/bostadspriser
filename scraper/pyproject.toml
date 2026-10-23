@@ -31,3 +31,6 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Import from src/ directly: on macOS, Python ≥ 3.13 skips .pth files that
+# carry the `hidden` flag, which can silently drop the editable install.
+pythonpath = ["src"]
