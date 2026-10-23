@@ -33,18 +33,19 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | B2 | P0 | B | review | One `parse_street_address()` in normalize.py used by both sources; table test incl. `S:t Eriksgatan`, `Karlavägen 1 A`, `Ringvägen 12-14`, `Hornsgatan 64 1tr`, `Odengatan 5, lgh 1101` | | |
 | B3 | P0 | B | review | `scraper reparse [--dry-run]` re-derives street/house/rooms/area/prices/dedupKey from `raw`, batched, idempotent; backfill batched too | | Depends on B2 |
 | B4 | P0 | B | review | Rows without a final price are skipped (no `0` prices / `::0` dedup keys); Hemnet derives kr/m² from price/area when missing | | Decision: skip, don't make columns nullable |
-| B5 | P0 | C | in-progress | `rooms=5` on /api/heatmap means `>= 5` ("5+"); integration test with a 6-room row | | |
-| B6 | P0 | C | in-progress | Every API route validates params (400 + JSON error on bad/negative/huge input); DB errors → 500 JSON + server log; tests per bad input | | |
-| B7 | P0 | C | in-progress | MoM uses the last two complete, adjacent months; `null` when either has < N sales | | |
-| B8 | P0 | C | in-progress | `/api/address` applies the period to `addressSales` | | |
-| B9 | P0 | C→B | in-progress | Prisma migration adds `lastSeenAt` (C); scraper sets it on every upsert and the view tie-breaks on it (B) | | Schema first (C), then Python (B) |
+| B5 | P0 | C | review | `rooms=5` on /api/heatmap means `>= 5` ("5+"); integration test with a 6-room row | | |
+| B6 | P0 | C | review | Every API route validates params (400 + JSON error on bad/negative/huge input); DB errors → 500 JSON + server log; tests per bad input | | |
+| B7 | P0 | C | review | MoM uses the last two complete, adjacent months; `null` when either has < N sales | | |
+| B8 | P0 | C | review | `/api/address` applies the period to `addressSales` | | |
+| B9 | P0 | C→B | in-progress | Prisma migration adds `lastSeenAt` (C); scraper sets it on every upsert and the view tie-breaks on it (B) | | Schema half: C commit d82bd17 under review. Python half (set `lastSeenAt = now()` on every upsert incl. on-conflict) → B next batch |
 | B10 | P0 | B | review | Upsert keeps existing lat/lng/geocodedAt when incoming coords are NULL (DB test) | | |
 | B11 | P0 | B | review | probe scripts fixed or deleted; nothing imports `DISTRICT_URLS` | | |
 | B12 | P0 | B | review | `update` exits non-zero if any source/district fails and prints a summary table | | |
-| B30 | P0 | C | in-progress | `isDistrictSlug` rejects prototype keys (`toString`, `constructor`, `__proto__`); unit test | | Found in Phase 0: `"toString" in SLUG_TO_NAME` is true, so it reaches the SQL enum cast → 500 |
+| B30 | P0 | C | review | `isDistrictSlug` rejects prototype keys (`toString`, `constructor`, `__proto__`); unit test | | Found in Phase 0: `"toString" in SLUG_TO_NAME` is true, so it reaches the SQL enum cast → 500 |
 | B31 | P1 | B | todo | `db.engine()` pins session `timezone=UTC` so `timestamp(3)` columns don't depend on server TimeZone; test | | From B (P1 run) |
 | B32 | P1 | B | todo | Source iterators signal an incomplete crawl (page fetch failed mid-pagination) so `update` reports `partial` and exits non-zero | | From B (P1 run); overlaps B17/B18 |
 | B33 | P3 | B | todo | Unify Hemnet/Booli geocodedAt stamping (`is not None`) | | From B (P1 run); fold into B17 |
+| B34 | P1 | C | todo | `sinceDays`/period cut-offs (heatmap, address, topMovers) use Stockholm's current date explicitly, not the session `CURRENT_DATE` | | From C (P1 run) |
 | B13 | P1 | C+B | todo | Fuzzy cross-source matcher (same street+house, \|Δdate\| ≤ 3 d, price ±0.5%) assigns a cluster id; view groups on it; paired-fixture tests | | Schema (C) first |
 | B14 | P1 | B+C | todo | Ingest sanity bounds (area 10–400, kr/m² 20k–400k, rooms 1–15) reject + count; SQL exposes median + count everywhere; UI defaults to median | | |
 | B15 | P1 | B | todo | Check SaleCard for an area/location name and filter on it, or record that none exists | | |
@@ -54,10 +55,10 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | B19 | P1 | B | todo | Oldest-covered date per source/district; `scraper backfill --source --district --since --resume` | | Depends on B18 |
 | B20 | P1 | B | todo | Batched upserts (page or 100 rows per transaction) | | |
 | B21 | P2 | C | todo | Measure ~200k rows + EXPLAIN ANALYZE into docs/perf.md; materialized view or `isCanonical`; re-measure | | |
-| B22 | P2 | C+B | todo | Persisted `streetSlug` + index, shared slug vectors, React `cache()` on lookups | | Depends on B23 |
+| B22 | P2 | C+B | todo | Persisted `streetSlug` + index, shared slug vectors, React `cache()` on lookups | | Depends on B23. `streetFromSlug` scans all district streets; E added `resolveStreet.ts` cache() wrapper in F26 |
 | B23 | P2 | C(+B,D,E) | todo | One slug/fold implementation in `web/src/lib/text.ts`; `shared/slug-vectors.json` asserted by pytest and vitest | | |
 | B24 | P2 | C/E | todo | `revalidate` or tag caching + secret `POST /api/revalidate`; build never needs a DB | | Build part done in P0.2 |
-| B25 | P2 | C | todo | Deliberate heatmap cap, minimal properties, bbox/zoom filtering, gzip; documented | | |
+| B25 | P2 | C | todo | Deliberate heatmap cap, minimal properties, bbox/zoom filtering, gzip; documented; response reports truncation | | |
 | B26 | P2 | C | todo | topMovers: disjoint windows, higher thresholds, medians, expose n | | |
 | B27 | P2 | C | todo | Inline SQL in /api/address, /api/heatmap, /api/streets/all moved to aggregations.ts | | |
 | B28 | P3 | C | todo | PostGIS only if B21/B25 measurements justify it | | |
@@ -85,6 +86,8 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | F16 | P1 | E(+C) | todo | Room/size segmentation chips on district + street pages | | |
 | F17 | P1 | D(+C) | todo | Data-driven quantile price legend; ramp + legend in one module | | |
 | F18 | P1 | E | todo | "Senast uppdaterad …" + per-source coverage | | Depends on B18 |
+| F30 | P1 | D/E | todo | UI fetches check `res.ok` and handle `ApiErrorBody`; consume `@/lib/api-types` instead of local shapes (AddressDrawer, HeatmapMap, StreetSearch, compare) | | From C (P1 run); pairs with F19 |
+| F31 | P1 | E | todo | District MoM card shows "för få affärer" when `pctChange` is null (use `currentCount`/`previousCount`) | | From C B7 |
 | F19 | P1 | E/D | todo | error.tsx per segment, inline retry (drawer, map, search), loading.tsx for insights/compare/house | | |
 | F26 | P1 | E | review | Unknown district/street/house responds HTTP 404 (not a streamed 200); flip the pinned e2e test | | Found in P0: `district/[slug]/loading.tsx` starts streaming before `notFound()`. E commit 9e6f889 under review |
 | F20 | P2 | D | todo | Mobile layout for `/` (bottom sheet/drawer below md; mobile nav) | | |
@@ -107,4 +110,4 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 
 | Request | For | Status |
 |---|---|---|
-| `Listing.lastSeenAt` | B9 | todo (C, Phase 1) |
+| `Listing.lastSeenAt` | B9 | migration done by C (d82bd17, in review); Python half → B |
