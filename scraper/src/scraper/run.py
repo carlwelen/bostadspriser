@@ -122,7 +122,15 @@ def configure_logging(level: str) -> None:
     help="Verbosity of the crawl log on stderr.",
 )
 def cli(log_level: str) -> None:
-    """Bostadspriser scraper."""
+    """Bostadspriser scraper.
+
+    \b
+    One run at a time: scrape, update, backfill, reparse, geocode and backfill-dedup
+    share an exclusive lock on update.lock (next to storageState.json, in
+    scraper/.state/). A second run exits with code 75 (EX_TEMPFAIL) and a message
+    naming the lock; the lock is released when the process ends, so a leftover
+    file never blocks. Exit code 1 means the run failed or was incomplete.
+    """
     configure_logging(log_level)
 
 

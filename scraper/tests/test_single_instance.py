@@ -118,6 +118,12 @@ def test_stale_lock_file_from_a_dead_process_does_not_block() -> None:
         pass
 
 
+def test_help_documents_the_lock_and_exit_code_75() -> None:
+    out = CliRunner().invoke(run.cli, ["--help"]).output
+    assert "update.lock" in out and "75" in out and "EX_TEMPFAIL" in out
+    assert "geocode" in out and "backfill-dedup" in out
+
+
 def test_update_still_works_when_the_lock_is_free(monkeypatch) -> None:
     async def it(district: str, since: date, **kw):
         if False:
