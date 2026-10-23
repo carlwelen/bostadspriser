@@ -63,7 +63,7 @@ test("the street search opens from the mobile menu", async ({ page }) => {
   await page.goto("/insights");
   const menu = await openMenu(page, 320);
   await menu.getByRole("button", { name: /Sök gata/ }).click();
-  await expect(page.getByRole("textbox")).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Sök gata eller stadsdel" })).toBeVisible();
 });
 
 // The sticky header must not become the containing block of the search overlay
@@ -72,7 +72,7 @@ test("the street search backdrop covers the whole viewport", async ({ page }) =>
   await page.goto("/insights");
   const menu = await openMenu(page, 320);
   await menu.getByRole("button", { name: /Sök gata/ }).click();
-  const input = page.getByRole("textbox");
+  const input = page.getByRole("combobox", { name: "Sök gata eller stadsdel" });
   await expect(input).toBeVisible();
   await page.mouse.click(5, 790); // far below the header: lands on the backdrop
   await expect(input).toBeHidden();
