@@ -148,11 +148,19 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
 
   // Fetch points when filters change.
   useEffect(() => {
+    // No district selected: the API reads a missing `districts` as "all", so
+    // don't ask. The empty state below tells the user why nothing is shown.
+    if (districts.length === 0) {
+      setPoints(null);
+      setError(false);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError(false);
     const params = new URLSearchParams();
-    if (districts.length) params.set("districts", districts.join(","));
+    params.set("districts", districts.join(","));
     if (filters?.priceMin) params.set("priceMin", String(filters.priceMin));
     if (filters?.priceMax) params.set("priceMax", String(filters.priceMax));
     if (filters?.rooms?.length) params.set("rooms", filters.rooms.join(","));
@@ -394,7 +402,8 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
   }, [mode, showHeatmap, styleReady]);
 
   const featureCount = points?.features.length ?? 0;
-  const empty = !loading && !error && featureCount === 0;
+  const noDistricts = districts.length === 0;
+  const empty = !loading && !error && !noDistricts && featureCount === 0;
 
   const recent = useMemo(() => {
     if (!points) return [] as Array<{ address: string; pricePerSqm: number; soldAt: string }>;
@@ -411,7 +420,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
       <div ref={containerRef} data-testid="map-container" className="h-full w-full" />
 
       {/* coverage / loading badge */}
-      {!error && (
+      {!error && !noDistricts && (
         <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-2 rounded-full bg-white/85 px-3 py-1 text-xs text-zinc-700 shadow-sm ring-1 ring-zinc-200 backdrop-blur">
           {loading ? (
             <>
@@ -436,6 +445,17 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
         <div role="alert" className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
           <div className="rounded-2xl bg-white/95 px-5 py-4 text-center text-sm text-red-700 shadow-md ring-1 ring-red-200">
             Kunde inte hämta data.
+          </div>
+        </div>
+      )}
+
+      {noDistricts && (
+        <div role="status" className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
+          <div className="rounded-2xl bg-white/95 px-5 py-4 text-center text-sm text-zinc-700 shadow-md ring-1 ring-zinc-200">
+            <p className="font-medium">Inga stadsdelar valda</p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Välj minst en stadsdel i filtret för att se försäljningar.
+            </p>
           </div>
         </div>
       )}

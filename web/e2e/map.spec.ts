@@ -33,3 +33,42 @@ test("an API error from /api/streets/all shows a message in the street search", 
   await expect(page.getByText("Kunde inte hämta data.")).toBeVisible();
   expect(pageErrors).toEqual([]);
 });
+
+// F2: with no district selected the API would treat the missing param as "all".
+test("deselecting every district shows the empty state and requests nothing", async ({ page }) => {
+  const heatmapRequests: string[] = [];
+  page.on("request", (r) => {
+    if (new URL(r.url()).pathname === "/api/heatmap") heatmapRequests.push(r.url());
+  });
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+  expect(heatmapRequests.length).toBeGreaterThan(0);
+  await expect(page.getByText("Inga stadsdelar valda")).toHaveCount(0);
+
+  const names = ["Östermalm", "Vasastan", "Norrmalm", "Södermalm"];
+  for (const name of names.slice(0, -1)) {
+    await page.getByRole("button", { name, exact: true }).click();
+  }
+  await page.waitForLoadState("networkidle");
+  expect(heatmapRequests.at(-1)).toContain("districts=sodermalm");
+
+  heatmapRequests.length = 0;
+  await page.getByRole("button", { name: "Södermalm", exact: true }).click();
+  await expect(page.getByText("Inga stadsdelar valda")).toBeVisible();
+  await expect(page.getByText("0 av 4")).toBeVisible();
+  await expect(page.getByText("Laddar försäljningar…")).toHaveCount(0);
+  await expect(page.getByText("Inga försäljningar i urvalet ännu")).toHaveCount(0);
+  await page.waitForLoadState("networkidle");
+  expect(heatmapRequests).toEqual([]);
+
+  // Frequency mode behaves the same.
+  await page.getByRole("button", { name: "Frekvens" }).click();
+  await expect(page.getByText("Inga stadsdelar valda")).toBeVisible();
+  expect(heatmapRequests).toEqual([]);
+
+  // Selecting a district again fetches and clears the empty state.
+  await page.getByRole("button", { name: "Vasastan", exact: true }).click();
+  await expect(page.getByText("Inga stadsdelar valda")).toHaveCount(0);
+  await expect.poll(() => heatmapRequests.length).toBe(1);
+  expect(heatmapRequests[0]).toContain("districts=vasastan");
+});
