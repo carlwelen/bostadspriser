@@ -63,12 +63,15 @@ function testDatabaseUrl() {
   if (timeoutMs !== "0") {
     // Append to any `options` the URL already has. Spaces must be %20, not the
     // "+" URLSearchParams would write: libpq-style clients (psql, psycopg) don't
-    // decode "+" and reject the option.
+    // decode "+" and reject the option. The other parameters are kept as the
+    // raw segments they were given in (re-serialising would turn %20 into "+").
     const existing = url.searchParams.get("options");
     const options = `${existing ? `${existing} ` : ""}-c statement_timeout=${timeoutMs}`;
-    const rest = new URLSearchParams(url.search);
-    rest.delete("options");
-    url.search = [rest.toString(), `options=${encodeURIComponent(options)}`].filter(Boolean).join("&");
+    const rest = url.search
+      .replace(/^\?/, "")
+      .split("&")
+      .filter((seg) => seg !== "" && !/^options=/.test(seg));
+    url.search = [...rest, `options=${encodeURIComponent(options)}`].join("&");
   }
   const out = url.toString();
   assertTestUrl(out);

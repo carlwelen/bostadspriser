@@ -211,12 +211,13 @@ export type AddressQuery = z.output<typeof addressQuery>;
 
 // /api/revalidate (JSON body)
 
-/** Tags a caller may invalidate: the global one, or one function's entries (see lib/cache.ts). */
-export const TAG_PATTERN = /^(listings|agg:[A-Za-z]+)$/;
-
+/**
+ * Body of /api/revalidate. Which tags exist is decided by the route, from the
+ * functions actually wrapped by lib/cache.ts.
+ */
 export const revalidateBody = z.object({
   tags: z
-    .array(z.string().regex(TAG_PATTERN, 'must be "listings" or "agg:<function name>"'))
+    .array(z.string().min(1).max(100))
     .min(1, "at least one tag")
     .max(20, "at most 20 tags")
     .optional(),

@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 // every entry carrying the tag. What is under test is our wiring: which
 // functions are cached, under which tags, and who may invalidate.
 const fake = vi.hoisted(() => {
-  const store = new Map<string, { value: unknown; tags: string[] }>();
+  const store = new Map<string, { value: string; tags: string[] }>();
   return {
     store,
     revalidated: [] as string[],
@@ -16,9 +16,10 @@ const fake = vi.hoisted(() => {
       async (...args: unknown[]) => {
         const key = JSON.stringify([keyParts, args]);
         const hit = store.get(key);
-        if (hit) return hit.value;
+        // Next stores results serialised: a hit comes back through JSON.
+        if (hit) return JSON.parse(hit.value);
         const value = await fn(...args);
-        store.set(key, { value, tags: opts.tags ?? [] });
+        store.set(key, { value: JSON.stringify(value ?? null), tags: opts.tags ?? [] });
         return value;
       },
     revalidateTag(tag: string) {
@@ -33,12 +34,13 @@ vi.mock("next/cache", () => ({
 }));
 
 import { prisma } from "@/lib/db";
+import * as agg from "@/lib/aggregations";
 import { districtSummary, globalSummary, streetSummary } from "@/lib/aggregations";
-import { CACHE_TAG, cached } from "@/lib/cache";
+import { CACHE_TAG, cached, registeredCacheNames } from "@/lib/cache";
 import { POST as revalidatePOST } from "@/app/api/revalidate/route";
 import { seed } from "../support/seed";
 
-const SECRET = "s3cret-for-tests";
+const SECRET = "s3cret-for-tests-0123456789";
 const post = (headers: Record<string, string> = {}, body?: unknown) =>
   revalidatePOST(
     new Request("http://localhost/api/revalidate", {
@@ -60,6 +62,9 @@ beforeAll(async () => {
   process.env.AGG_CACHE = "on";
   process.env.REVALIDATE_SECRET = SECRET;
   await seed(prisma);
+  await prisma.scrapeRun.create({
+    data: { source: "hemnet", district: "vasastan", status: "ok", finishedAt: new Date("2026-03-01T08:00:00Z") },
+  });
 });
 
 beforeEach(() => {
@@ -124,6 +129,79 @@ describe("cached aggregations", () => {
   });
 });
 
+describe("everything cached survives the JSON round trip", () => {
+  const D = "vasastan";
+  // One call per cached function, with arguments that return data. A function
+  // returning a Date, bigint, Decimal or undefined would come back different
+  // from the second call on (the cache hit), and fail here.
+  const calls: Record<string, () => Promise<unknown>> = {
+    streetFromSlug: () => agg.streetFromSlug(D, "odengatan"),
+    districtTimeseries: () => agg.districtTimeseries(D, "month"),
+    streetTimeseries: () => agg.streetTimeseries(D, "Odengatan", "month", "10"),
+    listStreets: () => agg.listStreets(D),
+    listHouseNumbers: () => agg.listHouseNumbers(D, "Odengatan"),
+    recentSales: () => agg.recentSales({ district: D, street: "Odengatan" }),
+    topMovers: () => agg.topMovers("up", 8),
+    pricePerSqmDistribution: () => agg.pricePerSqmDistribution(),
+    roomsBreakdown: () => agg.roomsBreakdown(),
+    priceAreaSample: () => agg.priceAreaSample(50),
+    globalSummary: () => agg.globalSummary(),
+    streetSummary: () => agg.streetSummary(D, "Odengatan"),
+    addressSummary: () => agg.addressSummary(D, "Odengatan", "10"),
+    districtStreetCount: () => agg.districtStreetCount(D),
+    districtSummary: () => agg.districtSummary(D),
+    // Midnight-UTC asOf (allowed); two complete fixture months with 3 sales each.
+    districtMomChange: () => agg.districtMomChange(D, new Date("2025-07-01T00:00:00Z")),
+    listAllStreets: () => agg.listAllStreets(),
+    latestScrapeRuns: () => agg.latestScrapeRuns(),
+    sourceFreshness: () => agg.sourceFreshness(),
+  };
+
+  it("covers every function passed to cached()", () => {
+    expect(Object.keys(calls).sort()).toEqual(
+      registeredCacheNames().filter((n) => n !== "flaky").sort()
+    );
+  });
+
+  it.each(Object.keys(calls))("%s: a cache hit equals the fresh result", async (name) => {
+    const fresh = await calls[name]();
+    expect(fresh, "should return data in this fixture").not.toBeNull();
+    const hit = await calls[name]();
+    expect(hit).toEqual(fresh);
+    expect(JSON.parse(JSON.stringify(fresh))).toEqual(fresh);
+  });
+});
+
+describe("arguments that would make a key per call", () => {
+  it("rejects a non-midnight Date argument while testing", async () => {
+    await expect(agg.topMovers("up", 8, new Date())).rejects.toThrow(/Date argument/);
+    await expect(agg.districtMomChange("vasastan", new Date("2026-04-15T10:00:00Z"))).rejects.toThrow(
+      /Date argument/
+    );
+  });
+
+  it("accepts a midnight-UTC Date (one key per day)", async () => {
+    await expect(agg.topMovers("up", 8, new Date("2026-04-15T00:00:00Z"))).resolves.toEqual(expect.any(Array));
+  });
+
+  it("falls back to an uncached call in production instead of growing the cache", async () => {
+    const env = process.env as Record<string, string | undefined>;
+    const prev = env.NODE_ENV;
+    env.NODE_ENV = "production";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const spy = dbCalls();
+      await agg.topMovers("up", 8, new Date());
+      await agg.topMovers("up", 8, new Date());
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(fake.store.size).toBe(0);
+      expect(warn).toHaveBeenCalledTimes(1); // once per function
+    } finally {
+      env.NODE_ENV = prev;
+    }
+  });
+});
+
 describe("POST /api/revalidate", () => {
   it("rejects a request without credentials (401) and with the wrong secret (403)", async () => {
     await districtSummary("vasastan");
@@ -138,6 +216,30 @@ describe("POST /api/revalidate", () => {
     expect((await post({ authorization: SECRET })).status).toBe(401); // not a Bearer header
     expect(fake.revalidated).toEqual([]);
     expect(fake.store.size).toBe(1); // nothing was invalidated
+  });
+
+  it("matches the Bearer scheme case-insensitively", async () => {
+    for (const scheme of ["bearer", "BEARER", "Bearer"]) {
+      const res = await post({ authorization: `${scheme} ${SECRET}` });
+      expect(res.status, scheme).toBe(200);
+    }
+  });
+
+  it("rejects tags of functions that are not cached", async () => {
+    const res = await post(auth, { tags: ["agg:doesNotExist"] });
+    expect(res.status).toBe(400);
+    expect((await res.json()).issues[0].message).toMatch(/unknown/i);
+    expect((await post(auth, { tags: ["agg:districtSummary", "listings"] })).status).toBe(200);
+  });
+
+  it("treats a too-short secret as not configured", async () => {
+    process.env.REVALIDATE_SECRET = "short-one";
+    try {
+      expect((await post({ authorization: "Bearer short-one" })).status).toBe(403);
+      expect(fake.revalidated).toEqual([]);
+    } finally {
+      process.env.REVALIDATE_SECRET = SECRET;
+    }
   });
 
   it("refuses everything when no secret is configured", async () => {

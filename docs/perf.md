@@ -156,38 +156,57 @@ aggregation functions in `web/src/lib/aggregations.ts` are wrapped with
 
 - **Tags.** Every entry carries `listings` and `agg:<function name>`.
 - **Invalidation.** `POST /api/revalidate` with `Authorization: Bearer
-  $REVALIDATE_SECRET` drops entries by tag (body `{"tags": ["listings"]}`; no
-  body means `listings`). 401 without a Bearer token, 403 for a wrong token or
-  when `REVALIDATE_SECRET` is not set (then nobody can invalidate), 400 for a
+  $REVALIDATE_SECRET` (scheme case-insensitive) drops entries by tag (body
+  `{"tags": ["listings"]}`; no body means `listings`). Valid tags are `listings`
+  and `agg:<name>` for the functions actually passed to `cached()`. 401 without
+  a Bearer token, 403 for a wrong token or when `REVALIDATE_SECRET` is missing
+  or shorter than 16 characters (then nobody can invalidate), 400 for a
   malformed body or unknown tag. The secret is compared in constant time
-  (SHA-256 of both sides, then `timingSafeEqual`). The scraper should call it
-  after `refresh_deduped_listing()`.
-- **Safety net.** Entries also expire after 3600 s (freshness queries: 300 s),
-  so a missed call means up to an hour of stale pages, not forever.
+  (SHA-256 of both sides, then `timingSafeEqual`).
+- **Who calls it.** The scraper *should* call it after
+  `refresh_deduped_listing()` (backlog B49); nothing does yet. `.env.example`
+  has `REVALIDATE_SECRET` and `APP_URL` for that.
+- **Safety net.** Entries expire after 3600 s (freshness queries: 300 s), so a
+  missed call means up to an hour of stale pages, not forever.
 - **Which functions.** Everything the pages and `/api/streets*` /
   `/api/timeseries` use. Not cached: `heatmapPoints` and `addressDrawerData`
   (large or keyed by free-form input; they rely on the HTTP `Cache-Control`
-  headers) and `dedupKeysInMultipleClusters` (a diagnostic).
-  Cached results must survive JSON (no Date/bigint/Decimal/undefined).
+  headers) and `dedupKeysInMultipleClusters` (a diagnostic). Cached results must
+  survive JSON (no Date/bigint/Decimal/undefined); a test calls every cached
+  function twice and compares the fresh result with the cache hit.
+- **Memory only.** `next.config.ts` sets `experimental.isrFlushToDisk: false`,
+  which keeps the data cache in an LRU bounded by `cacheMaxMemorySize` (50 MB by
+  default) and never writes `.next/cache/fetch-cache`. Without it, some cached
+  queries are keyed by URL input (street names, slugs, house numbers), so
+  anonymous requests grew the on-disk cache without bound (200 random street ids
+  added ~200 files), Next never cleans it, and it would also outlive restarts.
+  Checked against a real `next start`: 400 requests with random street ids left
+  the `fetch-cache` directory at 31 files before and after, while identical
+  requests were still served from cache.
 - **Where it is active.** Only when `NODE_ENV=production`; `AGG_CACHE=on|off`
   overrides. `next dev` and vitest always query the database.
 - **`next build` needs no database.** The pages are dynamic and nothing runs an
   aggregation at build time.
-- **No leakage across the e2e seed.** Cache keys include a per-process id
-  (kept on `globalThis`), so a restarted server never reads entries written by
-  an earlier process, including Next's on-disk cache from previous e2e runs. The
-  e2e server is started fresh by Playwright, its readiness probe is
-  `/robots.txt` (no database), and the fixture is seeded before the first data
-  request, so the first request already sees seeded data. A spec that changed
-  data after the server's first data request would have to call
-  `/api/revalidate` (set `REVALIDATE_SECRET` in the web server's env) or the
-  server would serve the cached results.
+- **No leakage across the e2e seed.** The cache is in memory, so it dies with
+  the server process; Playwright starts a fresh server for every run, its
+  readiness probe is `/robots.txt` (no database), and the fixture is seeded
+  before the first data request. Old on-disk entries from earlier runs are never
+  read (`isrFlushToDisk: false` also skips reads). A spec that changed data
+  after the server's first data request would have to call `/api/revalidate`
+  (set a 16+ character `REVALIDATE_SECRET` in the web server's env).
+- **`asOf` defaults lag.** Functions with an `asOf = new Date()` default
+  (`topMovers`, `districtMomChange`) compute their windows when the entry is
+  filled and keep it until expiry or revalidation: across midnight or a month
+  boundary a page can show the previous day's windows (or, for the month-over-
+  month change, the previous month) for up to 3600 s. Passing an explicit `asOf`
+  that is not midnight UTC makes a key per call, so it throws outside
+  production and runs uncached (with one warning) in production.
+- **Single instance.** `revalidateTag` and the in-memory cache are per server
+  process. With several web instances, a call reaches only the instance that
+  receives it, and the others serve cached data until expiry (at most an hour).
+  A multi-instance deployment needs a shared cache handler or one call per
+  instance.
 
-Checked against a real `next start`: with a street added to the database, the
-cached `/api/streets` response stays unchanged, `POST /api/revalidate` without
-a token gives 401, with a wrong one 403, with the right one 200, and the next
-request shows the new street.
-
-No page needs to change. Optional, for E and D: with this in place the pages
-could move from `force-dynamic` to `revalidate = 3600` for HTTP-level caching
-as well; that is a one-line change per page and not required for any of this.
+No page needs to change. Optional, for E and D: the pages could move from
+`force-dynamic` to `revalidate = 3600` for HTTP-level caching as well; that is a
+one-line change per page and not required for any of this.
