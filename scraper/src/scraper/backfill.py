@@ -1,4 +1,4 @@
-"""One-shot: populate `dedupKey` on existing rows.
+"""One-shot: populate `dedupKey` on existing rows (run it as `scraper backfill-dedup`).
 
 Idempotent — only touches rows where dedupKey IS NULL. Safe to re-run after
 adding new sources or fixing a normalization bug.
@@ -50,8 +50,3 @@ def backfill_dedup_keys(batch_size: int = 1000) -> int:
         updated += len(rows)
 
     return updated
-
-
-if __name__ == "__main__":
-    n = backfill_dedup_keys()
-    print(f"backfilled {n} rows")

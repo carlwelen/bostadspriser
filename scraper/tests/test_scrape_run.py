@@ -90,8 +90,13 @@ def test_a_new_run_marks_stale_running_rows_as_interrupted(db) -> None:
     assert by_id[fresh]["status"] == "running"  # the new run itself
 
 
-def test_start_run_still_works_when_closing_stale_rows_fails(db, monkeypatch) -> None:
+def test_start_run_still_records_the_run_when_closing_stale_rows_fails(db, monkeypatch, caplog) -> None:
+    def boom(session_, t):
+        # a real database error: it would abort the whole transaction without a savepoint
+        session_.execute(text("SELECT 1/0"))
+
+    monkeypatch.setattr(scrape_run, "_close_stale", boom)
     run_id = scrape_run.start_run("hemnet", "ostermalm")
-    monkeypatch.setattr(scrape_run, "_close_stale", lambda session_, t: (_ for _ in ()).throw(RuntimeError("x")))
-    assert scrape_run.start_run("hemnet", "ostermalm") is None  # best-effort recording: no crash
-    assert run_id
+    assert run_id is not None
+    assert [r["id"] for r in _runs(db)] == [run_id]
+    assert any("stale" in r.getMessage() and r.levelname == "WARNING" for r in caplog.records)

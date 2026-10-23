@@ -134,7 +134,8 @@ def cli(log_level: str) -> None:
     \b
     Because of that lock, a ScrapeRun row still `running` when a new run starts
     belongs to a run that died; the new run marks it failed with error
-    'interrupted'.
+    'interrupted'. (The lock is per state directory and host: runs sharing one
+    database from different hosts or state directories would reap each other.)
     """
     configure_logging(log_level)
 
@@ -155,6 +156,8 @@ class RunReport:
     # last_completed_page as of the last *committed* batch. Pages are marked complete
     # when their cards are yielded, which can be ahead of what the database holds.
     committed_page: int = 0
+    # Likewise for the oldest sale date: only what the committed batches cover.
+    committed_oldest: date | None = None
 
 
 def _run_recorded(
@@ -170,12 +173,13 @@ def _run_recorded(
     def _count(n: int) -> None:
         report.upserted += n
         report.committed_page = progress.last_completed_page
+        report.committed_oldest = progress.oldest_sold_at
         scrape_run.bump(
             run_id,
             pages=progress.pages,
             rows_upserted=report.upserted,
             rows_rejected=progress.rejected,
-            oldest_sold_at=progress.oldest_sold_at,
+            oldest_sold_at=report.committed_oldest,
         )
 
     try:
@@ -193,7 +197,7 @@ def _run_recorded(
         pages=progress.pages,
         rows_upserted=report.upserted,
         rows_rejected=progress.rejected,
-        oldest_sold_at=progress.oldest_sold_at,
+        oldest_sold_at=report.committed_oldest,
         error=report.error,
     )
     return report
@@ -261,6 +265,7 @@ def backfill(district: str, since: date, source: str, resume: bool, max_pages: i
     """
     start_page = 1
     base_next = 1  # the resume point recorded so far (a failed run must never move it back)
+    base_oldest: date | None = None  # likewise the oldest date reached so far
     if resume:
         try:
             saved = crawl_state.backfill_progress(source, district)
@@ -275,6 +280,7 @@ def backfill(district: str, since: date, source: str, resume: bool, max_pages: i
             )
         else:
             base_next = saved["next_page"]
+            base_oldest = saved["oldest_sold_at"]
             # One page of overlap: rows tied on soldAt have no stable order and
             # delistings shift pages up, so the recorded page may start mid-way.
             start_page = max(1, base_next - 1)
@@ -289,7 +295,9 @@ def backfill(district: str, since: date, source: str, resume: bool, max_pages: i
         else:
             crawl_state.save_backfill_progress(
                 source, district, since=since, next_page=next_page,
-                oldest_sold_at=report.progress.oldest_sold_at,
+                oldest_sold_at=min(
+                    (d for d in (base_oldest, report.committed_oldest) if d is not None), default=None
+                ),
             )
     except crawl_state.CorruptCrawlState as e:
         click.echo(f"warning: progress not saved: {e}", err=True)
@@ -387,14 +395,17 @@ def _refresh(
     progress = CrawlProgress()
     run_id = scrape_run.start_run(source, district)
 
+    committed_oldest: list[date | None] = [None]  # as of the last committed batch
+
     def _count(n: int) -> None:
         result.upserted += n
+        committed_oldest[0] = progress.oldest_sold_at
         scrape_run.bump(
             run_id,
             pages=progress.pages,
             rows_upserted=result.upserted,
             rows_rejected=progress.rejected,
-            oldest_sold_at=progress.oldest_sold_at,
+            oldest_sold_at=committed_oldest[0],
         )
 
     run_newest: list[date] = []  # newest soldAt this crawl yielded (0 or 1 item)
@@ -449,7 +460,7 @@ def _refresh(
         pages=progress.pages,
         rows_upserted=result.upserted,
         rows_rejected=progress.rejected,
-        oldest_sold_at=progress.oldest_sold_at,
+        oldest_sold_at=committed_oldest[0],
         error=result.error,
     )
     return result

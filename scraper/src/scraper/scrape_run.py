@@ -26,6 +26,11 @@ def _close_stale(s, t) -> None:
     scrape/update/backfill hold the single-instance lock while they run, so a row
     that is still `running` when a new run starts belongs to a process that died
     (Ctrl-C, SIGKILL, power loss) before it could close its row.
+
+    The assumption is only as wide as the lock: it is per *state directory and
+    host* (SCRAPER_STORAGE_STATE). Two hosts, or two state directories, sharing one
+    database would mark each other's live rows interrupted. (The row has no
+    pid/host column and the schema is owned elsewhere, so nothing finer is recorded.)
     """
     s.execute(
         update(t)
@@ -40,7 +45,13 @@ def start_run(source: str, district: str) -> str | None:
     try:
         t = table("ScrapeRun")
         with session() as s:
-            _close_stale(s, t)
+            try:
+                # A savepoint: if closing stale rows fails, only that statement rolls
+                # back and the new run is still recorded.
+                with s.begin_nested():
+                    _close_stale(s, t)
+            except Exception as e:  # noqa: BLE001
+                log.warning("could not close stale running rows error=%r", e)
             run_id = s.execute(
                 insert(t).values(source=source, district=district, status="running").returning(t.c.id)
             ).scalar_one()

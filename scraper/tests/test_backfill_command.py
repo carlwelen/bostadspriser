@@ -222,3 +222,51 @@ def test_a_failed_commit_of_the_final_flush_is_not_counted_as_progress(crawler, 
     result = CliRunner().invoke(run.cli, BASE)
     assert result.exit_code == 1
     assert crawl_state.backfill_progress("hemnet", "ostermalm")["next_page"] == 1  # nothing was stored
+
+
+def _probe_crawler(monkeypatch, crawler):
+    """One row per page, oldest date shrinking by a day per page; the 2nd batch fails to commit."""
+
+    async def it(district, since, *, progress=None, max_pages=None, start_page=1, **kw):
+        for page in range(start_page, 251):
+            yield {"source": "hemnet", "district": district, "soldAt": date(2026, 6, 1), "page": page}
+            progress.pages += 1
+            progress.last_completed_page = page
+            progress.oldest_sold_at = date(2026, 6, 1) - timedelta(days=page)
+
+    monkeypatch.setitem(run._SOURCE_ITER, "hemnet", it)
+    calls = {"n": 0}
+
+    def flaky(rows, **kw):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("db down")
+        crawler.upserted.extend(rows)
+        return len(rows)
+
+    monkeypatch.setattr(run, "upsert_listings", flaky)
+
+
+def test_oldest_sold_at_follows_committed_rows_not_yielded_ones(crawler, scrape_runs, monkeypatch) -> None:
+    """Probe: with the second batch failing, the run and the resume record must not claim
+    dates only the uncommitted rows reached."""
+    _probe_crawler(monkeypatch, crawler)
+    r = CliRunner().invoke(run.cli, BASE)
+    assert r.exit_code == 1
+    # At the first (successful) flush the crawl had reached page 99's date.
+    committed = date(2026, 6, 1) - timedelta(days=99)
+    (row,) = scrape_runs.runs
+    assert row["status"] == "partial" and row["rows_upserted"] == 100
+    assert row["oldest_sold_at"] == committed
+    assert crawl_state.backfill_progress("hemnet", "ostermalm")["oldest_sold_at"] == committed
+
+
+def test_saved_oldest_is_monotonic_across_failed_resumes(crawler) -> None:
+    crawler.fail_at = 4
+    CliRunner().invoke(run.cli, BASE)
+    saved = _state()["backfill/hemnet/ostermalm"]["oldest_sold_at"]
+    assert saved == "2026-06-25"
+    crawler.fail_at = 3  # the resumed run (starts at page 3) fails at once: nothing committed
+    CliRunner().invoke(run.cli, [*BASE, "--resume"])
+    state = _state()["backfill/hemnet/ostermalm"]
+    assert state["oldest_sold_at"] == saved and state["next_page"] == 4

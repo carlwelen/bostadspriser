@@ -254,3 +254,16 @@ def test_backfill_dedup_keys_batches_and_is_idempotent(db) -> None:
     assert backfill_dedup_keys(batch_size=2) == 0
     for r in _rows(db).values():
         assert r["dedupKey"] == dedup_key(r["street"], r["houseNumber"], r["soldAt"], 4_900_000)
+
+
+def test_backfill_dedup_command_prints_the_count_once(db) -> None:
+    upsert_listing(_legacy(hemnet, HEMNET_CARD, "sodermalm", dedupKey=None))
+    result = CliRunner().invoke(cli, ["backfill-dedup"])
+    assert result.exit_code == 0, result.output
+    assert result.output.count("backfilled") == 1 and "backfilled 1 rows" in result.output
+
+
+def test_backfill_module_has_no_script_entry_point_that_bypasses_the_lock() -> None:
+    import scraper.backfill as module
+
+    assert "__main__" not in open(module.__file__).read()
