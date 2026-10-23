@@ -103,6 +103,9 @@ function pointsToHexFC(points: PointFC): HexFC {
   return { type: "FeatureCollection", features };
 }
 
+// Inlined at build time, so server and client agree on it.
+const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+
 export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -116,12 +119,13 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
   // Initialize map once.
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
-    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-    if (!token) {
-      console.error("NEXT_PUBLIC_MAPBOX_TOKEN is not set");
+    // A missing token is a configuration state, not a bug: the page shows an
+    // in-app message (see `missingToken`) rather than a console error.
+    if (!MAPBOX_TOKEN) {
+      console.warn("NEXT_PUBLIC_MAPBOX_TOKEN is not set; the map is disabled");
       return;
     }
-    mapboxgl.accessToken = token;
+    mapboxgl.accessToken = MAPBOX_TOKEN;
     const map = new mapboxgl.Map({
       container: containerRef.current,
       style: "mapbox://styles/mapbox/light-v11",
@@ -404,6 +408,14 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} data-testid="map-container" className="h-full w-full" />
+
+      {!MAPBOX_TOKEN && (
+        <div role="alert" className="absolute inset-x-3 top-3 z-20 flex justify-center">
+          <p className="rounded-xl bg-amber-50 px-4 py-2.5 text-center text-sm text-amber-900 shadow-md ring-1 ring-amber-200">
+            Kartan kunde inte laddas: Mapbox-token saknas (NEXT_PUBLIC_MAPBOX_TOKEN).
+          </p>
+        </div>
+      )}
 
       {/* coverage / loading badge */}
       {!error && !noDistricts && (

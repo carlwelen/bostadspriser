@@ -72,3 +72,18 @@ test("deselecting every district shows the empty state and requests nothing", as
   await expect.poll(() => heatmapRequests.length).toBe(1);
   expect(heatmapRequests[0]).toContain("districts=vasastan");
 });
+
+// F6: the e2e build always has an empty NEXT_PUBLIC_MAPBOX_TOKEN.
+test("a missing Mapbox token shows a clear message and keeps the sidebar working", async ({
+  page,
+  consoleErrors,
+}) => {
+  await page.goto("/");
+  await expect(page.getByRole("alert").filter({ hasText: "NEXT_PUBLIC_MAPBOX_TOKEN" })).toHaveText(
+    "Kartan kunde inte laddas: Mapbox-token saknas (NEXT_PUBLIC_MAPBOX_TOKEN)."
+  );
+  // The sidebar is unaffected.
+  await page.getByRole("button", { name: "Vasastan", exact: true }).click();
+  await expect(page.getByText("3 av 4")).toBeVisible();
+  expect(consoleErrors).toEqual([]);
+});

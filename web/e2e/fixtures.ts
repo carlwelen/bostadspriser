@@ -4,10 +4,7 @@ import { test as base, expect } from "@playwright/test";
  * Console errors that are known baseline bugs. Each entry names the backlog
  * item that removes it; delete the entry in the same commit as the fix.
  */
-export const KNOWN_CONSOLE_ERRORS: Array<{ id: string; pattern: RegExp }> = [
-  // F6: a missing token should render an in-app message instead.
-  { id: "F6", pattern: /NEXT_PUBLIC_MAPBOX_TOKEN is not set/ },
-];
+export const KNOWN_CONSOLE_ERRORS: Array<{ id: string; pattern: RegExp }> = [];
 
 type Fixtures = { consoleErrors: string[] };
 
