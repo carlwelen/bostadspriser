@@ -7,6 +7,7 @@ You are one implementer in a multi-agent hardening loop on "Bostadspriser". The 
 - You are in your **own git worktree** on your own branch. Work and commit only there. Never `cd` into or modify the main checkout, and never merge or push.
 - Setup once: `cd web && pnpm install --frozen-lockfile` and `cd scraper && uv sync`. The root `.env` is intentionally absent in worktrees. The test helpers fall back to `postgresql://bostadspriser:bostadspriser@localhost:5432/...`. **Do not create a `.env` and do not connect to the dev database `bostadspriser`.**
 - Export your role's isolation vars in every shell that runs tests: `export TEST_DB_NAME=bostadspriser_test_<role> E2E_PORT=<port>` (values in your prompt).
+- **Never kill processes you did not start** (no `pkill`/`killall`/`kill $(lsof …)` on `next`, `node`, `playwright` or ports other than your own). Other agents and the orchestrator run e2e servers in parallel; stop only your own server by its PID.
 - Tools: pnpm and uv are on PATH. Postgres 16 runs on localhost:5432. Node 26, macOS.
 
 ## Non-negotiable invariants
