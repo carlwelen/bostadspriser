@@ -20,6 +20,7 @@ from .errors import CrawlIncomplete
 from .geocode import geocode_pending
 from .hemnet import DISTRICT_LOCATION_IDS
 from .hemnet import iter_district as _hemnet_iter
+from .lock import exclusive
 from .reparse import format_summary, reparse
 
 # Both sources cover the same four districts; the CLI accepts the union of slugs.
@@ -100,6 +101,7 @@ def cli() -> None:
     show_default=True,
     help="Which sold-listings source to scrape.",
 )
+@exclusive
 def scrape(district: str, since: date, source: str) -> None:
     """Scrape SOURCE sold-listings for DISTRICT back to SINCE."""
     iter_district = _SOURCE_ITER[source]
@@ -143,6 +145,7 @@ def scrape(district: str, since: date, source: str) -> None:
     type=int,
     help="Floor for the since cutoff when no rows exist for the district yet.",
 )
+@exclusive
 def update(districts: tuple[str, ...], sources: tuple[str, ...], lookback_days: int) -> None:
     """Incrementally refresh: scrape from (newest complete date - 7d) per district per source.
 
@@ -273,6 +276,7 @@ def backfill_dedup() -> None:
     type=click.IntRange(min=1),
     help="Rows per keyset batch / transaction.",
 )
+@exclusive
 def reparse_cmd(dry_run: bool, batch_size: int) -> None:
     """Re-derive street, house number, rooms, area, prices and dedupKey from `raw`."""
     click.echo(format_summary(reparse(dry_run=dry_run, batch_size=batch_size)))
