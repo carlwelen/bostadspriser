@@ -60,6 +60,7 @@ export const GET = withApiErrors("/api/address", async (request: Request) => {
         AND street    = ${street}
         ${houseClause}
         AND "pricePerSqmSek" > 0
+        ${sinceClause}
       ORDER BY "soldAt" DESC
       LIMIT 200
     `),
