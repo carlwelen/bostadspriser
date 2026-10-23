@@ -28,8 +28,8 @@ export const LIMITS = {
   sinceDays: { min: 1, max: 3650 },
   /** /api/heatmap `priceMin`/`priceMax`, kr per m². Far above any real price. */
   pricePerSqm: { min: 0, max: 10_000_000 },
-  /** /api/heatmap `rooms`. 5 means "5 or more" (see heatmap route). */
-  rooms: { min: 1, max: 15 },
+  /** /api/heatmap `rooms`. The value `open` is the UI's "5+" chip: 5 or more rooms. */
+  rooms: { min: 1, max: 15, open: 5 },
   /** Street and house strings, in characters. */
   street: { max: 200 },
   house: { max: 50 },

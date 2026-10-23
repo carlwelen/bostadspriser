@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import type { DistrictSlug } from "@/lib/districts";
 import type { HeatmapResponse } from "@/lib/api-types";
 import {
+  LIMITS,
   PUBLIC_CACHE,
   heatmapQuery,
   parseQuery,
@@ -48,8 +49,13 @@ export const GET = withApiErrors("/api/heatmap", async (request: Request) => {
     conds.push(Prisma.sql`"pricePerSqmSek" <= ${priceMax}`);
   }
   if (rooms && rooms.length > 0) {
-    // Match exact integer-rounded room counts.
-    conds.push(Prisma.sql`FLOOR(rooms) IN (${Prisma.join(rooms)})`);
+    // Values below the open-ended bucket match the integer-rounded room count
+    // (4 covers 4 and 4.5). The "5+" value (5) matches 5 rooms or more.
+    const exact = rooms.filter((r) => r < LIMITS.rooms.open);
+    const alts: Prisma.Sql[] = [];
+    if (exact.length > 0) alts.push(Prisma.sql`FLOOR(rooms) IN (${Prisma.join(exact)})`);
+    if (rooms.includes(LIMITS.rooms.open)) alts.push(Prisma.sql`rooms >= ${LIMITS.rooms.open}`);
+    conds.push(Prisma.sql`(${Prisma.join(alts, " OR ")})`);
   }
   if (sinceDays !== undefined) {
     conds.push(Prisma.sql`"soldAt" >= (CURRENT_DATE - ${sinceDays}::int)`);
