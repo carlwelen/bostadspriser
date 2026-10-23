@@ -54,7 +54,7 @@ export default async function InsightsPage() {
         accent="Stockholms innerstad"
         subtitle={
           summary.earliest && summary.latest
-            ? `Aggregerade slutpriser från ${summary.earliest} till ${summary.latest}. Allt räknas i SQL — inga sammanfattningar i frontend.`
+            ? `Slutpriser i Stockholms innerstad från ${summary.earliest} till ${summary.latest}, sammanställda från Hemnet och Booli. Där det går visas median, eftersom enstaka mycket dyra affärer annars drar upp snittet.`
             : "Underlaget laddas in löpande från Hemnet och Booli."
         }
       />

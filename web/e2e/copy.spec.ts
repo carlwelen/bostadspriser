@@ -12,3 +12,12 @@ test("the house list says '1 såld' for a single sale and 'sålda' for several",
   const several = page.getByRole("link", { name: /Götgatan 10\b/ });
   await expect(several).toContainText(/\d+ sålda/);
 });
+
+// F29: the insights intro is written for readers, not for developers.
+test("the insights intro has no developer copy", async ({ page }) => {
+  await page.goto("/insights");
+  const hero = page.locator("section").first();
+  await expect(hero).not.toContainText(/SQL|frontend/i);
+  await expect(hero).toContainText("Hemnet och Booli");
+  await expect(hero).toContainText("median");
+});
