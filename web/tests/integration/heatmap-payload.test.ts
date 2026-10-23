@@ -76,4 +76,23 @@ describe("/api/heatmap payload", () => {
     expect(none.features).toHaveLength(0);
     expect(none.truncated).toBe(false);
   });
+
+  it("cuts the same rows every time when many sales share a date (id tie-break)", async () => {
+    await seed(prisma, []);
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO "Listing" (id, source, "sourceId", "dedupKey", street, "houseNumber", district,
+                             rooms, "areaSqm", "priceSek", "pricePerSqmSek", "soldAt", lat, lng, raw)
+      SELECT 'tie-' || lpad(g::text, 6, '0'), 'hemnet', 'tie-' || g, 'tie-dedup-' || g,
+             'Gata ' || lpad(g::text, 6, '0'), '1', 'vasastan', 2, 50, 5000000, 100000,
+             DATE '2026-03-01', 59.1, 18.9, '{}'::jsonb
+      FROM generate_series(1, ${HEATMAP_LIMIT + 5}) g`);
+    await prisma.$executeRaw`SELECT refresh_deduped_listing()`;
+    const streets = async () => (await get()).features.map((f) => f.properties.street);
+    const first = await streets();
+    expect(first).toHaveLength(HEATMAP_LIMIT);
+    // The lowest ids win; the five highest are the ones cut.
+    expect(first).not.toContain(`Gata ${String(HEATMAP_LIMIT + 5).padStart(6, "0")}`);
+    expect(first).toContain("Gata 000001");
+    expect(await streets()).toEqual(first);
+  });
 });

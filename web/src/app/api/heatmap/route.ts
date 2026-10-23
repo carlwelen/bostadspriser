@@ -11,8 +11,8 @@ import {
 /** Five decimals of a degree is about 1 m: plenty for a point on a map, and shorter JSON. */
 const round5 = (deg: number) => Math.round(deg * 1e5) / 1e5;
 
-// The response is JSON, which `next start` gzips (Next's `compress` option is
-// on by default); behind a CDN or reverse proxy that setting is theirs.
+// Not compressed here: `next start` does not gzip route-handler responses
+// (measured, docs/perf.md), so enable gzip/brotli in the proxy or CDN in front.
 export const GET = withApiErrors("/api/heatmap", async (request: Request) => {
   const parsed = parseQuery(heatmapQuery, new URL(request.url).searchParams);
   if (!parsed.ok) return parsed.response;

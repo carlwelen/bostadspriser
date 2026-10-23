@@ -754,7 +754,7 @@ export async function heatmapPoints(
            "soldAt", sources
     FROM "DedupedListingMat"
     WHERE ${Prisma.join(conds, " AND ")}
-    ORDER BY "soldAt" DESC
+    ORDER BY "soldAt" DESC, id
     LIMIT ${HEATMAP_LIMIT + 1}
   `);
   const truncated = rows.length > HEATMAP_LIMIT;
