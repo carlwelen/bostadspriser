@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from sqlalchemy import text
 
@@ -101,3 +101,25 @@ def test_upsert_never_overwrites_id(db) -> None:
     upsert_listing(_row(id=str(uuid.uuid4()), priceSek=5_000_000))
     with db.connect() as c:
         assert c.execute(text('SELECT id FROM "Listing"')).scalar_one() == first["id"]
+
+
+def test_session_timezone_is_pinned_to_utc_whatever_the_server_default(db) -> None:
+    """geocodedAt/scrapedAt are `timestamp(3)` (no zone): the value stored for an aware
+    datetime must not depend on the DB's TimeZone setting."""
+    with db.connect() as c:
+        name = c.execute(text("SELECT current_database()")).scalar_one()
+    assert "test" in name  # only ever alter a throwaway test database
+    with db.begin() as c:
+        c.execute(text(f'ALTER DATABASE "{name}" SET timezone = \'Asia/Tokyo\''))
+    try:
+        db.dispose()  # drop pooled connections so new ones pick up the setting
+        stamp = datetime(2026, 5, 3, 12, 0, tzinfo=timezone.utc)
+        upsert_listing(_row(geocodedAt=stamp))
+        with db.connect() as c:
+            assert c.execute(text("SHOW timezone")).scalar_one() == "UTC"
+            stored = c.execute(text('SELECT "geocodedAt" FROM "Listing"')).scalar_one()
+        assert stored == datetime(2026, 5, 3, 12, 0)
+    finally:
+        with db.begin() as c:
+            c.execute(text(f'ALTER DATABASE "{name}" RESET timezone'))
+        db.dispose()

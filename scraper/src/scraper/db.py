@@ -24,7 +24,15 @@ def engine() -> Engine:
         url = cfg.database_url
         if url.startswith("postgresql://"):
             url = "postgresql+psycopg://" + url[len("postgresql://") :]
-        _engine = create_engine(url, future=True, pool_pre_ping=True)
+        # Prisma's timestamp(3) columns have no zone, so what an aware datetime
+        # becomes depends on the session TimeZone. Pin it to UTC (Prisma's
+        # convention) instead of trusting the server default.
+        _engine = create_engine(
+            url,
+            future=True,
+            pool_pre_ping=True,
+            connect_args={"options": "-c timezone=UTC"},
+        )
         _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
     return _engine
 
