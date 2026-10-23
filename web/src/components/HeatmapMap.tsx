@@ -8,7 +8,8 @@ import { cellToBoundary, latLngToCell } from "h3-js";
 import { AddressDrawer, type AddressSelection } from "./AddressDrawer";
 import type { DistrictSlug } from "@/lib/districts";
 import { fetchJson } from "./map/fetchJson";
-import { buildHexPopup, buildPricePopup } from "./map/popups";
+import { createHexHandlers, type HexMapLike } from "./map/hexHandlers";
+import { buildPricePopup } from "./map/popups";
 
 export type HeatmapMode = "price" | "frequency";
 
@@ -81,13 +82,6 @@ const FREQUENCY_COLOR_RAMP = expr([
   24, "#1e3a8a",  // blue-900
 ]);
 
-function sinceDaysToLabel(days: number): string {
-  if (days <= 30) return "senaste 30 dagar";
-  if (days <= 95) return "senaste 3 månader";
-  if (days <= 380) return "senaste 12 månader";
-  return `senaste ${days} dagar`;
-}
-
 function pointsToHexFC(points: PointFC): HexFC {
   const counts = new Map<string, number>();
   for (const f of points.features) {
@@ -112,6 +106,7 @@ function pointsToHexFC(points: PointFC): HexFC {
 export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
+  const hexHandlersRef = useRef<ReturnType<typeof createHexHandlers> | null>(null);
   const [styleReady, setStyleReady] = useState(false);
   const [points, setPoints] = useState<PointFC | null>(null);
   const [loading, setLoading] = useState(true);
@@ -141,6 +136,8 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
     mapRef.current = map;
 
     return () => {
+      hexHandlersRef.current?.dispose();
+      hexHandlersRef.current = null;
       map.remove();
       mapRef.current = null;
     };
@@ -302,6 +299,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
       if (map.getLayer(HEX_OUTLINE_LAYER)) map.removeLayer(HEX_OUTLINE_LAYER);
       if (map.getLayer(HEX_FILL_LAYER)) map.removeLayer(HEX_FILL_LAYER);
       if (map.getSource(HEX_SOURCE)) map.removeSource(HEX_SOURCE);
+      hexHandlersRef.current?.release();
       return;
     }
 
@@ -342,31 +340,19 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters }: Props) {
         },
       });
 
-      // Hover + click for the hex pillars.
-      const hexPopup = new mapboxgl.Popup({
-        closeButton: false,
-        offset: 8,
-        className: "hex-popup",
-      });
-      map.on("mouseenter", HEX_FILL_LAYER, (e) => {
-        map.getCanvas().style.cursor = "pointer";
-        const f = e.features?.[0];
-        if (!f) return;
-        const p = f.properties as { count: number };
-        const period = sinceDaysRef.current
-          ? sinceDaysToLabel(sinceDaysRef.current)
-          : "hela perioden";
-        hexPopup.setLngLat(e.lngLat).setDOMContent(buildHexPopup(p.count, period)).addTo(map);
-      });
-      map.on("mousemove", HEX_FILL_LAYER, (e) => {
-        // Reposition the popup as the cursor moves over the hex.
-        if (hexPopup.isOpen()) hexPopup.setLngLat(e.lngLat);
-      });
-      map.on("mouseleave", HEX_FILL_LAYER, () => {
-        map.getCanvas().style.cursor = "";
-        hexPopup.remove();
-      });
     }
+
+    // Hover handlers for the hex pillars. Layer-scoped listeners survive
+    // removeLayer/addLayer, so register them once per map, not per re-add.
+    if (!hexHandlersRef.current) {
+      hexHandlersRef.current = createHexHandlers(
+        map as unknown as HexMapLike,
+        HEX_FILL_LAYER,
+        new mapboxgl.Popup({ closeButton: false, offset: 8, className: "hex-popup" }),
+        () => sinceDaysRef.current
+      );
+    }
+    hexHandlersRef.current.ensure();
   }, [hexes, styleReady]);
 
   // Keep the popup label fresh when the period filter changes mid-session.
