@@ -196,6 +196,28 @@ test("filter changes keep unrelated parameters and the hash; junk is cleaned up 
   expect(new URL(page.url()).hash).toBe("#karta");
 });
 
+// F34: the count pill agrees with its number.
+test("the map status pill uses the singular for exactly one sale", async ({ page }) => {
+  await page.route("**/api/heatmap*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [18.07, 59.33] },
+            properties: { pricePerSqm: 100_000, address: "Testgatan 1", street: "Testgatan", houseNumber: "1", district: "ostermalm", soldAt: "2025-06-02", source: "hemnet", sources: "hemnet", dedupKey: null },
+          },
+        ],
+      }),
+    })
+  );
+  await page.goto("/");
+  await expect(page.getByText("1 försäljning i urvalet", { exact: true })).toBeVisible();
+});
+
 // F17: the price legend follows the points on screen.
 test("the price legend is computed from the displayed points", async ({ page }) => {
   const features = Array.from({ length: 50 }, (_, i) => ({

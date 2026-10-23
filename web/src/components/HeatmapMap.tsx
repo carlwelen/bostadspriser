@@ -10,6 +10,7 @@ import type { DistrictSlug } from "@/lib/districts";
 import { fetchJson } from "./map/fetchJson";
 import { createHexHandlers, type HexMapLike } from "./map/hexHandlers";
 import { buildPricePopup } from "./map/popups";
+import { formatSalesInSelection } from "./map/format";
 import { DEFAULT_PRICE_BREAKS, computePriceBreaks, pricePointPaint } from "./map/priceRamp";
 
 export type HeatmapMode = "price" | "frequency";
@@ -411,7 +412,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
           ) : (
             <>
               <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-              {new Intl.NumberFormat("sv-SE").format(featureCount)} försäljningar i urvalet
+              {formatSalesInSelection(featureCount)}
             </>
           )}
         </div>

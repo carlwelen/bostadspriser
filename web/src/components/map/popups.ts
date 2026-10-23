@@ -2,6 +2,8 @@
 // untrusted, so everything is built from DOM elements and text nodes, never
 // parsed as HTML. Pass the result to `Popup.setDOMContent`.
 
+import { salesWord } from "./format";
+
 export type PricePopupProps = {
   pricePerSqm: number;
   address: string;
@@ -68,7 +70,7 @@ export function buildPricePopup(p: PricePopupProps): HTMLElement {
 }
 
 export function buildHexPopup(count: number, period: string): HTMLElement {
-  const word = count === 1 ? "försäljning" : "försäljningar";
+  const word = salesWord(count);
   return el("div", "font:12px ui-sans-serif,system-ui;line-height:1.4", undefined, [
     el("strong", "font-size:14px", String(count)),
     document.createTextNode(` ${word}`),
