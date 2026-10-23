@@ -9,7 +9,12 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { formatSales } from "@/components/plural";
 import { StatCard } from "@/components/StatCard";
 import { SummaryCards } from "@/components/SummaryCards";
-import { addressSummary, recentSales, streetTimeseries } from "@/lib/aggregations";
+import {
+  addressSummary,
+  districtTimeseries,
+  recentSales,
+  streetTimeseries,
+} from "@/lib/aggregations";
 import { districtName } from "@/lib/districts";
 import { resolveStreet } from "../../../resolveStreet";
 
@@ -29,7 +34,8 @@ export default async function AddressPage({
   const { district, street } = resolved;
   const houseNumber = decodeURIComponent(house);
 
-  const [streetPoints, addressPoints, summary, sales] = await Promise.all([
+  const [districtPoints, streetPoints, addressPoints, summary, sales] = await Promise.all([
+    districtTimeseries(district, granularity),
     streetTimeseries(district, street, granularity),
     streetTimeseries(district, street, granularity, houseNumber),
     addressSummary(district, street, houseNumber),
@@ -63,7 +69,7 @@ export default async function AddressPage({
                 Pris/m² över tid
               </h2>
               <p className="text-xs text-zinc-500">
-                {granularityMeanLabel(granularity)} — adress vs gata
+                {granularityMeanLabel(granularity)} — adress vs gata vs stadsdel
               </p>
             </div>
             <GranularityToggle
@@ -75,6 +81,7 @@ export default async function AddressPage({
             series={[
               { name: `${street} ${houseNumber}`, points: addressPoints, color: "#2563eb" },
               { name: `${street} (gata)`, points: streetPoints, color: "#a1a1aa" },
+              { name: `${districtName(district)} (stadsdel)`, points: districtPoints, color: "#0f172a" },
             ]}
             granularity={granularity}
           />
