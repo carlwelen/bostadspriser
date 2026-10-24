@@ -113,7 +113,7 @@ def test_spelling_variants_of_one_address_match(db) -> None:
     assert match_clusters().pairs == 1
 
 
-def test_three_way_cluster_through_a_chain_of_matches(db) -> None:
+def test_closest_candidate_wins_over_same_source_chain(db) -> None:
     upsert_listings([
         _row("hemnet", "h", sold=DAY, price=4_900_000),
         _row("booli", "b1", sold=DAY + timedelta(days=1), price=4_905_000),
@@ -122,11 +122,11 @@ def test_three_way_cluster_through_a_chain_of_matches(db) -> None:
     match_clusters()
     keys, cl = _keys(db), _clusters(db)
     assert len(set(keys.values())) == 3
-    assert cl["h"] == cl["b1"] == cl["b2"] == min(keys.values())
+    assert cl["h"] == cl["b1"] and cl["b2"] is None
     _assert_invariant(db)
 
 
-def test_two_booli_rows_that_only_match_through_hemnet_end_up_together(db) -> None:
+def test_two_booli_keys_cannot_join_through_hemnet(db) -> None:
     """b1 and b2 are 6 days apart (no direct match) but both match h in between."""
     upsert_listings([
         _row("hemnet", "h", sold=DAY),
@@ -135,7 +135,8 @@ def test_two_booli_rows_that_only_match_through_hemnet_end_up_together(db) -> No
     ])
     match_clusters()
     cl = _clusters(db)
-    assert cl["h"] == cl["b1"] == cl["b2"] and cl["h"] is not None
+    assert cl["h"] is not None
+    assert sum(cl[b] == cl["h"] for b in ("b1", "b2")) == 1
 
 
 def test_rerunning_is_a_no_op(db) -> None:
@@ -161,7 +162,7 @@ def test_dry_run_reports_without_writing(db) -> None:
     assert set(_clusters(db).values()) == {None}
 
 
-def test_merging_two_clusters_rewrites_both_onto_the_smallest_key(db) -> None:
+def test_bridge_cannot_merge_two_sales_from_the_same_source(db) -> None:
     # Two separate clusters of the same address, 6 days apart...
     upsert_listings([
         _row("hemnet", "h1", sold=DAY),
@@ -172,13 +173,13 @@ def test_merging_two_clusters_rewrites_both_onto_the_smallest_key(db) -> None:
     match_clusters()
     before = _clusters(db)
     assert before["h1"] == before["b1"] != before["h2"] == before["b2"]
-    # ...until a booli copy in between links them.
+    # A fuzzy bridge cannot combine these separate sales.
     upsert_listings([_row("booli", "link", sold=DAY + timedelta(days=3), price=4_902_000)])
     summary = match_clusters(batch_size=1)
-    keys, cl = _keys(db), _clusters(db)
-    assert len(set(cl.values())) == 1 and None not in cl.values()
-    assert cl["link"] == min(keys.values())
-    assert summary.components == 1
+    cl = _clusters(db)
+    assert cl["h1"] == cl["b1"] != cl["h2"] == cl["b2"]
+    assert cl["link"] is None
+    assert summary.components == 0
     _assert_invariant(db)
     assert match_clusters().rows_updated == 0
 
@@ -205,7 +206,7 @@ def test_rows_sharing_a_dedup_key_always_share_a_cluster(db) -> None:
     ])
     match_clusters()
     cl = _clusters(db)
-    assert cl["h"] == cl["b-exact"] == cl["b-fuzzy"]
+    assert cl["h"] == cl["b-exact"] and cl["b-fuzzy"] is None
     _assert_invariant(db)
 
 
@@ -302,3 +303,59 @@ def test_a_failing_cluster_step_never_changes_the_update_exit_code(db, monkeypat
     monkeypatch.setitem(run._SOURCE_ITER, "hemnet", it)
     result = CliRunner().invoke(run.cli, ["update", "--source", "hemnet", "--district", "ostermalm"])
     assert result.exit_code == 0 and "matcher exploded" in result.output
+
+
+@pytest.mark.parametrize("extra", [{"areaSqm": 37}, {"rooms": 2}])
+def test_physical_details_prevent_false_matches(db, extra):
+    upsert_listings([_row("hemnet", "h"), _row("booli", "b", price=4_905_000, **extra)])
+    assert match_clusters().rows_updated == 0
+
+
+def test_correction_undoes_stale_cluster(db):
+    upsert_listings([_row("hemnet", "h"), _row("booli", "b", price=4_905_000)])
+    match_clusters()
+    upsert_listings([_row("booli", "b", price=6_200_000)])
+    assert match_clusters().rows_updated == 2
+    assert set(_clusters(db).values()) == {None}
+
+
+def test_split_key_without_cross_source_partner_is_healed(db):
+    upsert_listings([_row("hemnet", "h1"), _row("hemnet", "h2")])
+    with db.begin() as c:
+        c.execute(text('UPDATE "Listing" SET "clusterId" = "sourceId"'))
+    assert match_clusters().violations == []
+    assert len(set(_clusters(db).values())) == 1
+
+
+def test_dry_run_counts_late_copy_once(db):
+    upsert_listings([_row("hemnet", "h"), _row("booli", "b", price=4_905_000)])
+    match_clusters()
+    upsert_listings([_row("booli", "b2", price=4_905_000)])
+    predicted = match_clusters(dry_run=True)
+    actual = match_clusters()
+    assert predicted.rows_updated == actual.rows_updated == 1
+
+
+@pytest.mark.parametrize("street", ["ÅÄÖÉÈgatan", "åäöéègatan"])
+def test_sql_address_fold_handles_both_cases(db, street):
+    upsert_listings([_row("hemnet", "h", street=street),
+                     _row("booli", "b", street="AAOEEgatan", price=4_905_000)])
+    assert match_clusters().pairs == 1
+
+
+def test_two_apartments_reported_by_both_sources_remain_two_sales(db):
+    upsert_listings([
+        _row("hemnet", "h1"), _row("booli", "b1"),
+        _row("hemnet", "h2", sold=DAY + timedelta(days=2), price=4_920_000, areaSqm=62, rooms=2.5),
+        _row("booli", "b2", sold=DAY + timedelta(days=2), price=4_920_000, areaSqm=62, rooms=2.5),
+    ])
+    match_clusters()
+    with db.connect() as c:
+        assert c.execute(text('SELECT COUNT(*) FROM "DedupedListing"')).scalar_one() == 2
+
+
+@pytest.mark.parametrize("area,rooms", [(36, 1.5), (35.7, 1), (None, None)])
+def test_physical_detail_boundaries_and_missing_values_allow_matches(db, area, rooms):
+    upsert_listings([_row("hemnet", "h"),
+                     _row("booli", "b", price=4_905_000, areaSqm=area, rooms=rooms)])
+    assert match_clusters().rows_updated == 2

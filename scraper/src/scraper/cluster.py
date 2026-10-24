@@ -6,7 +6,8 @@ date or a few thousand kronor on the price, so such copies slip through and are
 double-counted. This matcher links them:
 
     same normalized address (normalize.normalize_address), different sources,
-    |soldAt difference| <= 3 days, prices within 0.5% of each other.
+    |soldAt difference| <= 3 days, prices within 0.5% of each other,
+    areas within 1 sqm or 2%, rooms within 0.5 (when both are known).
 
 Every copy of one real-world sale then shares a `clusterId`, which `DedupedListing`
 groups on. Rules the view relies on:
@@ -15,15 +16,16 @@ groups on. Rules the view relies on:
   construction). The matcher works on dedupKey groups, not single rows, and also
   propagates a cluster to rows that arrived later with the same dedupKey.
 * `clusterId` is the smallest `dedupKey` in the cluster: deterministic, so a re-run
-  changes nothing and merging two clusters always lands on the same id (rows of the
-  cluster that doesn't hold the smallest key are the ones rewritten).
+  changes nothing.
 * Rows without a dedupKey are left alone (`scraper backfill-dedup` fills those first).
 * The address comparison is exactly normalize_address(): "S:t Eriksgatan" and
   "Sankt Eriksgatan" stay different until the slug/fold consolidation (B22/B23).
 
 Pair candidates are found in SQL (a self-join on a coarse address key plus the date
-and price windows) and verified in Python with the exact rule; the connected
-components are then written back in batches. Idempotent.
+and price windows) and verified in Python with the exact rule. Candidates are
+processed closest-first (date, then relative price difference). Components never
+contain distinct keys from one source. Every run rebuilds from current facts and
+writes only changed rows, so corrections also undo obsolete clusters.
 """
 
 from __future__ import annotations
@@ -47,17 +49,17 @@ MAX_PRICE_DIFF_INVERSE = 200
 # equal here: this only ever *over*-selects, and every pair is re-checked in Python.
 _SQL_ADDRESS_KEY = (
     "regexp_replace(translate(lower(%(a)s.street || ' ' || coalesce(%(a)s.\"houseNumber\", '')), "
-    "'åäöéè', 'aaoee'), '[^a-z0-9]', '', 'g')"
+    "'åäöéèÅÄÖÉÈ', 'aaoeeaaoee'), '[^a-z0-9]', '', 'g')"
 )
 
 _PAIRS_SQL = text(
     f"""
     SELECT a."dedupKey" AS a_key, a."clusterId" AS a_cid, a.street AS a_street,
            a."houseNumber" AS a_house, a."soldAt" AS a_sold, a."priceSek" AS a_price,
-           a.source AS a_source,
+           a.source AS a_source, a."areaSqm" AS a_area, a.rooms AS a_rooms,
            b."dedupKey" AS b_key, b."clusterId" AS b_cid, b.street AS b_street,
            b."houseNumber" AS b_house, b."soldAt" AS b_sold, b."priceSek" AS b_price,
-           b.source AS b_source
+           b.source AS b_source, b."areaSqm" AS b_area, b.rooms AS b_rooms
     FROM "Listing" a
     JOIN "Listing" b
       ON a.source < b.source
@@ -66,8 +68,7 @@ _PAIRS_SQL = text(
      AND abs(a."priceSek" - b."priceSek") * {MAX_PRICE_DIFF_INVERSE} <= greatest(a."priceSek", b."priceSek")
     WHERE a."dedupKey" IS NOT NULL AND b."dedupKey" IS NOT NULL
       AND a."priceSek" > 0 AND b."priceSek" > 0
-      AND (a."clusterId" IS DISTINCT FROM b."clusterId"
-           OR (a."clusterId" IS NULL AND a."dedupKey" <> b."dedupKey"))
+
     """
 )
 
@@ -92,6 +93,13 @@ def _is_match(p: dict) -> bool:
         return False
     if abs((p["a_sold"] - p["b_sold"]).days) > MAX_DAYS:
         return False
+    if p["a_area"] is not None and p["b_area"] is not None:
+        difference = abs(p["a_area"] - p["b_area"])
+        if difference > 1 and difference * 50 > max(p["a_area"], p["b_area"]):
+            return False
+    if p["a_rooms"] is not None and p["b_rooms"] is not None:
+        if abs(p["a_rooms"] - p["b_rooms"]) > 0.5:
+            return False
     hi, lo = max(p["a_price"], p["b_price"]), min(p["a_price"], p["b_price"])
     return lo > 0 and (hi - lo) * MAX_PRICE_DIFF_INVERSE <= hi
 
@@ -135,65 +143,62 @@ def match_clusters(*, dry_run: bool = False, batch_size: int = 500) -> ClusterSu
         raise ValueError("batch_size must be >= 1")
     summary = ClusterSummary(dry_run=dry_run)
 
+    # Rebuild from current facts, never from old clusterIds: corrected records
+    # must be able to leave a previously valid cluster.
     uf = _UnionFind()
     with session() as s:
-        for row in s.execute(_PAIRS_SQL).mappings():
-            if not _is_match(row):
-                continue
-            summary.pairs += 1
-            ka, kb = f"k:{row['a_key']}", f"k:{row['b_key']}"
-            uf.union(ka, kb)
-            for key, cid in ((ka, row["a_cid"]), (kb, row["b_cid"])):
-                if cid is not None:
-                    uf.union(key, f"c:{cid}")
+        rows = list(s.execute(text(
+            'SELECT id, source, "dedupKey", "clusterId" FROM "Listing" '
+            'WHERE "dedupKey" IS NOT NULL'
+        )).mappings())
+        sources: dict[str, dict[str, str]] = {}
+        by_key: dict[str, list] = {}
+        for row in rows:
+            key = row["dedupKey"]
+            uf.find(key)
+            sources.setdefault(key, {})[row["source"]] = key
+            by_key.setdefault(key, []).append(row)
+        candidates = [p for p in s.execute(_PAIRS_SQL).mappings() if _is_match(p)]
+        candidates.sort(key=lambda p: (
+            abs((p["a_sold"] - p["b_sold"]).days),
+            abs(p["a_price"] - p["b_price"]) / max(p["a_price"], p["b_price"]),
+            min(p["a_key"], p["b_key"]), max(p["a_key"], p["b_key"]),
+        ))
+        for pair in candidates:
+            a, b = uf.find(pair["a_key"]), uf.find(pair["b_key"])
+            if a != b:
+                if any(source in sources[b] and sources[b][source] != key
+                       for source, key in sources[a].items()):
+                    continue
+                combined = sources[a] | sources[b]
+                uf.union(a, b)
+                sources[uf.find(a)] = combined
+            if pair["a_cid"] != pair["b_cid"] or pair["a_cid"] is None:
+                summary.pairs += 1
 
-        if summary.pairs:
-            _close_over_existing_clusters(s, uf)
-
-    components: dict[str, list[str]] = {}
-    for node in list(uf.parent):
-        components.setdefault(uf.find(node), []).append(node)
-
-    work: list[tuple[str, list[str], list[str]]] = []  # (target, keys, old clusterIds)
-    for nodes in components.values():
-        keys = sorted(n[2:] for n in nodes if n.startswith("k:"))
-        cids = sorted(n[2:] for n in nodes if n.startswith("c:"))
-        if keys:
-            work.append((keys[0], keys, cids))
-    work.sort()
-
-    for start in range(0, len(work), batch_size):
-        with session() as s:
-            for target, keys, cids in work[start : start + batch_size]:
-                changed = _assign(s, target, keys, cids, dry_run)
-                if changed:
-                    summary.components += 1
-                    summary.rows_updated += changed
-                    if len(summary.examples) < 5:
-                        summary.examples.append((target, keys))
-            if not dry_run:
-                s.commit()
-
-    # Late exact copies: a row that arrived with the dedupKey of a clustered row but
-    # no clusterId of its own (the view already treats it as clustered).
-    with session() as s:
-        propagate_sql = (
-            'FROM "Listing" l JOIN (SELECT "dedupKey", MIN("clusterId") AS cid FROM "Listing" '
-            'WHERE "clusterId" IS NOT NULL AND "dedupKey" IS NOT NULL GROUP BY "dedupKey") k '
-            'ON k."dedupKey" = l."dedupKey" WHERE l."clusterId" IS NULL'
-        )
-        if dry_run:
-            summary.propagated = s.execute(text(f"SELECT COUNT(*) {propagate_sql}")).scalar_one()
-        else:
-            summary.propagated = s.execute(
-                text(
-                    'UPDATE "Listing" SET "clusterId" = k.cid FROM (SELECT "dedupKey", MIN("clusterId") AS cid '
-                    'FROM "Listing" WHERE "clusterId" IS NOT NULL AND "dedupKey" IS NOT NULL GROUP BY "dedupKey") k '
-                    'WHERE k."dedupKey" = "Listing"."dedupKey" AND "Listing"."clusterId" IS NULL'
-                )
-            ).rowcount
+        components: dict[str, list[str]] = {}
+        for key in by_key:
+            components.setdefault(uf.find(key), []).append(key)
+        changes = []
+        for root, keys in sorted(components.items()):
+            members = [row for key in keys for row in by_key[key]]
+            target = root if len(members) > 1 else None
+            changed = [row for row in members if row["clusterId"] != target]
+            if changed:
+                summary.components += 1
+                summary.rows_updated += len(changed)
+                inherited_keys = {row["dedupKey"] for row in members
+                                  if target is not None and row["clusterId"] == target}
+                summary.propagated += sum(row["clusterId"] is None and row["dedupKey"] in inherited_keys
+                                          for row in changed)
+                if len(summary.examples) < 5:
+                    summary.examples.append((target or root, sorted(keys)))
+                changes.extend({"id": row["id"], "target": target} for row in changed)
+        if not dry_run:
+            for start in range(0, len(changes), batch_size):
+                s.execute(text('UPDATE "Listing" SET "clusterId" = :target WHERE id = :id'),
+                          changes[start:start + batch_size])
             s.commit()
-    summary.rows_updated += summary.propagated
 
     summary.violations = dedup_keys_in_multiple_clusters()
     log.info(
@@ -201,42 +206,3 @@ def match_clusters(*, dry_run: bool = False, batch_size: int = 500) -> ClusterSu
         summary.pairs, summary.components, summary.rows_updated, len(summary.violations), dry_run,
     )
     return summary
-
-
-def _close_over_existing_clusters(s, uf: _UnionFind) -> None:
-    """Pull every row of each touched cluster / dedupKey into the graph, until it stops
-    growing: merging must see the clusters' whole membership, not just the matched rows."""
-    known_keys: set[str] = set()
-    known_cids: set[str] = set()
-    while True:
-        keys = {n[2:] for n in uf.parent if n.startswith("k:")}
-        cids = {n[2:] for n in uf.parent if n.startswith("c:")}
-        if keys == known_keys and cids == known_cids:
-            return
-        known_keys, known_cids = keys, cids
-        rows = s.execute(
-            text(
-                'SELECT DISTINCT "dedupKey", "clusterId" FROM "Listing" '
-                'WHERE "dedupKey" = ANY(:keys) OR "clusterId" = ANY(:cids)'
-            ),
-            {"keys": sorted(keys), "cids": sorted(cids)},
-        ).all()
-        for key, cid in rows:
-            if key is not None:
-                uf.find(f"k:{key}")
-            if cid is not None:
-                uf.find(f"c:{cid}")
-            if key is not None and cid is not None:
-                uf.union(f"k:{key}", f"c:{cid}")
-
-
-def _assign(s, target: str, keys: list[str], cids: list[str], dry_run: bool) -> int:
-    """Give every row of the component `target` as its clusterId. Returns rows changed."""
-    where = (
-        '("dedupKey" = ANY(:keys) OR "clusterId" = ANY(:cids)) '
-        'AND "clusterId" IS DISTINCT FROM :target'
-    )
-    params = {"keys": keys, "cids": cids, "target": target}
-    if dry_run:
-        return s.execute(text(f'SELECT COUNT(*) FROM "Listing" WHERE {where}'), params).scalar_one()
-    return s.execute(text(f'UPDATE "Listing" SET "clusterId" = :target WHERE {where}'), params).rowcount
