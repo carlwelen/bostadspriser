@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ComparisonNavigation } from "@/components/ComparisonNavigation";
 import { CompareBuilder } from "@/components/CompareBuilder";
-import { CHART_COLORS } from "@/components/chartColors";
+import { comparisonColor } from "@/components/chartColors";
 import { comparisonHref, comparisonIds, parseComparisonSpec, type ComparisonSpec } from "@/components/comparison";
 import { GranularityToggle } from "@/components/GranularityToggle";
 import { granularityCaption, parseGranularity } from "@/components/granularity";
@@ -48,7 +48,7 @@ export default async function ComparePage({
     return data ? { ...data, id } : null;
   }));
   const selected = loaded.filter((s): s is NonNullable<typeof s> => !!s)
-    .map((s, i) => ({ ...s, color: CHART_COLORS[i % CHART_COLORS.length] }));
+    .map((s, i) => ({ ...s, color: comparisonColor(s.id, i) }));
   const series: Series[] = selected;
   const streets = await listAllStreets();
   const options = [

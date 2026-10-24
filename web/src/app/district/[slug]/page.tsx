@@ -22,7 +22,7 @@ import {
   listStreets,
   recentSales,
 } from "@/lib/aggregations";
-import { districtName, isDistrictSlug } from "@/lib/districts";
+import { districtColor, districtName, isDistrictSlug } from "@/lib/districts";
 import { describeMom } from "./mom";
 
 export const dynamic = "force-dynamic";
@@ -119,7 +119,7 @@ export default async function DistrictPage({
               </Link>
             </div>
           </div>
-          <PriceChart series={[{ name: districtName(slug), points }]} granularity={granularity} />
+          <PriceChart series={[{ name: districtName(slug), points, color: districtColor(slug) }]} granularity={granularity} />
         </section>
 
         {topStreets.length > 0 && (

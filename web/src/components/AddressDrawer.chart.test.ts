@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { AddressDrawer, type AddressSelection } from "./AddressDrawer";
+import { CHART_THEME } from "./chartColors";
 import { drawerSeries } from "./map/drawerSeries";
 import type { AddressResponse } from "@/lib/api-types";
 
@@ -108,9 +109,9 @@ it("keeps sparse street buckets visible as hollow points (F12)", async () => {
   ] }, (host) => {
     const dots = [...host.querySelectorAll(".recharts-area-dots circle")];
     expect(dots).toHaveLength(2);
-    expect(dots[0].getAttribute("fill")).toBe("white");
+    expect(dots[0].getAttribute("fill")).toBe(CHART_THEME.surface);
     expect(Number(dots[0].getAttribute("r"))).toBeGreaterThanOrEqual(4);
-    expect(dots[1].getAttribute("fill")).toBe("#1d4ed8");
+    expect(dots[1].getAttribute("fill")).toBe(CHART_THEME.primary);
   });
 });
 

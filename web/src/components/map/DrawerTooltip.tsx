@@ -1,4 +1,5 @@
 import type { AddressResponse } from "@/lib/api-types";
+import { CHART_THEME } from "../chartColors";
 import { formatSales } from "../plural";
 
 const SEK = new Intl.NumberFormat("sv-SE");
@@ -8,8 +9,8 @@ export function StreetDot({ cx, cy, payload }: {
 }) {
   if (cx == null || cy == null || payload?.trend == null) return <g />;
   const sparse = payload.count < 3;
-  return <circle cx={cx} cy={cy} r={sparse ? 4 : 2.5} fill={sparse ? "white" : "#1d4ed8"}
-    stroke="#1d4ed8" strokeWidth={sparse ? 2 : 1} aria-label={formatSales(payload.count)} />;
+  return <circle cx={cx} cy={cy} r={sparse ? 4 : 2.5} fill={sparse ? CHART_THEME.surface : CHART_THEME.primary}
+    stroke={CHART_THEME.primary} strokeWidth={sparse ? 2 : 1} aria-label={formatSales(payload.count)} />;
 }
 
 export function DrawerTooltip({ active, label, data }: {

@@ -15,7 +15,7 @@ import {
 import { useMemo } from "react";
 import type { Granularity } from "@/lib/aggregations";
 import { ChartDataTable } from "./ChartDataTable";
-import { CHART_COLORS } from "./chartColors";
+import { CHART_COLORS, CHART_THEME } from "./chartColors";
 import { formatSales } from "./plural";
 import {
   buildChartData,
@@ -120,7 +120,7 @@ function dotFor(name: string, color: string) {
         cx={cx}
         cy={cy}
         r={low ? 4 : 2.5}
-        fill={low ? "#ffffff" : color}
+        fill={low ? CHART_THEME.surface : color}
         stroke={low ? color : "none"}
         strokeWidth={low ? 1.75 : 0}
         strokeOpacity={1}
@@ -162,7 +162,7 @@ export function PriceChart({
 
   const axes = (
     <>
-      <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
+      <CartesianGrid stroke={CHART_THEME.grid} strokeDasharray="3 3" />
       <XAxis
         dataKey="t"
         type="number"
@@ -170,12 +170,12 @@ export function PriceChart({
         domain={["dataMin", "dataMax"]}
         ticks={ticks}
         tickFormatter={(t) => formatBucket(Number(t), granularity)}
-        tick={{ fontSize: 11, fill: "#71717a" }}
+        tick={{ fontSize: 11, fill: CHART_THEME.axis }}
         tickLine={false}
         axisLine={false}
       />
       <YAxis
-        tick={{ fontSize: 11, fill: "#71717a" }}
+        tick={{ fontSize: 11, fill: CHART_THEME.axis }}
         tickLine={false}
         axisLine={false}
         tickFormatter={(v) => `${SEK.format(Math.round(Number(v) / 1000))}k`}
@@ -183,7 +183,7 @@ export function PriceChart({
         domain={["auto", "auto"]}
       />
       <Tooltip
-        cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3" }}
+        cursor={{ stroke: CHART_THEME.cursor, strokeDasharray: "3 3" }}
         content={<ChartTooltip granularity={granularity} />}
       />
     </>

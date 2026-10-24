@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { CHART_THEME } from "../src/components/chartColors";
 import { expect, test } from "./fixtures";
 
 // F11 / F12: the price chart has a true time axis (months without sales are
@@ -89,7 +90,7 @@ for (const path of ["/street/ostermalm/karlavagen/2", "/street/sodermalm/gotgata
   test(`low-sample address dots remain visible with 3:1 contrast: ${path}`, async ({ page }) => {
     await page.goto(path);
     await page.waitForLoadState("networkidle");
-    const dots = page.locator('svg circle.recharts-dot[data-low-sample="true"][stroke="#2563eb"]');
+    const dots = page.locator(`svg circle.recharts-dot[data-low-sample="true"][stroke="${CHART_THEME.address}"]`);
     await expect(dots.first()).toBeVisible();
     const styles = await dots.evaluateAll((els) => els.map((el) => {
       const style = getComputedStyle(el);
@@ -117,7 +118,7 @@ test("address markers remain painted above coincident street and district marker
   await page.goto("/street/ostermalm/karlavagen/2");
   await page.waitForLoadState("networkidle");
   await page.locator(".recharts-wrapper").first().scrollIntoViewIfNeeded();
-  const dots = page.locator('svg circle.recharts-dot[data-low-sample="true"][stroke="#2563eb"]');
+  const dots = page.locator(`svg circle.recharts-dot[data-low-sample="true"][stroke="${CHART_THEME.address}"]`);
   await expect(dots).toHaveCount(4);
   // Hit testing follows actual SVG paint order. A later opaque circle can hide
   // an address marker even when its own stroke and CSS contrast are correct.

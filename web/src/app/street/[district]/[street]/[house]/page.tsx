@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { CHART_THEME } from "@/components/chartColors";
 import { GranularityToggle } from "@/components/GranularityToggle";
 import { granularityCaption, parseGranularity } from "@/components/granularity";
 import { PageHero } from "@/components/PageHero";
@@ -15,7 +16,7 @@ import {
   recentSales,
   streetTimeseries,
 } from "@/lib/aggregations";
-import { districtName } from "@/lib/districts";
+import { districtColor, districtName } from "@/lib/districts";
 import { resolveStreet } from "../../../resolveStreet";
 
 export const dynamic = "force-dynamic";
@@ -79,9 +80,9 @@ export default async function AddressPage({
           </div>
           <PriceChart
             series={[
-              { name: `${street} ${houseNumber}`, points: addressPoints, color: "#2563eb" },
-              { name: `${street} (gata)`, points: streetPoints, color: "#a1a1aa" },
-              { name: `${districtName(district)} (stadsdel)`, points: districtPoints, color: "#0f172a" },
+              { name: `${street} ${houseNumber}`, points: addressPoints, color: CHART_THEME.address },
+              { name: `${street} (gata)`, points: streetPoints, color: CHART_THEME.reference },
+              { name: `${districtName(district)} (stadsdel)`, points: districtPoints, color: districtColor(district) },
             ]}
             granularity={granularity}
           />

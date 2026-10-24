@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 
+import { CHART_THEME } from "./chartColors";
 import { DrawerTooltip, StreetDot } from "./map/DrawerTooltip";
 import { formatSales } from "./plural";
 import { SourceBadge } from "./SourceBadge";
@@ -214,11 +215,11 @@ export function AddressDrawer({
                   <ComposedChart aria-label={`Prisutveckling på ${selection.address} och gatan`} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
                     <defs>
                       <linearGradient id="addrGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#1d4ed8" stopOpacity={0.18} />
-                        <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.01} />
+                        <stop offset="0%" stopColor={CHART_THEME.primary} stopOpacity={0.18} />
+                        <stop offset="100%" stopColor={CHART_THEME.primary} stopOpacity={0.01} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
+                    <CartesianGrid stroke={CHART_THEME.grid} strokeDasharray="3 3" />
                     <XAxis
                       dataKey="t"
                       type="number"
@@ -227,13 +228,13 @@ export function AddressDrawer({
                       padding={{ left: 6, right: 6 }}
                       domain={["dataMin", "dataMax"]}
                       tickFormatter={(b) => formatBucket(new Date(Number(b)).toISOString(), data?.granularity ?? "month")}
-                      tick={{ fontSize: 11, fill: "#71717a" }}
+                      tick={{ fontSize: 11, fill: CHART_THEME.axis }}
                       tickLine={false}
                       axisLine={false}
                     />
                     <YAxis
                       padding={{ top: 6, bottom: 6 }}
-                      tick={{ fontSize: 11, fill: "#71717a" }}
+                      tick={{ fontSize: 11, fill: CHART_THEME.axis }}
                       tickLine={false}
                       axisLine={false}
                       tickFormatter={(v) => `${SEK.format(Math.round(Number(v) / 1000))}k`}
@@ -249,7 +250,7 @@ export function AddressDrawer({
                       type="monotone"
                       dataKey="trend"
                       name="trend"
-                      stroke="#1d4ed8"
+                      stroke={CHART_THEME.primary}
                       strokeWidth={1.75}
                       fill="url(#addrGrad)"
                       connectNulls={false}
@@ -259,8 +260,8 @@ export function AddressDrawer({
                       data={saleRows}
                       dataKey="sale"
                       name="sale"
-                      fill="#0b0d12"
-                      stroke="white"
+                      fill={CHART_THEME.address}
+                      stroke={CHART_THEME.surface}
                       strokeWidth={2}
                     />
                   </ComposedChart>

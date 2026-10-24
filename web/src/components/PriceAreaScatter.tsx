@@ -11,24 +11,14 @@ import {
   ZAxis,
 } from "recharts";
 
+import { districtColor, districtName, isDistrictSlug } from "@/lib/districts";
+import { CHART_THEME } from "./chartColors";
 import { ChartDataTable } from "./ChartDataTable";
 
 const SEK = new Intl.NumberFormat("sv-SE");
 
-// Color-blind-aware, data-forward palette. One accent + three calm companions.
-const DISTRICT_COLORS: Record<string, string> = {
-  ostermalm: "#1d4ed8",
-  vasastan: "#0f172a",
-  norrmalm: "#0d9488",
-  sodermalm: "#b45309",
-};
-
-const DISTRICT_LABELS: Record<string, string> = {
-  ostermalm: "Östermalm",
-  vasastan: "Vasastan",
-  norrmalm: "Norrmalm",
-  sodermalm: "Södermalm",
-};
+const labelOf = (district: string) => isDistrictSlug(district) ? districtName(district) : district;
+const colorOf = (district: string) => isDistrictSlug(district) ? districtColor(district) : CHART_THEME.axis;
 
 type Point = {
   areaSqm: number;
@@ -59,13 +49,13 @@ export function PriceAreaScatter({ data }: { data: Point[] }) {
       <div className="h-80 w-full min-w-0">
         <ResponsiveContainer initialDimension={{ width: 200, height: 320 }}>
           <ScatterChart aria-label="Yta och pris per kvadratmeter per stadsdel" margin={{ top: 8, right: 16, bottom: 16, left: 4 }}>
-            <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
+            <CartesianGrid stroke={CHART_THEME.grid} strokeDasharray="3 3" />
             <XAxis
               type="number"
               dataKey="areaSqm"
               name="Yta"
               unit=" m²"
-              tick={{ fontSize: 11, fill: "#71717a" }}
+              tick={{ fontSize: 11, fill: CHART_THEME.axis }}
               tickLine={false}
               axisLine={false}
             />
@@ -73,7 +63,7 @@ export function PriceAreaScatter({ data }: { data: Point[] }) {
               type="number"
               dataKey="pricePerSqm"
               name="Pris/m²"
-              tick={{ fontSize: 11, fill: "#71717a" }}
+              tick={{ fontSize: 11, fill: CHART_THEME.axis }}
               tickLine={false}
               axisLine={false}
               tickFormatter={(v) => `${SEK.format(Math.round(Number(v) / 1000))}k`}
@@ -81,11 +71,11 @@ export function PriceAreaScatter({ data }: { data: Point[] }) {
             />
             <ZAxis range={[20, 20]} />
             <Tooltip
-              cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3" }}
+              cursor={{ stroke: CHART_THEME.cursor, strokeDasharray: "3 3" }}
               contentStyle={{
                 fontSize: 12,
                 borderRadius: 10,
-                border: "1px solid #e4e4e7",
+                border: `1px solid ${CHART_THEME.grid}`,
               }}
               formatter={(value, name) => {
                 if (name === "Yta") return [`${value} m²`, name];
@@ -96,11 +86,11 @@ export function PriceAreaScatter({ data }: { data: Point[] }) {
             {[...byDistrict.entries()].map(([district, pts]) => (
               <Scatter
                 key={district}
-                name={DISTRICT_LABELS[district] ?? district}
+                name={labelOf(district)}
                 data={pts}
-                fill={DISTRICT_COLORS[district] ?? "#71717a"}
+                fill={colorOf(district)}
                 fillOpacity={0.55}
-                stroke="white"
+                stroke={CHART_THEME.surface}
                 strokeWidth={1}
               />
             ))}
@@ -112,15 +102,15 @@ export function PriceAreaScatter({ data }: { data: Point[] }) {
           <div key={district} className="flex items-center gap-1.5 text-zinc-700">
             <span
               className="h-2 w-3 rounded-full"
-              style={{ background: DISTRICT_COLORS[district] ?? "#71717a" }}
+              style={{ background: colorOf(district) }}
               aria-hidden
             />
-            {DISTRICT_LABELS[district] ?? district}
+            {labelOf(district)}
           </div>
         ))}
       </div>
       <ChartDataTable title="Yta och pris – diagramdata" headers={["Stadsdel", "Yta m²", "Pris kr/m²", "Rum"]}
-        rows={data.map((point) => [DISTRICT_LABELS[point.district] ?? point.district, SEK.format(point.areaSqm), SEK.format(point.pricePerSqm), point.rooms ?? "—"])} />
+        rows={data.map((point) => [labelOf(point.district), SEK.format(point.areaSqm), SEK.format(point.pricePerSqm), point.rooms ?? "—"])} />
     </div>
   );
 }

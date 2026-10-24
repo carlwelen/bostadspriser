@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { ChartDataTable } from "./ChartDataTable";
+import { CHART_THEME } from "./chartColors";
 import { formatSold } from "./plural";
 
 const SEK = new Intl.NumberFormat("sv-SE");
@@ -33,16 +34,16 @@ export function Histogram({
       <div className="h-72 w-full min-w-0">
         <ResponsiveContainer initialDimension={{ width: 200, height: 288 }}>
           <BarChart aria-label="Prisfördelning per kvadratmeter" data={data} margin={{ top: 8, right: 16, bottom: 8, left: 4 }}>
-            <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
+            <CartesianGrid stroke={CHART_THEME.grid} strokeDasharray="3 3" />
             <XAxis
               dataKey="bucket"
-              tick={{ fontSize: 11, fill: "#71717a" }}
+              tick={{ fontSize: 11, fill: CHART_THEME.axis }}
               tickLine={false}
               axisLine={false}
               tickFormatter={(v) => `${SEK.format(Math.round(Number(v) / 1000))}k`}
             />
             <YAxis
-              tick={{ fontSize: 11, fill: "#71717a" }}
+              tick={{ fontSize: 11, fill: CHART_THEME.axis }}
               tickLine={false}
               axisLine={false}
               allowDecimals={false}
@@ -53,7 +54,7 @@ export function Histogram({
               contentStyle={{
                 fontSize: 12,
                 borderRadius: 10,
-                border: "1px solid #e4e4e7",
+                border: `1px solid ${CHART_THEME.grid}`,
               }}
               formatter={(v) => [formatSold(Number(v)), "Antal"]}
               labelFormatter={(label) => {
@@ -61,7 +62,7 @@ export function Histogram({
                 return `${SEK.format(start)}–${SEK.format(start + bucketWidth - 1)} kr/m²`;
               }}
             />
-            <Bar dataKey="count" fill="#1d4ed8" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="count" fill={CHART_THEME.primary} radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
