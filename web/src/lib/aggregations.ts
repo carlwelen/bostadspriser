@@ -55,6 +55,20 @@ export function stockholmToday(asOf: Date = new Date()): Prisma.Sql {
 /** Median kr/m² as whole kronor (half-up), for use inside aggregate queries. */
 const MEDIAN_PPS = Prisma.sql`ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY "pricePerSqmSek"))::numeric)::bigint`;
 
+/**
+ * Room segmentation shared by page queries: undefined/[] includes unknown rooms;
+ * selected values match FLOOR(rooms), with 5 meaning 5+. Unknown rooms are
+ * excluded when a selection is active. Appended arguments preserve old callers.
+ */
+function roomFilter(rooms?: number[]): Prisma.Sql {
+  if (!rooms?.length) return Prisma.sql``;
+  const exact = rooms.filter((r) => r !== OPEN_ENDED_ROOMS);
+  const alternatives: Prisma.Sql[] = [];
+  if (exact.length) alternatives.push(Prisma.sql`FLOOR(rooms) IN (${Prisma.join(exact)})`);
+  if (rooms.includes(OPEN_ENDED_ROOMS)) alternatives.push(Prisma.sql`rooms >= ${OPEN_ENDED_ROOMS}`);
+  return Prisma.sql`AND (${Prisma.join(alternatives, " OR ")})`;
+}
+
 const TRUNC = (g: Granularity) => (g === "year" ? "year" : "month");
 
 // The slug lives in ./text (shared vectors with the scraper); re-exported so
@@ -76,7 +90,8 @@ async function streetFromSlugUncached(
 
 async function districtTimeseriesUncached(
   district: DistrictSlug,
-  granularity: Granularity = "month"
+  granularity: Granularity = "month",
+  rooms?: number[]
 ): Promise<TimeseriesPoint[]> {
   const trunc = TRUNC(granularity);
   const rows = await prisma.$queryRaw<
@@ -89,6 +104,7 @@ async function districtTimeseriesUncached(
       COUNT(*)::bigint                     AS n
     FROM "DedupedListingMat"
     WHERE district = ${district}::"District"
+      ${roomFilter(rooms)}
       AND "pricePerSqmSek" > 0
     GROUP BY bucket
     ORDER BY bucket ASC
@@ -106,7 +122,8 @@ async function streetTimeseriesUncached(
   district: DistrictSlug,
   street: string,
   granularity: Granularity = "month",
-  houseNumber?: string
+  houseNumber?: string,
+  rooms?: number[]
 ): Promise<TimeseriesPoint[]> {
   const trunc = TRUNC(granularity);
   const houseFilter = houseNumber
@@ -124,6 +141,7 @@ async function streetTimeseriesUncached(
     WHERE district = ${district}::"District"
       AND street    = ${street}
       ${houseFilter}
+      ${roomFilter(rooms)}
       AND "pricePerSqmSek" > 0
     GROUP BY bucket
     ORDER BY bucket ASC
@@ -139,7 +157,8 @@ async function streetTimeseriesUncached(
 
 async function listStreetsUncached(
   district: DistrictSlug,
-  limit = 200
+  limit = 200,
+  rooms?: number[]
 ): Promise<StreetSummary[]> {
   const rows = await prisma.$queryRaw<
     Array<{
@@ -157,6 +176,7 @@ async function listStreetsUncached(
            MAX("soldAt")                   AS latest
     FROM "DedupedListingMat"
     WHERE district = ${district}::"District"
+      ${roomFilter(rooms)}
       AND "pricePerSqmSek" > 0
     GROUP BY street
     ORDER BY n DESC, street ASC
@@ -191,7 +211,8 @@ const HOUSE_NUMBER_ORDER = Prisma.sql`
 /** Houses with at least one priced sale; count, mean and median are over priced sales (as in listStreets). */
 async function listHouseNumbersUncached(
   district: DistrictSlug,
-  street: string
+  street: string,
+  rooms?: number[]
 ): Promise<
   Array<{ houseNumber: string; count: number; meanPricePerSqm: number; medianPricePerSqm: number }>
 > {
@@ -206,6 +227,7 @@ async function listHouseNumbersUncached(
     WHERE district = ${district}::"District"
       AND street    = ${street}
       AND "houseNumber" IS NOT NULL
+      ${roomFilter(rooms)}
       AND "pricePerSqmSek" > 0
     GROUP BY "houseNumber"
     ORDER BY ${HOUSE_NUMBER_ORDER}
@@ -220,7 +242,7 @@ async function listHouseNumbersUncached(
 }
 
 async function recentSalesUncached(
-  where: { district: DistrictSlug; street?: string; houseNumber?: string },
+  where: { district: DistrictSlug; street?: string; houseNumber?: string; rooms?: number[] },
   limit = 25
 ): Promise<RecentSale[]> {
   const conds: Prisma.Sql[] = [Prisma.sql`district = ${where.district}::"District"`];
@@ -241,6 +263,7 @@ async function recentSalesUncached(
     SELECT street, "houseNumber", rooms, "areaSqm", "priceSek", "pricePerSqmSek", "soldAt", sources
     FROM "DedupedListingMat"
     WHERE ${Prisma.join(conds, " AND ")}
+      ${roomFilter(where.rooms)}
     ORDER BY "soldAt" DESC
     LIMIT ${limit}
   `);
@@ -563,10 +586,11 @@ async function summarize(
 /** Summary of every sale on one street. */
 async function streetSummaryUncached(
   district: DistrictSlug,
-  street: string
+  street: string,
+  rooms?: number[]
 ): Promise<SalesSummary> {
   const { summary } = await summarize(
-    Prisma.sql`district = ${district}::"District" AND street = ${street}`
+    Prisma.sql`district = ${district}::"District" AND street = ${street} ${roomFilter(rooms)}`
   );
   return summary;
 }
@@ -585,10 +609,11 @@ async function addressSummaryUncached(
 
 /** Exact number of streets with sales in a district, plus the district summary. */
 async function districtStreetCountUncached(
-  district: DistrictSlug
+  district: DistrictSlug,
+  rooms?: number[]
 ): Promise<DistrictStreetCount> {
   const { streetCount, summary } = await summarize(
-    Prisma.sql`district = ${district}::"District"`
+    Prisma.sql`district = ${district}::"District" ${roomFilter(rooms)}`
   );
   return { streetCount, ...summary };
 }
@@ -597,9 +622,10 @@ export type DistrictSummary = SalesSummary;
 
 /** Dedup-aware single-shot summary for one district. */
 async function districtSummaryUncached(
-  district: DistrictSlug
+  district: DistrictSlug,
+  rooms?: number[]
 ): Promise<DistrictSummary> {
-  const { summary } = await summarize(Prisma.sql`district = ${district}::"District"`);
+  const { summary } = await summarize(Prisma.sql`district = ${district}::"District" ${roomFilter(rooms)}`);
   return summary;
 }
 
@@ -633,7 +659,8 @@ export type DistrictMomChange = {
  */
 async function districtMomChangeUncached(
   district: DistrictSlug,
-  asOf: Date = new Date()
+  asOf: Date = new Date(),
+  rooms?: number[]
 ): Promise<DistrictMomChange | null> {
   // `back` = whole calendar months before `asOf`'s month (Stockholm): 1 is the
   // latest complete month, 2 the one before it. Months with no sales have no row.
@@ -651,6 +678,7 @@ async function districtMomChangeUncached(
            to_char(b.cur - INTERVAL '2 months', 'YYYY-MM-DD')                  AS previous_month
     FROM "DedupedListingMat" l, bounds b
     WHERE l.district = ${district}::"District"
+      ${roomFilter(rooms)}
       AND l."pricePerSqmSek" > 0
       AND l."soldAt" >= (b.cur - INTERVAL '2 months')::date
       AND l."soldAt" <  b.cur
