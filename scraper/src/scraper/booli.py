@@ -181,8 +181,11 @@ def card_fields(card: dict, district: str) -> dict | None:
     # Booli does not always expose a per-sqm value; derive it from price/area
     # when missing. Rows with no final price (or neither kr/m² nor area) are
     # skipped, not stored with 0.
-    area_sqm = parse_sqm(area_text)
-    rooms = parse_rooms(rooms_text)
+    try:
+        area_sqm = parse_sqm(area_text)
+        rooms = parse_rooms(rooms_text)
+    except ValueError:
+        return None
     if not sane_measurements(area_sqm, rooms):
         return None
     prices = resolve_prices(price_sek, parse_sek(sqm_price_text), area_sqm)
