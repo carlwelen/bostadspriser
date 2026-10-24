@@ -10,6 +10,7 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from .config import load_config
+from .revalidate import revalidate_app
 
 log = logging.getLogger("scraper.db")
 
@@ -184,7 +185,8 @@ def refresh_deduped() -> str:
     before that migration: silent apart from a DEBUG record), "busy" (a lock timeout,
     SQLSTATE 55P03: another session holds the view; try again later) or "failed"
     (anything else). Failures are logged as a warning with the SQLSTATE. It never
-    raises, so it can't fail a crawl.
+    raises, so it can't fail a crawl. A committed refresh also notifies the
+    configured app to invalidate its cache (best-effort, see revalidate.py).
     """
     try:
         with engine().begin() as c:
@@ -195,10 +197,11 @@ def refresh_deduped() -> str:
                 log.debug("refresh_deduped_listing() does not exist; nothing to refresh")
                 return "missing"
             c.execute(text("SELECT refresh_deduped_listing()"))
-        return "refreshed"
     except Exception as e:  # noqa: BLE001
         sqlstate = getattr(getattr(e, "orig", None), "sqlstate", None)
         log.warning(
             "refreshing the deduplicated snapshot failed error=%s sqlstate=%s", type(e).__name__, sqlstate
         )
         return "busy" if sqlstate == "55P03" else "failed"
+    revalidate_app()
+    return "refreshed"
