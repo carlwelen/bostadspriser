@@ -16,6 +16,7 @@ import { SourceBadge } from "./SourceBadge";
 import { registerModal } from "./map/focusTrap";
 import type { Period } from "@/lib/api-types";
 import { slugifyStreet } from "@/lib/text";
+import { drawerSeries } from "./map/drawerSeries";
 import { useAddressData } from "./map/useAddressData";
 
 const PERIODS = [
@@ -93,26 +94,7 @@ export function AddressDrawer({
     };
   }, [open]);
 
-  const merged = useMemo(() => {
-    if (!data) return [];
-    const byBucket = new Map<string, { bucket: string; trend?: number; sale?: number }>();
-    const sameDaySales: { bucket: string; sale: number }[] = [];
-    for (const p of data.streetSeries) {
-      byBucket.set(p.bucket, { bucket: p.bucket, trend: p.meanPricePerSqm });
-    }
-    for (const s of data.addressSales) {
-      const existing = byBucket.get(s.soldAt) ?? { bucket: s.soldAt };
-      if (existing.sale === undefined) {
-        existing.sale = s.pricePerSqmSek;
-        byBucket.set(s.soldAt, existing);
-      } else {
-        sameDaySales.push({ bucket: s.soldAt, sale: s.pricePerSqmSek });
-      }
-    }
-    return [...byBucket.values(), ...sameDaySales].sort((a, b) =>
-      String(a.bucket).localeCompare(String(b.bucket))
-    );
-  }, [data]);
+  const { trendRows, saleRows, ticks } = useMemo(() => drawerSeries(data), [data]);
 
   if (!selection) return null;
 
@@ -235,13 +217,13 @@ export function AddressDrawer({
                 <div className="grid h-full place-items-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50/60 text-sm text-zinc-500">
                   Laddar…
                 </div>
-              ) : merged.length === 0 ? (
+              ) : trendRows.length === 0 && saleRows.length === 0 ? (
                 <div className="grid h-full place-items-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50/60 text-sm text-zinc-500">
                   Ingen data i vald tidsperiod.
                 </div>
               ) : (
                 <ResponsiveContainer>
-                  <ComposedChart data={merged} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
+                  <ComposedChart margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
                     <defs>
                       <linearGradient id="addrGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#1d4ed8" stopOpacity={0.18} />
@@ -250,9 +232,12 @@ export function AddressDrawer({
                     </defs>
                     <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
                     <XAxis
-                      dataKey="bucket"
-                      allowDuplicatedCategory={false}
-                      tickFormatter={(b) => formatBucket(String(b), data?.granularity ?? "month")}
+                      dataKey="t"
+                      type="number"
+                      scale="time"
+                      ticks={ticks}
+                      domain={["dataMin", "dataMax"]}
+                      tickFormatter={(b) => formatBucket(new Date(Number(b)).toISOString(), data?.granularity ?? "month")}
                       tick={{ fontSize: 11, fill: "#71717a" }}
                       tickLine={false}
                       axisLine={false}
@@ -272,7 +257,7 @@ export function AddressDrawer({
                         border: "1px solid #e4e4e7",
                       }}
                       labelFormatter={(v) =>
-                        formatBucket(String(v), data?.granularity ?? "month")
+                        formatBucket(new Date(Number(v)).toISOString(), data?.granularity ?? "month")
                       }
                       formatter={(value, name) => [
                         `${SEK.format(Number(value))} kr/m²`,
@@ -280,16 +265,18 @@ export function AddressDrawer({
                       ]}
                     />
                     <Area
+                      data={trendRows}
                       type="monotone"
                       dataKey="trend"
                       name="trend"
                       stroke="#1d4ed8"
                       strokeWidth={1.75}
                       fill="url(#addrGrad)"
-                      connectNulls
+                      connectNulls={false}
                       dot={false}
                     />
                     <Scatter
+                      data={saleRows}
                       dataKey="sale"
                       name="sale"
                       fill="#0b0d12"
