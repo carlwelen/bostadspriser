@@ -31,6 +31,7 @@ from urllib.parse import quote
 from .normalize import (
     dedup_key,
     parse_rooms,
+    parse_per_sqm,
     parse_sek,
     parse_sqm,
     parse_street_address,
@@ -175,8 +176,10 @@ def card_fields(card: dict, district: str) -> dict | None:
     # `soldPrice.raw` is the cleanest source; fall back to parsing `formatted`
     # so we stay tolerant if Booli ever drops the raw field.
     price_sek = sold_price.get("raw")
-    if not isinstance(price_sek, int):
-        price_sek = parse_sek(sold_price.get("formatted") or sold_price.get("value"))
+    if price_sek is None:
+        price_sek = parse_sek(sold_price.get("formatted") or sold_price.get("value"), unit="kr")
+    elif isinstance(price_sek, bool) or not isinstance(price_sek, (int, float)):
+        return None
 
     # Booli does not always expose a per-sqm value; derive it from price/area
     # when missing. Rows with no final price (or neither kr/m² nor area) are
@@ -184,11 +187,12 @@ def card_fields(card: dict, district: str) -> dict | None:
     try:
         area_sqm = parse_sqm(area_text)
         rooms = parse_rooms(rooms_text)
+        per_sqm = parse_per_sqm(sqm_price_text)
     except ValueError:
         return None
     if not sane_measurements(area_sqm, rooms):
         return None
-    prices = resolve_prices(price_sek, parse_sek(sqm_price_text), area_sqm)
+    prices = resolve_prices(price_sek, per_sqm, area_sqm)
     if prices is None:
         return None
     final_price, price_per_sqm = prices
