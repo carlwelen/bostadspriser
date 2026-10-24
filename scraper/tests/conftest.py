@@ -37,6 +37,9 @@ _TMP = Path(tempfile.mkdtemp(prefix="scraper-tests-"))
 os.environ["SCRAPER_CACHE_DIR"] = str(_TMP / "cache")
 os.environ["SCRAPER_STORAGE_STATE"] = str(_TMP / "state" / "storageState.json")
 os.environ["MAPBOX_TOKEN"] = "test-token"
+# Notification tests opt in explicitly with a hermetic HTTP transport.
+os.environ["APP_URL"] = ""
+os.environ["REVALIDATE_SECRET"] = ""
 
 
 def _test_database_url() -> str:
