@@ -2,7 +2,7 @@ import type { AddressResponse } from "@/lib/api-types";
 
 /** Place SQL buckets and individual sales on the same UTC time axis. */
 export function drawerSeries(data: AddressResponse | null) {
-  const trendRows: { t: number; trend: number | null }[] = [];
+  const trendRows: { t: number; trend: number | null; count: number }[] = [];
   const buckets = [...(data?.streetSeries ?? [])].sort((a, b) => a.bucket.localeCompare(b.bucket));
   for (const bucket of buckets) {
     const t = Date.parse(bucket.bucket);
@@ -12,9 +12,9 @@ export function drawerSeries(data: AddressResponse | null) {
       if (data?.granularity === "month") next.setUTCMonth(next.getUTCMonth() + 1);
       else next.setUTCDate(next.getUTCDate() + (data?.granularity === "week" ? 7 : 1));
       // One null is enough to break the line across any number of missing buckets.
-      if (next.getTime() < t) trendRows.push({ t: next.getTime(), trend: null });
+      if (next.getTime() < t) trendRows.push({ t: next.getTime(), trend: null, count: 0 });
     }
-    trendRows.push({ t, trend: bucket.meanPricePerSqm });
+    trendRows.push({ t, trend: bucket.meanPricePerSqm, count: bucket.count });
   }
   // Separate series keep address dates from creating holes in the street curve,
   // and preserve multiple observations on the same date.
