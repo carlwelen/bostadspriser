@@ -14,12 +14,21 @@ const LINK =
  * collapse into a "Meny" disclosure. Rendered inside `SiteHeader`; hidden from
  * md up, where the full nav is shown instead.
  */
-export function MobileNav({ crumbs, openSearch }: { crumbs: NavCrumb[]; openSearch: () => void }) {
+export function MobileNav({ crumbs, openSearch, selectionKey = 0 }: { crumbs: NavCrumb[]; openSearch: () => void; selectionKey?: number }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const pathname = usePathname();
+  const previousSelection = useRef(selectionKey);
   useEffect(() => setOpen(false), [pathname]);
+  useEffect(() => {
+    if (previousSelection.current === selectionKey) return;
+    previousSelection.current = selectionKey;
+    if (open) {
+      setOpen(false);
+      toggleRef.current?.focus();
+    }
+  }, [selectionKey, open]);
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {

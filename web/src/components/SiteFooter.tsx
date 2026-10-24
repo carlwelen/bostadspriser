@@ -9,7 +9,7 @@ export function SiteFooter() {
           © Bostadspriser · Slutpriser i Stockholms innerstad. Källa: Hemnet
           &amp; Booli.
         </p>
-        <nav className="flex flex-wrap gap-x-4 gap-y-2">
+        <nav aria-label="Sidfot" className="flex flex-wrap gap-x-4 gap-y-2">
           <Link href="/" className="transition-colors duration-200 hover:text-zinc-900">
             Karta
           </Link>

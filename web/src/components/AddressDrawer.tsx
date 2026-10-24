@@ -211,7 +211,7 @@ export function AddressDrawer({
                 </div>
               ) : (
                 <ResponsiveContainer>
-                  <ComposedChart margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
+                  <ComposedChart aria-label={`Prisutveckling på ${selection.address} och gatan`} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
                     <defs>
                       <linearGradient id="addrGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#1d4ed8" stopOpacity={0.18} />
@@ -321,7 +321,7 @@ function PeriodPills({
 }) {
   return (
     <div
-      role="tablist"
+      role="group"
       aria-label="Tidsperiod"
       className="inline-flex w-full overflow-hidden rounded-lg border border-zinc-200 bg-white p-0.5"
     >
@@ -330,8 +330,8 @@ function PeriodPills({
         return (
           <button
             key={p.value}
-            role="tab"
-            aria-selected={active}
+            type="button"
+            aria-pressed={active}
             onClick={() => onChange(p.value)}
             className={
               "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition " +

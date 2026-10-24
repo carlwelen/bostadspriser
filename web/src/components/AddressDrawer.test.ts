@@ -155,3 +155,21 @@ describe("AddressDrawer retry (F33)", () => {
     await act(async () => root.unmount());
   });
 });
+
+describe("AddressDrawer period filter semantics (F21)", () => {
+  it("uses pressed buttons in a group, with native keyboard focus order", async () => {
+    const { host, root } = await mountPending();
+    try {
+      const group = host.querySelector('[role="group"][aria-label="Tidsperiod"]');
+      expect(group).not.toBeNull();
+      expect(host.querySelector('[role="tablist"]')).toBeNull();
+      const buttons = Array.from(group!.querySelectorAll("button"));
+      expect(buttons).toHaveLength(4);
+      expect(buttons[2].getAttribute("aria-pressed")).toBe("true");
+      expect(buttons.every((button) => button.tabIndex === 0)).toBe(true);
+      await act(async () => buttons[3].click());
+      expect(buttons[3].getAttribute("aria-pressed")).toBe("true");
+      expect(buttons[2].getAttribute("aria-pressed")).toBe("false");
+    } finally { await act(async () => root.unmount()); }
+  });
+});

@@ -155,3 +155,11 @@ it("does not manufacture a street summary when SQL data is unavailable (B14)", a
 it("plots each SQL bucket median without re-aggregating rows (B14)", () => {
   expect(drawerSeries(fixture).trendRows.map((point) => point.trend)).toEqual([145_000, 155_000]);
 });
+
+it("names the focusable drawer chart for assistive technology (F21)", async () => {
+  await renderChart(fixture, (host) => {
+    const chart = host.querySelector('svg[role="application"]');
+    expect(chart?.getAttribute("aria-label")).toBe("Prisutveckling på Karlavägen 10 och gatan");
+    expect(chart?.getAttribute("tabindex")).toBe("0");
+  });
+});

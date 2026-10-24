@@ -19,7 +19,7 @@ const hrefOf = (s: StreetsAllItem) => `/street/${s.district}/${s.slug}`;
  * option (aria-activedescendant), Enter opens it, Escape closes and returns
  * focus to the trigger, Tab stays inside, and the page behind does not scroll.
  */
-export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: () => void) => React.ReactNode }) {
+export function StreetSearch({ renderTrigger, onSelect }: { renderTrigger?: (openSearch: () => void) => React.ReactNode; onSelect?: () => void }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -140,6 +140,7 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
 
   const go = (s: StreetsAllItem) => {
     close();
+    onSelect?.();
     router.push(hrefOf(s));
   };
 
@@ -274,7 +275,10 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
                       tabIndex={-1}
                       className="flex items-center justify-between gap-3 px-4 py-2.5"
                       onClick={(e) => {
-                        if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) close();
+                        if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+                          close();
+                          onSelect?.();
+                        }
                       }}
                     >
                       <div className="min-w-0">

@@ -141,7 +141,7 @@ describe("search opened over the address drawer", () => {
 
   it("returns focus into the drawer when the search closes", async () => {
     const { root } = await mountBoth();
-    const tab = [...drawerDialog()!.querySelectorAll<HTMLElement>('[role="tab"]')][1];
+    const tab = [...drawerDialog()!.querySelectorAll<HTMLElement>('[role="group"][aria-label="Tidsperiod"] button')][1];
     tab.focus();
     await key("k", { metaKey: true });
     await key("Escape");
@@ -153,7 +153,7 @@ describe("search opened over the address drawer", () => {
 describe("drawer focus stability", () => {
   it("re-rendering with a new onClose keeps focus where it was", async () => {
     const { root, render } = await mountBoth();
-    const tab = [...drawerDialog()!.querySelectorAll<HTMLElement>('[role="tab"]')][1];
+    const tab = [...drawerDialog()!.querySelectorAll<HTMLElement>('[role="group"][aria-label="Tidsperiod"] button')][1];
     tab.focus();
     expect(document.activeElement).toBe(tab);
     await render(vi.fn());

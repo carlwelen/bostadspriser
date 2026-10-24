@@ -11,6 +11,8 @@ import {
   ZAxis,
 } from "recharts";
 
+import { ChartDataTable } from "./ChartDataTable";
+
 const SEK = new Intl.NumberFormat("sv-SE");
 
 // Color-blind-aware, data-forward palette. One accent + three calm companions.
@@ -53,10 +55,10 @@ export function PriceAreaScatter({ data }: { data: Point[] }) {
   }
 
   return (
-    <div className="space-y-3">
+    <div role="group" aria-label="Yta och pris per kvadratmeter per stadsdel" className="space-y-3">
       <div className="h-80 w-full min-w-0">
         <ResponsiveContainer initialDimension={{ width: 200, height: 320 }}>
-          <ScatterChart margin={{ top: 8, right: 16, bottom: 16, left: 4 }}>
+          <ScatterChart aria-label="Yta och pris per kvadratmeter per stadsdel" margin={{ top: 8, right: 16, bottom: 16, left: 4 }}>
             <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
             <XAxis
               type="number"
@@ -117,6 +119,8 @@ export function PriceAreaScatter({ data }: { data: Point[] }) {
           </div>
         ))}
       </div>
+      <ChartDataTable title="Yta och pris – diagramdata" headers={["Stadsdel", "Yta m²", "Pris kr/m²", "Rum"]}
+        rows={data.map((point) => [DISTRICT_LABELS[point.district] ?? point.district, SEK.format(point.areaSqm), SEK.format(point.pricePerSqm), point.rooms ?? "—"])} />
     </div>
   );
 }

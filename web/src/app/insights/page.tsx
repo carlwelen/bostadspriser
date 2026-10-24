@@ -144,14 +144,15 @@ export default async function InsightsPage() {
           </div>
           <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
             <table className="w-full text-sm">
+              <caption className="sr-only">Försäljningar per antal rum</caption>
               <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wider text-zinc-500">
                 <tr>
-                  <th className="px-4 py-3 font-medium">Rum</th>
-                  <th className="px-4 py-3 font-medium">Antal</th>
-                  <th className="px-4 py-3 text-right font-medium">Medel yta</th>
-                  <th className="px-4 py-3 text-right font-medium">Medel pris</th>
-                  <th className="px-4 py-3 text-right font-medium">Median pris/m²</th>
-                  <th className="px-4 py-3 text-right font-medium">Medel pris/m²</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Rum</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Antal</th>
+                  <th scope="col" className="px-4 py-3 text-right font-medium">Medel yta</th>
+                  <th scope="col" className="px-4 py-3 text-right font-medium">Medel pris</th>
+                  <th scope="col" className="px-4 py-3 text-right font-medium">Median pris/m²</th>
+                  <th scope="col" className="px-4 py-3 text-right font-medium">Medel pris/m²</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
@@ -198,12 +199,13 @@ export default async function InsightsPage() {
           </div>
           <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
             <table className="w-full min-w-[34rem] text-sm">
+              <caption className="sr-only">Datakällornas uppdatering och täckning</caption>
               <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wider text-zinc-500">
                 <tr>
-                  <th className="px-4 py-3 font-medium">Källa</th>
-                  <th className="px-4 py-3 font-medium">Senast uppdaterad</th>
-                  <th className="px-4 py-3 font-medium">Försäljningsdatum</th>
-                  <th className="px-4 py-3 text-right font-medium">Rader</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Källa</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Senast uppdaterad</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Försäljningsdatum</th>
+                  <th scope="col" className="px-4 py-3 text-right font-medium">Rader</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">

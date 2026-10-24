@@ -14,7 +14,7 @@ for (const path of ["/district/ostermalm", "/street/ostermalm/karlavagen"]) {
     await rooms.getByRole("link", { name: "5+ rum", exact: true }).click();
     await expect(page).toHaveURL(/rooms=1%2C5/);
     await expect(page).toHaveURL(/g=year/);
-    const rows = page.locator("table tbody tr");
+    const rows = page.getByRole("table", { name: "Senaste försäljningar" }).locator("tbody tr");
     for (const row of await rows.all()) {
       await expect(row.locator("td").nth(2)).toHaveText(/^(1|5|6)$/);
     }
