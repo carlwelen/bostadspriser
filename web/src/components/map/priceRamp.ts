@@ -56,10 +56,10 @@ export function computePriceBreaks(values: number[]): number[] {
     breaks = [-2, -1, 0, 1, 2].map((k) => roundStep(mid * (1 + 0.1 * k)));
   }
   if (!isStrictlyAscending(breaks)) {
-    // Tied quantiles (a few values dominate): spread the breaks over the data
-    // range rather than nudging them upwards past where the data is.
-    const lo = roundStep(sorted[0]);
-    const hi = roundStep(sorted[sorted.length - 1]);
+    // Tied quantiles still use the outer percentiles, so an extreme sale
+    // cannot stretch the whole ramp just because central prices repeat.
+    const lo = roundStep(quantile(sorted, QUANTILES[0]));
+    const hi = roundStep(quantile(sorted, QUANTILES[4]));
     if (hi > lo) breaks = [0, 1, 2, 3, 4].map((i) => roundStep(lo + ((hi - lo) * i) / 4));
   }
   breaks = ascend(breaks);

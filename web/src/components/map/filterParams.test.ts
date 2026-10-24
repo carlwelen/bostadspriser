@@ -40,6 +40,14 @@ describe("parseFilters", () => {
     expect(parse("districts=Vasastan,SODERMALM").districts).toEqual(["vasastan", "sodermalm"]);
   });
 
+  it("accepts Swedish display names and combining accents in district links (F38)", () => {
+    for (const districts of ["Östermalm,SÖDERMALM", "O\u0308stermalm,So\u0308dermalm", "ostermalm,Södermalm,unknown"]) {
+      const state = parse(new URLSearchParams({ districts }).toString());
+      expect(state.districts).toEqual(["ostermalm", "sodermalm"]);
+      expect(serializeFilters(state)).toBe("districts=ostermalm,sodermalm");
+    }
+  });
+
   it("falls back to all districts when the param holds no valid slug", () => {
     expect(parse("districts=gamla-stan,x").districts).toEqual(DEFAULT_FILTERS.districts);
   });

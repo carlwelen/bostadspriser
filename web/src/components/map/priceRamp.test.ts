@@ -37,14 +37,12 @@ describe("computePriceBreaks", () => {
     expect(computePriceBreaks([150_000])).toEqual(expected);
   });
 
-  it("spreads tied quantiles over the data range instead of nudging past it", () => {
-    // 19 identical values and one outlier: the nudged quantiles used to be
-    // [80000, 81000, 82000, 83000, 91000], mostly above where the data is.
+  it("spreads tied quantiles within the outer percentiles, excluding the full outlier range (F38)", () => {
     expect(computePriceBreaks([...Array(19).fill(80_000), 300_000])).toEqual([
-      80_000, 135_000, 190_000, 245_000, 300_000,
+      80_000, 83_000, 86_000, 88_000, 91_000,
     ]);
     expect(computePriceBreaks([...Array(9).fill(100_000), 200_000])).toEqual([
-      100_000, 125_000, 150_000, 175_000, 200_000,
+      100_000, 114_000, 128_000, 141_000, 155_000,
     ]);
   });
 
