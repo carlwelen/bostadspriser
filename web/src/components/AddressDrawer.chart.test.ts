@@ -13,12 +13,11 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-it("plots every address sale when two prices share a date (F40)", async () => {
-  const selection: AddressSelection = {
+const selection: AddressSelection = {
     district: "ostermalm", street: "Karlavägen", houseNumber: "10", address: "Karlavägen 10",
     pricePerSqm: 130_000, soldAt: "2025-06-20", sources: ["hemnet"],
   };
-  const data: AddressResponse = {
+const fixture: AddressResponse = {
     district: "ostermalm", street: "Karlavägen", house: "10", period: "12mo", granularity: "month",
     streetSeries: [
       { bucket: "2025-06-01", meanPricePerSqm: 140_000, medianPricePerSqm: 145_000, count: 3 },
@@ -30,8 +29,14 @@ it("plots every address sale when two prices share a date (F40)", async () => {
       { soldAt: "2025-06-02", priceSek: 3_000_000, pricePerSqmSek: 100_000, sources: ["hemnet"] },
     ],
   };
+
+async function renderChart(data: AddressResponse, check: (host: HTMLDivElement) => void) {
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => data })));
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 360, 256));
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    return this.id === "recharts_measurement_span"
+      ? new DOMRect(0, 0, (this.textContent?.length ?? 0) * 6, 12)
+      : new DOMRect(0, 0, 360, 256);
+  });
   vi.stubGlobal("ResizeObserver", class {
     constructor(private callback: ResizeObserverCallback) {}
     observe(target: Element) {
@@ -46,12 +51,51 @@ it("plots every address sale when two prices share a date (F40)", async () => {
   try {
     await act(async () => root.render(createElement(AddressDrawer, { selection, onClose: () => {} })));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1700)); });
-    expect(host.querySelectorAll(".recharts-scatter-symbol path")).toHaveLength(3);
-    const coordinates = [...host.querySelectorAll(".recharts-scatter-symbol path")]
-      .map((point) => [Number(point.getAttribute("cx")), Number(point.getAttribute("cy"))]);
-    expect(new Set(coordinates.map((point) => point[1])).size).toBe(3);
-    expect(new Set(coordinates.map((point) => point[0])).size).toBe(2);
+    check(host);
   } finally {
     await act(async () => root.unmount());
   }
+}
+
+function coordinates(host: HTMLElement) {
+  return [...host.querySelectorAll(".recharts-scatter-symbol path")]
+    .map((point) => [Number(point.getAttribute("cx")), Number(point.getAttribute("cy"))]);
+}
+
+it("plots every address sale when two prices share a date (F40)", async () => {
+  await renderChart(fixture, (host) => {
+    const points = coordinates(host);
+    expect(points).toHaveLength(3);
+    expect(new Set(points.map((point) => point[1])).size).toBe(3);
+    expect(new Set(points.map((point) => point[0])).size).toBe(2);
+  });
+});
+
+it("spaces address observations by elapsed time (F11)", async () => {
+  await renderChart({ ...fixture, streetSeries: [], addressSales: [
+    { ...fixture.addressSales[0], soldAt: "2025-06-02" },
+    { ...fixture.addressSales[1], soldAt: "2025-06-03" },
+    { ...fixture.addressSales[2], soldAt: "2025-06-20" },
+  ] }, (host) => {
+    const xs = coordinates(host).map((point) => point[0]).sort((a, b) => a - b);
+    expect((xs[1] - xs[0]) / (xs[2] - xs[0])).toBeCloseTo(1 / 18, 5);
+  });
+});
+
+it.each([
+  { granularity: "month" as const, buckets: ["2025-12-01", "2026-01-01", "2026-03-01", "2026-04-01"] },
+  { granularity: "week" as const, buckets: ["2025-03-17", "2025-03-24", "2025-04-07", "2025-04-14"] },
+  { granularity: "day" as const, buckets: ["2025-03-28", "2025-03-29", "2025-03-31", "2025-04-01"] },
+])("breaks the street curve at missing $granularity buckets without breaking at address observations (F11)", async ({ granularity, buckets }) => {
+  await renderChart({ ...fixture, granularity, streetSeries: buckets.map((bucket, index) => ({
+    ...fixture.streetSeries[index % 2], bucket,
+  })) }, (host) => {
+    const curve = host.querySelector(".recharts-area-curve")?.getAttribute("d") ?? "";
+    expect(curve.match(/M/g)).toHaveLength(2);
+    if (granularity === "month") {
+      expect(host.textContent).toContain("apr 26");
+    }
+    expect(curve.match(/L|C/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(coordinates(host)).toHaveLength(3);
+  });
 });
