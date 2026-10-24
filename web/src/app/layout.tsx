@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { pageMetadata, siteOrigin, SITE_DESCRIPTION, SITE_TITLE } from "./siteMetadata";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Bostadspriser — Stockholms innerstad",
-  description: "Slutpriser och prisutveckling i Stockholms innerstad",
+  metadataBase: siteOrigin(),
+  ...pageMetadata(SITE_TITLE, SITE_DESCRIPTION, "/"),
 };
 
 export default function RootLayout({

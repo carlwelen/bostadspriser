@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { siteOrigin } from "./siteMetadata";
 import { DISTRICTS } from "@/lib/districts";
 import { listStreets } from "@/lib/aggregations";
 
@@ -6,11 +7,12 @@ import { listStreets } from "@/lib/aggregations";
 export const dynamic = "force-dynamic";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  const base = siteOrigin().origin;
   const now = new Date();
 
   const staticEntries: MetadataRoute.Sitemap = [
     { url: `${base}/`, lastModified: now, changeFrequency: "daily", priority: 1 },
+    { url: `${base}/insights`, lastModified: now, changeFrequency: "daily", priority: 0.6 },
     { url: `${base}/compare`, lastModified: now, changeFrequency: "daily", priority: 0.6 },
   ];
 

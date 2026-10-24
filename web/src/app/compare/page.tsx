@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { pageMetadata } from "../siteMetadata";
 import { ComparisonNavigation } from "@/components/ComparisonNavigation";
 import { CompareBuilder } from "@/components/CompareBuilder";
 import { comparisonColor } from "@/components/chartColors";
@@ -23,6 +24,7 @@ import {
 } from "@/lib/districts";
 
 export const dynamic = "force-dynamic";
+export const metadata = pageMetadata("Jämför bostadspriser — Stockholms innerstad", "Jämför medianpris per kvadratmeter över tid för gator och stadsdelar i Stockholms innerstad.", "/compare");
 
 async function loadSeries(spec: ComparisonSpec, granularity: Granularity): Promise<{ name: string; points: TimeseriesPoint[] } | null> {
   if (spec.kind === "district") {

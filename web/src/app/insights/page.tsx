@@ -1,5 +1,5 @@
-import type { Metadata } from "next";
 import Link from "next/link";
+import { pageMetadata } from "../siteMetadata";
 
 import { formatUpdated, latestUpdate, partialRuns, sourceLabel } from "@/components/freshness";
 import { Histogram } from "@/components/Histogram";
@@ -31,11 +31,11 @@ const PCT = new Intl.NumberFormat("sv-SE", {
   signDisplay: "exceptZero",
 });
 
-export const metadata: Metadata = {
-  title: "Insikter — bostadspriser",
-  description:
-    "Aggregerade mönster i Stockholms innerstad: prisfördelning, rumssegment, gator som rört sig mest.",
-};
+export const metadata = pageMetadata(
+  "Insikter — bostadspriser",
+  "Aggregerade mönster i Stockholms innerstad: prisfördelning, rumssegment och gator som rört sig mest.",
+  "/insights"
+);
 
 export default async function InsightsPage() {
   const [summary, distribution, rooms, scatter, moversUp, moversDown, sources, runs] =

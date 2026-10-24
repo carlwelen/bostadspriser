@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "../../siteMetadata";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { comparisonHref } from "@/components/comparison";
@@ -35,10 +36,7 @@ export async function generateMetadata({
   const { slug } = await params;
   if (!isDistrictSlug(slug)) return {};
   const name = districtName(slug);
-  return {
-    title: `${name} — bostadspriser`,
-    description: `Slutpriser och prisutveckling för ${name} i Stockholms innerstad.`,
-  };
+  return pageMetadata(`${name} — bostadspriser`, `Slutpriser och prisutveckling för ${name} i Stockholms innerstad.`, `/district/${slug}`);
 }
 
 const SEK = new Intl.NumberFormat("sv-SE");

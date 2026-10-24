@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+import { pageMetadata } from "../../../../siteMetadata";
 import { notFound } from "next/navigation";
 import { CHART_THEME } from "@/components/chartColors";
 import { GranularityToggle } from "@/components/GranularityToggle";
@@ -20,6 +22,18 @@ import { districtColor, districtName } from "@/lib/districts";
 import { resolveStreet } from "../../../resolveStreet";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: {
+  params: Promise<{ district: string; street: string; house: string }>;
+}): Promise<Metadata> {
+  const { district: districtParam, street: streetSlug, house } = await params;
+  const resolved = await resolveStreet(districtParam, streetSlug);
+  if (!resolved) return {};
+  const { district, street } = resolved;
+  return pageMetadata(`${street} ${house}, ${districtName(district)} — bostadspriser`,
+    `Slutpriser och prisutveckling för ${street} ${house} i ${districtName(district)}, med jämförelse mot gatan och stadsdelen.`,
+    `/street/${district}/${streetSlug}/${encodeURIComponent(house)}`);
+}
 
 export default async function AddressPage({
   params,
