@@ -94,6 +94,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
   const [points, setPoints] = useState<HeatmapResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [selectedAddress, setSelectedAddress] = useState<AddressSelection | null>(null);
 
   // Initialize map once.
@@ -166,7 +167,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
     return () => {
       cancelled = true;
     };
-  }, [districts, filters?.priceMin, filters?.priceMax, filters?.rooms, filters?.sinceDays]);
+  }, [districts, filters?.priceMin, filters?.priceMax, filters?.rooms, filters?.sinceDays, reloadKey]);
 
   // Colour breaks follow the points on screen (quantiles, so a few outliers
   // can't flatten the ramp). The legend gets the same numbers.
@@ -373,7 +374,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
 
   return (
     <div className="relative h-full w-full">
-      <div ref={containerRef} data-testid="map-container" className="h-full w-full" />
+      <div ref={containerRef} data-testid="map-container" tabIndex={-1} role="region" aria-label="Karta över försäljningar" className="h-full w-full" />
 
       {!MAPBOX_TOKEN && (
         <div role="status" className="absolute inset-x-3 top-3 z-20 flex justify-center">
@@ -410,8 +411,18 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
 
       {error && (
         <div role="alert" className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
-          <div className="rounded-2xl bg-white/95 px-5 py-4 text-center text-sm text-red-700 shadow-md ring-1 ring-red-200">
-            Kunde inte hämta data.
+          <div className="pointer-events-auto rounded-2xl bg-white/95 px-5 py-4 text-center text-sm text-red-700 shadow-md ring-1 ring-red-200">
+            <p>Kunde inte hämta data.</p>
+            <button
+              type="button"
+              className="mt-3 rounded-md border border-red-200 bg-white px-3 py-1.5 font-medium hover:bg-red-50"
+              onClick={() => {
+                setReloadKey((key) => key + 1);
+                containerRef.current?.focus();
+              }}
+            >
+              Försök igen
+            </button>
           </div>
         </div>
       )}
