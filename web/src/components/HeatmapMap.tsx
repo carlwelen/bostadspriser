@@ -13,6 +13,7 @@ import { createHexHandlers, type HexMapLike } from "./map/hexHandlers";
 import { buildPricePopup } from "./map/popups";
 import { formatSalesInSelection } from "./map/format";
 import { DEFAULT_PRICE_BREAKS, computePriceBreaks, pricePointPaint } from "./map/priceRamp";
+import styles from "./map/HeatmapMap.module.css";
 
 export type HeatmapMode = "price" | "frequency";
 
@@ -378,65 +379,72 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
     <div className="relative h-full w-full">
       <div ref={containerRef} data-testid="map-container" tabIndex={-1} role="region" aria-label="Karta över försäljningar" className="h-full w-full" />
 
-      {!MAPBOX_TOKEN && (
-        <div role="status" className="absolute inset-x-3 top-3 z-20 flex justify-center">
-          <p className="max-w-full break-words rounded-xl bg-amber-50 px-4 py-2.5 text-center text-sm text-amber-900 shadow-md ring-1 ring-amber-200">
-            Kartan kunde inte laddas: Mapbox-token saknas{" "}
-            <span className="inline-block">
-              (<code className="break-all">NEXT_PUBLIC_MAPBOX_TOKEN</code>).
-            </span>
-          </p>
-        </div>
-      )}
+      {/* Notices share the available height; only the recent-sales card shrinks. */}
+      <div className={`${styles.overlays} pointer-events-none absolute inset-3 z-20`}>
+        {!MAPBOX_TOKEN && (
+          <div role="status" className="pointer-events-auto relative z-20 flex shrink-0 justify-center">
+            <p className="max-w-full break-words rounded-xl bg-amber-50 px-4 py-2.5 text-center text-sm text-amber-900 shadow-md ring-1 ring-amber-200">
+              Kartan kunde inte laddas: Mapbox-token saknas{" "}
+              <span className="inline-block">
+                (<code className="break-all">NEXT_PUBLIC_MAPBOX_TOKEN</code>).
+              </span>
+            </p>
+          </div>
+        )}
 
-      {/* Wrap the recent-sales card above the badge when both cannot fit. */}
-      <div className="pointer-events-none absolute inset-x-3 bottom-3 z-10 flex flex-wrap-reverse items-start gap-3">
-        {/* coverage / loading badge */}
-        {!error && !noDistricts && (
-          <div className={`flex max-w-full gap-1 bg-white/85 px-3 py-1 text-xs text-zinc-700 shadow-sm ring-1 ring-zinc-200 backdrop-blur ${truncated ? "flex-col items-start rounded-xl" : "items-center rounded-full"}`}>
-            <div className="flex items-center gap-2">
-              {loading ? (
-                <>
-                  <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-zinc-400" />
-                  Laddar försäljningar…
-                </>
-              ) : (
-                <>
-                  <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-                  {truncated
-                    ? `${SEK_FMT.format(featureCount)} ${featureCount === 1 ? "försäljning" : "försäljningar"} visas`
-                    : formatSalesInSelection(featureCount)}
-                </>
+        <div className={styles.summaries}>
+          {/* coverage / loading badge */}
+          {!error && !noDistricts && (
+            <div className={`${styles.badge} flex max-w-full gap-1 bg-white/85 px-3 py-1 text-xs text-zinc-700 shadow-sm ring-1 ring-zinc-200 backdrop-blur ${truncated ? "flex-col items-start rounded-xl" : "items-center rounded-full"}`}>
+              <div className="flex items-center gap-2">
+                {loading ? (
+                  <>
+                    <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-zinc-400" />
+                    Laddar försäljningar…
+                  </>
+                ) : (
+                  <>
+                    <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                    {truncated
+                      ? `${SEK_FMT.format(featureCount)} ${featureCount === 1 ? "försäljning" : "försäljningar"} visas`
+                      : formatSalesInSelection(featureCount)}
+                  </>
+                )}
+              </div>
+              {truncated && (
+                <p data-testid="map-truncation" role="status" className="max-w-60 text-[11px]">
+                  Urvalet är begränsat. Bara de senaste matchande försäljningarna visas.
+                </p>
               )}
             </div>
-            {truncated && (
-              <p data-testid="map-truncation" role="status" className="max-w-60 text-[11px]">
-                Urvalet är begränsat. Bara de senaste matchande försäljningarna visas.
-              </p>
-            )}
-          </div>
-        )}
+          )}
 
-        {recent.length > 0 && (
-          <div className="pointer-events-auto ml-auto hidden w-72 shrink-0 overflow-hidden rounded-2xl bg-white/90 shadow-md ring-1 ring-zinc-200 backdrop-blur md:block">
-            <div className="border-b border-zinc-200/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-              Senaste försäljningar
+          {recent.length > 0 && (
+            <div
+              role="region"
+              aria-label="Senaste försäljningar"
+              tabIndex={0}
+              className={`${styles.recent} pointer-events-auto ml-auto hidden w-72 rounded-2xl bg-white/90 shadow-md ring-1 ring-zinc-200 backdrop-blur focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 md:block`}
+            >
+              <div className="border-b border-zinc-200/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                Senaste försäljningar
+              </div>
+              <ul className="divide-y divide-zinc-100">
+                {recent.map((r, i) => (
+                  <li key={`${r.address}-${r.soldAt}-${i}`} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-zinc-900">{r.address}</p>
+                      <p className="text-[11px] text-zinc-500">{r.soldAt}</p>
+                    </div>
+                    <span className="shrink-0 tabular-nums text-zinc-700">
+                      {SEK_FMT.format(r.pricePerSqm)} kr/m²
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
-            <ul className="divide-y divide-zinc-100">
-              {recent.map((r, i) => (
-                <li key={`${r.address}-${r.soldAt}-${i}`} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-zinc-900">{r.address}</p>
-                    <p className="text-[11px] text-zinc-500">{r.soldAt}</p>
-                  </div>
-                  <span className="shrink-0 tabular-nums text-zinc-700">
-                    {SEK_FMT.format(r.pricePerSqm)} kr/m²
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <AddressDrawer
