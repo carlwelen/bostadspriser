@@ -4,7 +4,7 @@ import Link from "next/link";
 import { formatUpdated, latestUpdate, partialRuns, sourceLabel } from "@/components/freshness";
 import { Histogram } from "@/components/Histogram";
 import { PageHero } from "@/components/PageHero";
-import { formatSold } from "@/components/plural";
+import { formatSales } from "@/components/plural";
 import { PriceAreaScatter } from "@/components/PriceAreaScatter";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -117,8 +117,8 @@ export default async function InsightsPage() {
         </section>
 
         <section className="grid gap-6 lg:grid-cols-2">
-          <Movers title="Stigande gator" subtitle="Senaste 90 dagar vs hela perioden" entries={moversUp} />
-          <Movers title="Fallande gator" subtitle="Senaste 90 dagar vs hela perioden" entries={moversDown} />
+          <Movers title="Stigande gator" subtitle="Median senaste 90 dagar jämfört med föregående 12 månader" entries={moversUp} />
+          <Movers title="Fallande gator" subtitle="Median senaste 90 dagar jämfört med föregående 12 månader" entries={moversDown} />
         </section>
 
         <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -281,8 +281,13 @@ function Movers({
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-zinc-900">{m.street}</p>
                     <p className="text-[11px] text-zinc-500">
-                      {districtName(m.district)} • {formatSold(m.count)} • medel{" "}
-                      {SEK.format(m.meanPricePerSqm)} kr/m²
+                      {districtName(m.district)}
+                    </p>
+                    <p className="text-[11px] text-zinc-600">
+                      Senaste 90 dagar: {SEK.format(m.recentMedianPricePerSqm)} kr/m² ({formatSales(m.recentCount)})
+                    </p>
+                    <p className="text-[11px] text-zinc-600">
+                      Föregående 12 månader: {SEK.format(m.priorMedianPricePerSqm)} kr/m² ({formatSales(m.priorCount)})
                     </p>
                   </div>
                   <span
