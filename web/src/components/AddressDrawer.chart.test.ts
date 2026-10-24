@@ -30,7 +30,7 @@ const fixture: AddressResponse = {
     ],
   };
 
-async function renderChart(data: AddressResponse, check: (host: HTMLDivElement) => void) {
+async function renderChart(data: AddressResponse, check: (host: HTMLDivElement) => void | Promise<void>) {
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => data })));
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     return this.id === "recharts_measurement_span"
@@ -51,7 +51,7 @@ async function renderChart(data: AddressResponse, check: (host: HTMLDivElement) 
   try {
     await act(async () => root.render(createElement(AddressDrawer, { selection, onClose: () => {} })));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1700)); });
-    check(host);
+    await check(host);
   } finally {
     await act(async () => root.unmount());
   }
@@ -97,5 +97,34 @@ it.each([
     }
     expect(curve.match(/L|C/g)?.length).toBeGreaterThanOrEqual(2);
     expect(coordinates(host)).toHaveLength(3);
+  });
+});
+
+it("keeps sparse street buckets visible as hollow points (F12)", async () => {
+  await renderChart({ ...fixture, streetSeries: [
+    { ...fixture.streetSeries[0], count: 1 },
+    { ...fixture.streetSeries[1], count: 4 },
+  ] }, (host) => {
+    const dots = [...host.querySelectorAll(".recharts-area-dots circle")];
+    expect(dots).toHaveLength(2);
+    expect(dots[0].getAttribute("fill")).toBe("white");
+    expect(Number(dots[0].getAttribute("r"))).toBeGreaterThanOrEqual(4);
+    expect(dots[1].getAttribute("fill")).toBe("#1d4ed8");
+  });
+});
+
+it("shows a visible tooltip for an address date with no street bucket (F12)", async () => {
+  await renderChart({ ...fixture, streetSeries: ["2025-05-01", "2025-06-01", "2025-08-01", "2025-09-01"]
+    .map((bucket, index) => ({ ...fixture.streetSeries[index % 2], bucket })) }, async (host) => {
+    const [x, y] = coordinates(host)[0];
+    await act(async () => {
+      host.querySelector(".recharts-wrapper")!.dispatchEvent(new MouseEvent("mousemove", {
+        bubbles: true, clientX: x, clientY: y,
+      }));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    expect(host.querySelector('[role="tooltip"]')?.textContent).toContain("1 försäljning");
+    const wrapper = host.querySelector<HTMLElement>(".recharts-tooltip-wrapper");
+    expect(wrapper?.style.visibility).toBe("visible");
   });
 });

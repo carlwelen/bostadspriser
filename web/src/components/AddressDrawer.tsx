@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 
+import { DrawerTooltip, StreetDot } from "./map/DrawerTooltip";
 import { SourceBadge } from "./SourceBadge";
 import { registerModal } from "./map/focusTrap";
 import type { Period } from "@/lib/api-types";
@@ -236,6 +237,7 @@ export function AddressDrawer({
                       type="number"
                       scale="time"
                       ticks={ticks}
+                      padding={{ left: 6, right: 6 }}
                       domain={["dataMin", "dataMax"]}
                       tickFormatter={(b) => formatBucket(new Date(Number(b)).toISOString(), data?.granularity ?? "month")}
                       tick={{ fontSize: 11, fill: "#71717a" }}
@@ -243,6 +245,7 @@ export function AddressDrawer({
                       axisLine={false}
                     />
                     <YAxis
+                      padding={{ top: 6, bottom: 6 }}
                       tick={{ fontSize: 11, fill: "#71717a" }}
                       tickLine={false}
                       axisLine={false}
@@ -250,20 +253,10 @@ export function AddressDrawer({
                       width={48}
                       domain={["auto", "auto"]}
                     />
-                    <Tooltip
-                      contentStyle={{
-                        fontSize: 12,
-                        borderRadius: 10,
-                        border: "1px solid #e4e4e7",
-                      }}
-                      labelFormatter={(v) =>
-                        formatBucket(new Date(Number(v)).toISOString(), data?.granularity ?? "month")
-                      }
-                      formatter={(value, name) => [
-                        `${SEK.format(Number(value))} kr/m²`,
-                        name === "trend" ? "Gatumedel" : "Försäljning",
-                      ]}
-                    />
+                    {/* Resolve samples by date; Scatter axis payload indices span separate series. */}
+                    <Tooltip filterNull={false} content={({ active, label }) => (
+                      <DrawerTooltip active={active} label={label} data={data} />
+                    )} />
                     <Area
                       data={trendRows}
                       type="monotone"
@@ -273,7 +266,7 @@ export function AddressDrawer({
                       strokeWidth={1.75}
                       fill="url(#addrGrad)"
                       connectNulls={false}
-                      dot={false}
+                      dot={StreetDot}
                     />
                     <Scatter
                       data={saleRows}
@@ -288,7 +281,8 @@ export function AddressDrawer({
               )}
             </div>
             <p className="mt-2 text-[10px] text-zinc-500">
-              Linje = gatans medel · prickar = enskilda försäljningar på {selection.address}
+              Linje = gatans medel · prickar = enskilda försäljningar på {selection.address}.
+              {" "}Ofylld ring = färre än 3 affärer på gatan.
             </p>
           </section>
 
