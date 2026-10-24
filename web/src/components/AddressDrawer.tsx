@@ -241,7 +241,7 @@ export function AddressDrawer({
                       domain={["auto", "auto"]}
                     />
                     {/* Resolve samples by date; Scatter axis payload indices span separate series. */}
-                    <Tooltip filterNull={false} content={({ active, label }) => (
+                    <Tooltip position={{ y: 8 }} filterNull={false} content={({ active, label }) => (
                       <DrawerTooltip active={active} label={label} data={data} />
                     )} />
                     <Area
