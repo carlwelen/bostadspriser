@@ -21,6 +21,10 @@ export async function originProxy(origin: string) {
       method: incoming.method,
       headers: { ...incoming.headers, host: destination.host },
     }, (response) => {
+      response.once("error", () => outgoing.destroy());
+      response.once("close", () => {
+        if (!response.complete) outgoing.destroy();
+      });
       outgoing.writeHead(response.statusCode ?? 502, response.headers);
       response.pipe(outgoing);
     });
