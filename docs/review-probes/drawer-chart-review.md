@@ -59,3 +59,9 @@ test("capture elapsed time and missing street bucket in the drawer", async ({ pa
   await page.screenshot({ path: path.resolve(__dirname, `../../docs/screens/F12-drawer-${info.project.name}.png`), fullPage: true });
 });
 ```
+
+## Dense same-day tooltip correction
+
+Copy `docs/review-probes/drawer-dense.spec.ts` to `web/screens/f12-dense-review.spec.ts` with the same temporary page above. Run with the isolated database and port as above. This checks 8, 20 and the API maximum of 200 same-day observations, viewport/drawer containment, wheel and keyboard access to the last record, and actual mobile touch scrolling. Ordinary date-by-date hover is also retained. Remove the temporary page/spec before the full gate.
+
+Before the correction, the 20-record geometry probe failed on both desktop and mobile (`/tmp/d-f12-dense-red.log`). The permanent keyboard regression failed because the tooltip could not receive focus (`/tmp/d-f12-dense-keyboard-red.log`). The corrected tooltip stays at the chart top, constrains its height, allows scrolling of dense records, and keeps scroll keys from changing the active chart date. Small tooltips remain transparent to pointer hit testing. Browser results and visual captures are in `/tmp/d-f12-dense-final-probe.log` and `docs/screens/F12-dense-*.png`.
