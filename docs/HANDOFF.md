@@ -2,7 +2,7 @@
 
 ## Current checkpoint (2026-10-24)
 
-- Live integration checkpoint: 2f86ad6 -> c384b7e, full gate green. Remaining approved queue: 3dcd0fc, f50b6e8, 081ccb7. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
+- Live integration checkpoint: 3dcd0fc -> e52ccb7, full gate green. Remaining approved queue: f50b6e8, 081ccb7. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
 
 This checkpoint supersedes the historical handoff below. `docs/backlog.md` contains the live queue and merge ledger.
 
