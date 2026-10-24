@@ -1,5 +1,7 @@
 import { test, expect } from '../e2e/fixtures';
 import fs from 'node:fs';
+test.beforeEach(async({consoleErrors})=>{expect(consoleErrors).toEqual([]);});
+test.afterEach(async({consoleErrors})=>{expect(consoleErrors).toEqual([]);});
 const base = {district:'ostermalm',street:'Karlavägen',house:'10',period:'12mo',granularity:'month',streetSummary:{count:777,medianPricePerSqm:117000,meanPricePerSqm:200000,earliest:'2026-05-01',latest:'2026-09-01'},streetSeries:[
  {bucket:'2026-05-01',meanPricePerSqm:140000,medianPricePerSqm:145000,count:1},
  {bucket:'2026-06-01',meanPricePerSqm:150000,medianPricePerSqm:155000,count:4},
