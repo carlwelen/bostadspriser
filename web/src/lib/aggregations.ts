@@ -263,6 +263,7 @@ async function recentSalesUncached(
     SELECT street, "houseNumber", rooms, "areaSqm", "priceSek", "pricePerSqmSek", "soldAt", sources
     FROM "DedupedListingMat"
     WHERE ${Prisma.join(conds, " AND ")}
+      AND "pricePerSqmSek" > 0
       ${roomFilter(where.rooms)}
     ORDER BY "soldAt" DESC
     LIMIT ${limit}

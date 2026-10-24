@@ -43,3 +43,18 @@ it("preserves the positional house-number filter and year granularity", async ()
   expect(await agg.streetTimeseries("vasastan", "Odengatan", "year", "4", [5])).toMatchObject([{ bucket: "2026-01-01", count: 1 }]);
   expect(await agg.streetTimeseries("vasastan", "Odengatan", "year", "4", [2])).toEqual([]);
 });
+
+// B52: the shown recent-sale population must agree with priced summaries.
+it("excludes unpriced recent rows so shown X cannot exceed summary Y", async () => {
+  const base = buildFixture()[0];
+  await seed(prisma, [100_000, 0, -1].map((pps, i) => ({
+    ...base, id: `priced-${i}`, sourceId: `priced-${i}`, dedupKey: `priced-${i}`,
+    district: "vasastan", street: "Odengatan", rooms: 2,
+    pricePerSqmSek: BigInt(pps),
+  })));
+  const shown = await agg.recentSales({ district: "vasastan", street: "Odengatan", rooms: [2] });
+  const summary = await agg.streetSummary("vasastan", "Odengatan", [2]);
+  expect(shown).toHaveLength(1);
+  expect(shown.every((sale) => sale.pricePerSqmSek > 0)).toBe(true);
+  expect(shown.length).toBeLessThanOrEqual(summary.count);
+});
