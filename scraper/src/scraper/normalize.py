@@ -2,7 +2,7 @@
 
 Hemnet ships values like "4 900 000 kr", "35 m²", "2,5 rum" — Swedish formatting
 with non-breaking spaces and comma decimals. These helpers tolerate the variants
-and return numeric types or None.
+and return numeric types or None. Malformed present measurements raise ValueError.
 """
 
 from __future__ import annotations
@@ -11,9 +11,7 @@ import math
 import re
 from decimal import ROUND_HALF_UP, Decimal
 
-# Matches digit groups with optional non-breaking/regular spaces.
-_DIGIT_RE = re.compile(r"[\d \s]+")
-_DECIMAL_RE = re.compile(r"[+-]?(?:\d+(?:[.,]\d+)?|nan|inf(?:inity)?)", re.IGNORECASE)
+_NUMBER = r"[+-]?(?:\d+(?:[.,]\d+)?|nan|inf(?:inity)?)"
 
 
 def parse_sek(text: str | None) -> int | float | None:
@@ -29,17 +27,24 @@ def parse_sek(text: str | None) -> int | float | None:
     return (-1 if text.lstrip().startswith("-") else 1) * int(digits) if digits else None
 
 
-def parse_sqm(text: str | None) -> float | None:
-    """'35 m²' → 35.0; '79,5 m²' → 79.5."""
-    if not text:
+def _parse_measurement(text: str | None, unit: str) -> float | None:
+    """Missing is optional; malformed present measurements must not become missing."""
+    if text is None or not text.strip():
         return None
-    m = _DECIMAL_RE.search(text.replace(" ", " "))
-    return float(m.group(0).replace(",", ".")) if m else None
+    match = re.fullmatch(rf"\s*({_NUMBER})\s*(?:{unit})?\s*", text, re.IGNORECASE)
+    if match is None:
+        raise ValueError("malformed measurement")
+    return float(match.group(1).replace(",", "."))
+
+
+def parse_sqm(text: str | None) -> float | None:
+    """'35 m²' -> 35.0; malformed nonempty fields raise ValueError."""
+    return _parse_measurement(text, "m²")
 
 
 def parse_rooms(text: str | None) -> float | None:
-    """'1 rum' → 1.0; '2,5 rum' → 2.5."""
-    return parse_sqm(text)
+    """'2,5 rum' -> 2.5; malformed nonempty fields raise ValueError."""
+    return _parse_measurement(text, "rum")
 
 
 # --------------------------------------------------------------------------
@@ -144,7 +149,10 @@ def resolve_prices(
     if per_sqm_sek is None:
         if area_sqm is None or not math.isfinite(area_sqm) or area_sqm <= 0:
             return None
-        per_sqm_sek = int(round(price_sek / area_sqm))
+        per_sqm_sek = price_sek / area_sqm
+        if not 20_000 <= per_sqm_sek <= 400_000:
+            return None
+        per_sqm_sek = int(round(per_sqm_sek))
     if not 20_000 <= per_sqm_sek <= 400_000:
         return None
     return int(price_sek), int(per_sqm_sek)

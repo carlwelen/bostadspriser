@@ -115,8 +115,11 @@ def card_fields(card: dict, district: str) -> dict | None:
         return None
 
     coords = card.get("coordinates") or {}
-    area_sqm = parse_sqm(card.get("livingArea"))
-    rooms = parse_rooms(card.get("rooms"))
+    try:
+        area_sqm = parse_sqm(card.get("livingArea"))
+        rooms = parse_rooms(card.get("rooms"))
+    except ValueError:
+        return None
     if not sane_measurements(area_sqm, rooms):
         return None
     prices = resolve_prices(
