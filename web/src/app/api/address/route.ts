@@ -31,7 +31,7 @@ export const GET = withApiErrors("/api/address", async (request: Request) => {
   const { district, street, house, period } = parsed.data;
 
   const { days, granularity } = PERIOD_CONFIG[period];
-  const { streetSeries, addressSales } = await addressDrawerData(district, street, house, {
+  const { streetSeries, addressSales, streetSummary } = await addressDrawerData(district, street, house, {
     days,
     bucket: granularity,
   });
@@ -42,6 +42,7 @@ export const GET = withApiErrors("/api/address", async (request: Request) => {
     house: house ?? null,
     period,
     granularity,
+    streetSummary,
     streetSeries,
     addressSales,
   };
