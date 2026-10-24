@@ -24,6 +24,7 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
   const [query, setQuery] = useState("");
   const [streets, setStreets] = useState<StreetsAllItem[] | null>(null);
   const [error, setError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [active, setActive] = useState(-1);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -48,14 +49,20 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
   // Lazy-load the street index when the search is first opened.
   useEffect(() => {
     if (!open || streets) return;
+    let cancelled = false;
     setError(false);
     fetchJson<StreetsAllItem[]>("/api/streets/all")
-      .then(setStreets)
+      .then((data) => {
+        if (!cancelled) setStreets(data);
+      })
       .catch((err) => {
-        console.error("street index fetch failed", err);
-        setError(true);
+        if (!cancelled) {
+          console.error("street index fetch failed", err);
+          setError(true);
+        }
       });
-  }, [open, streets]);
+    return () => { cancelled = true; };
+  }, [open, streets, reloadKey]);
 
   useEffect(() => {
     if (open && inputRef.current) inputRef.current.focus();
@@ -183,9 +190,19 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
             </p>
             <div className="max-h-[60vh] overflow-y-auto">
               {error ? (
-                <p role="alert" className="px-4 py-6 text-sm text-red-700">
-                  Kunde inte hämta data.
-                </p>
+                <div role="alert" className="px-4 py-6 text-sm text-red-700">
+                  <p>Kunde inte hämta data.</p>
+                  <button
+                    type="button"
+                    className="mt-3 rounded-md border border-red-200 bg-white px-3 py-1.5 font-medium hover:bg-red-50"
+                    onClick={() => {
+                      setReloadKey((key) => key + 1);
+                      inputRef.current?.focus();
+                    }}
+                  >
+                    Försök igen
+                  </button>
+                </div>
               ) : streets === null ? (
                 <p className="px-4 py-6 text-sm text-zinc-500">Laddar gator…</p>
               ) : filtered.length === 0 ? (
