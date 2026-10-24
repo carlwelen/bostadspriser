@@ -28,8 +28,8 @@ export function Histogram({
     );
   }
   return (
-    <div className="h-72 w-full min-w-0 overflow-hidden">
-      <ResponsiveContainer initialDimension={{ width: 640, height: 288 }}>
+    <div className="h-72 w-full min-w-0">
+      <ResponsiveContainer initialDimension={{ width: 200, height: 288 }}>
         <BarChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 4 }}>
           <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
           <XAxis
