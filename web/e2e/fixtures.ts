@@ -10,15 +10,15 @@ type Fixtures = { consoleErrors: string[] };
 
 /**
  * Extends `test` with:
- *   - hermetic network: any request that isn't to the app server is aborted;
+ *   - automatic hermetic network: any request outside the exact app origin is aborted;
  *   - `consoleErrors`: console.error / uncaught page errors collected during
  *     the test, minus KNOWN_CONSOLE_ERRORS. Assert it is empty.
  */
 export const test = base.extend<Fixtures>({
-  consoleErrors: async ({ page, baseURL }, provide) => {
+  consoleErrors: [async ({ page, baseURL }, provide) => {
     const origin = new URL(baseURL!).origin;
     await page.context().route("**/*", (route) =>
-      route.request().url().startsWith(origin) ? route.continue() : route.abort()
+      new URL(route.request().url()).origin === origin ? route.continue() : route.abort()
     );
     const errors: string[] = [];
     const keep = (msg: string) => {
@@ -29,7 +29,7 @@ export const test = base.extend<Fixtures>({
     });
     page.on("pageerror", (e) => keep(`pageerror: ${e.message}`));
     await provide(errors);
-  },
+  }, { auto: true }],
 });
 
 export { expect };
