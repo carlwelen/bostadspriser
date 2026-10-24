@@ -517,6 +517,7 @@ def backfill_dedup() -> None:
 
 
 @cli.command("reparse")
+@click.option("--prune-unparseable", is_flag=True, help="Delete unparseable known-source rows; preview with --dry-run.")
 @click.option("--dry-run", is_flag=True, help="Report what would change without writing.")
 @click.option(
     "--batch-size",
@@ -526,12 +527,22 @@ def backfill_dedup() -> None:
     help="Rows per keyset batch / transaction.",
 )
 @exclusive
-def reparse_cmd(dry_run: bool, batch_size: int) -> None:
+def reparse_cmd(dry_run: bool, batch_size: int, prune_unparseable: bool) -> None:
     """Re-derive street, house number, rooms, area, prices and dedupKey from `raw`."""
-    summary = reparse(dry_run=dry_run, batch_size=batch_size)
-    click.echo(format_summary(summary))
-    if not dry_run and summary.changed:
-        refresh_deduped()
+    committed = False
+
+    def wrote_batch() -> None:
+        nonlocal committed
+        committed = True
+
+    try:
+        summary = reparse(dry_run=dry_run, batch_size=batch_size,
+                          prune_unparseable=prune_unparseable, on_commit=wrote_batch)
+        click.echo(format_summary(summary))
+    finally:
+        # Earlier batches may already have committed if a later parser fails.
+        if not dry_run and committed:
+            refresh_deduped()
 
 
 def _warn_split_keys(violations: list[tuple[str, list[str]]]) -> None:

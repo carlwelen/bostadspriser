@@ -7,7 +7,8 @@ own `card_fields` over it instead.
 
 Idempotent: a row is only written when a derived value differs from what is
 stored, so a second run changes nothing. Rows whose card no longer parses are
-reported, never deleted or rewritten.
+reported by default. Explicit pruning may delete only known-source rows proven
+unparseable while their batch rows are locked.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Callable
 
-from sqlalchemy import bindparam, select, update
+from sqlalchemy import bindparam, delete, select, update
 
 from . import booli, hemnet
 from .db import listing_table, session
@@ -57,6 +58,10 @@ class ReparseSummary:
     # (id, source, reason) — capped sample; the full count is `unparseable`.
     unparseable_samples: list[tuple[str, str, str]] = field(default_factory=list)
     unparseable: int = 0
+    prunable: int = 0
+    pruned: int = 0
+    prunable_samples: list[str] = field(default_factory=list)
+    prune_unparseable: bool = False
     # Rows whose stored soldAt differed from the one in `raw` (also counted in by_field).
     sold_at_mismatch: int = 0
     dry_run: bool = False
@@ -71,7 +76,10 @@ def _same(old: Any, new: Any) -> bool:
     return old == new
 
 
-def reparse(*, dry_run: bool = False, batch_size: int = 1000) -> ReparseSummary:
+def reparse(
+    *, dry_run: bool = False, batch_size: int = 1000, prune_unparseable: bool = False,
+    on_commit: Callable[[], None] | None = None,
+) -> ReparseSummary:
     """Re-derive FIELDS for every row from its `raw` card, in id-keyset batches.
 
     Rows inserted mid-run with an id below the keyset cursor are not seen by this
@@ -81,7 +89,7 @@ def reparse(*, dry_run: bool = False, batch_size: int = 1000) -> ReparseSummary:
     if batch_size < 1:
         raise ValueError("batch_size must be >= 1")
     table = listing_table()
-    summary = ReparseSummary(dry_run=dry_run)
+    summary = ReparseSummary(dry_run=dry_run, prune_unparseable=prune_unparseable)
     cols = [table.c.id, table.c.source, table.c.district, table.c.raw]
     cols += [table.c[f] for f in FIELDS]
     write = update(table).where(table.c.id == bindparam("b_id")).values(
@@ -105,6 +113,7 @@ def reparse(*, dry_run: bool = False, batch_size: int = 1000) -> ReparseSummary:
             last_id = rows[-1].id
 
             updates: list[dict] = []
+            prune_ids: list[str] = []
             for row in rows:
                 summary.scanned += 1
                 deriver = _DERIVERS.get(row.source)
@@ -114,6 +123,11 @@ def reparse(*, dry_run: bool = False, batch_size: int = 1000) -> ReparseSummary:
                 derived = deriver(row.raw, str(row.district)) if isinstance(row.raw, dict) else None
                 if derived is None:
                     _note_unparseable(summary, row, "raw card no longer parses")
+                    summary.prunable += 1
+                    if len(summary.prunable_samples) < _MAX_UNPARSEABLE_SAMPLES:
+                        summary.prunable_samples.append(row.id)
+                    if prune_unparseable:
+                        prune_ids.append(row.id)
                     continue
                 changed = [f for f in FIELDS if not _same(getattr(row, f), derived[f])]
                 if "soldAt" in changed:
@@ -127,9 +141,23 @@ def reparse(*, dry_run: bool = False, batch_size: int = 1000) -> ReparseSummary:
                         summary.examples.append((row.id, f, getattr(row, f), derived[f]))
                 updates.append({"b_id": row.id, **{f"n_{f}": derived[f] for f in FIELDS}})
 
-            if updates and not dry_run:
-                s.execute(write, updates)
+            if not dry_run and (updates or prune_ids):
+                if updates:
+                    s.execute(write, updates)
+                deleted = 0
+                if prune_ids:
+                    # The SELECT lock is held through this deletion and commit:
+                    # newer raw cannot replace the card we just proved invalid.
+                    result = s.execute(delete(table).where(
+                        table.c.id.in_(prune_ids), table.c.source.in_(tuple(_DERIVERS)),
+                    ))
+                    deleted = result.rowcount
+                    if deleted != len(prune_ids):
+                        raise RuntimeError("prune count changed while batch rows were locked")
                 s.commit()
+                summary.pruned += deleted
+                if on_commit is not None:
+                    on_commit()
     return summary
 
 
@@ -156,9 +184,18 @@ def format_summary(summary: ReparseSummary) -> str:
     if summary.sold_at_mismatch:
         lines.append(f"{summary.sold_at_mismatch} rows had a soldAt that differed from raw")
     if summary.unparseable:
-        lines.append(f"{summary.unparseable} rows no longer parse (left untouched):")
+        disposition = "known-source rows pruned; unknown sources left untouched" if summary.pruned else "left untouched"
+        lines.append(f"{summary.unparseable} rows no longer parse ({disposition}):")
         for row_id, source, reason in summary.unparseable_samples:
             lines.append(f"  {source} {row_id}: {reason}")
         if summary.unparseable > len(summary.unparseable_samples):
             lines.append(f"  ... and {summary.unparseable - len(summary.unparseable_samples)} more")
+    if summary.prune_unparseable:
+        action = "would prune" if summary.dry_run else "pruned"
+        count = summary.prunable if summary.dry_run else summary.pruned
+        lines.append(f"{action} {count} unparseable known-source rows")
+    elif summary.prunable:
+        lines.append(f"{summary.prunable} known-source rows eligible for --prune-unparseable (not deleted)")
+    if summary.prunable_samples:
+        lines.append("eligible row IDs (sample): " + ", ".join(summary.prunable_samples))
     return "\n".join(lines)
