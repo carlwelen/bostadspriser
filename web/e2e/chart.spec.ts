@@ -111,3 +111,19 @@ for (const path of ["/street/ostermalm/karlavagen/2", "/street/sodermalm/gotgata
     }
   });
 }
+
+
+test("address markers remain painted above coincident street and district markers", async ({ page }) => {
+  await page.goto("/street/ostermalm/karlavagen/2");
+  await page.waitForLoadState("networkidle");
+  await page.locator(".recharts-wrapper").first().scrollIntoViewIfNeeded();
+  const dots = page.locator('svg circle.recharts-dot[data-low-sample="true"][stroke="#2563eb"]');
+  await expect(dots).toHaveCount(4);
+  // Hit testing follows actual SVG paint order. A later opaque circle can hide
+  // an address marker even when its own stroke and CSS contrast are correct.
+  await expect.poll(async () => dots.evaluateAll((els) => els.map((el) => {
+    const box = el.getBoundingClientRect();
+    const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    return top === el;
+  }))).toEqual([true, true, true, true]);
+});

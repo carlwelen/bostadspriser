@@ -219,7 +219,8 @@ export function PriceChart({
         <ResponsiveContainer initialDimension={{ width: 640, height: 288 }}>
           <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 4 }}>
             {axes}
-            {series.map((s, i) => (
+            {/* Paint the lead series last so coincident comparison dots cannot hide it. */}
+            {series.map((s, i) => ({ s, i })).reverse().map(({ s, i }) => (
               <Line
                 key={s.name}
                 type="monotone"
