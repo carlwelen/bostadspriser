@@ -38,7 +38,7 @@ export function describeMom(mom: DistrictMomChange | null, minSales: number): Mo
   }
   const prev = formatMonthYear(mom.previousMonth);
   const cur = formatMonthYear(mom.currentMonth);
-  if (mom.pctChange == null) {
+  if (mom.medianPctChange == null) {
     return {
       value: "—",
       hint:
@@ -48,8 +48,8 @@ export function describeMom(mom: DistrictMomChange | null, minSales: number): Mo
     };
   }
   return {
-    value: PCT.format(mom.pctChange / 100),
-    hint: `Medelpris/m², ${prev} (${mom.previousCount} st) → ${cur} (${mom.currentCount} st)`,
-    tone: mom.pctChange >= 0 ? "up" : "down",
+    value: PCT.format(mom.medianPctChange / 100),
+    hint: `Medianpris/m², ${prev} (${mom.previousCount} st) → ${cur} (${mom.currentCount} st)`,
+    tone: mom.medianPctChange >= 0 ? "up" : "down",
   };
 }
