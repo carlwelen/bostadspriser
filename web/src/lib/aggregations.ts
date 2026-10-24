@@ -645,6 +645,11 @@ export type DistrictMomChange = {
   /** Sales behind each mean, so callers can say how thin the data is. */
   currentCount: number;
   previousCount: number;
+  /** SQL medians for the same complete-month populations as the mean fields. */
+  currentMedian: number | null;
+  previousMedian: number | null;
+  /** Median-based change, subject to the same minimum-count rule as pctChange. */
+  medianPctChange: number | null;
 };
 
 /**
@@ -665,7 +670,7 @@ async function districtMomChangeUncached(
   // `back` = whole calendar months before `asOf`'s month (Stockholm): 1 is the
   // latest complete month, 2 the one before it. Months with no sales have no row.
   const rows = await prisma.$queryRaw<
-    Array<{ back: number; mean_pps: bigint; n: bigint; current_month: string; previous_month: string }>
+    Array<{ back: number; mean_pps: bigint; median_pps: bigint; n: bigint; current_month: string; previous_month: string }>
   >(Prisma.sql`
     WITH bounds AS (
       SELECT date_trunc('month', ${asOf}::timestamptz AT TIME ZONE 'Europe/Stockholm')::date AS cur
@@ -673,6 +678,7 @@ async function districtMomChangeUncached(
     SELECT ((EXTRACT(YEAR FROM b.cur) * 12 + EXTRACT(MONTH FROM b.cur))
           - (EXTRACT(YEAR FROM l."soldAt") * 12 + EXTRACT(MONTH FROM l."soldAt")))::int AS back,
            AVG(l."pricePerSqmSek")::bigint                                     AS mean_pps,
+           ${MEDIAN_PPS}                                                       AS median_pps,
            COUNT(*)::bigint                                                    AS n,
            to_char(b.cur - INTERVAL '1 month', 'YYYY-MM-DD')                   AS current_month,
            to_char(b.cur - INTERVAL '2 months', 'YYYY-MM-DD')                  AS previous_month
@@ -690,6 +696,8 @@ async function districtMomChangeUncached(
   const prev = rows.find((r) => r.back === 2);
   const current = cur ? Number(cur.mean_pps) : null;
   const previous = prev ? Number(prev.mean_pps) : null;
+  const currentMedian = cur ? Number(cur.median_pps) : null;
+  const previousMedian = prev ? Number(prev.median_pps) : null;
   const currentCount = cur ? Number(cur.n) : 0;
   const previousCount = prev ? Number(prev.n) : 0;
   const pctChange =
@@ -700,7 +708,15 @@ async function districtMomChangeUncached(
     previousCount >= MIN_MOM_SALES
       ? ((current - previous) / previous) * 100
       : null;
+  const medianPctChange =
+    currentMedian !== null && previousMedian !== null && previousMedian > 0 &&
+    currentCount >= MIN_MOM_SALES && previousCount >= MIN_MOM_SALES
+      ? ((currentMedian - previousMedian) / previousMedian) * 100
+      : null;
   return {
+    currentMedian,
+    previousMedian,
+    medianPctChange,
     current,
     previous,
     pctChange,
@@ -837,6 +853,8 @@ async function listAllStreetsUncached(limit = 4000): Promise<StreetsAllItem[]> {
 }
 
 export type AddressDrawerData = {
+  /** Uncapped priced street population in the selected period, across all houses. */
+  streetSummary: SalesSummary;
   streetSeries: TimeseriesPoint[];
   addressSales: AddressSale[];
 };
@@ -859,7 +877,7 @@ export async function addressDrawerData(
     : Prisma.sql``;
   const houseClause = house ? Prisma.sql`AND "houseNumber" = ${house}` : Prisma.sql``;
 
-  const [sales, series] = await Promise.all([
+  const [sales, series, { summary: streetSummary }] = await Promise.all([
     prisma.$queryRaw<
       Array<{ soldAt: Date; priceSek: bigint; pricePerSqmSek: bigint; sources: string[] | null }>
     >(Prisma.sql`
@@ -889,9 +907,11 @@ export async function addressDrawerData(
       GROUP BY bucket
       ORDER BY bucket ASC
     `),
+    summarize(Prisma.sql`district = ${district}::"District" AND street = ${street} ${sinceClause}`),
   ]);
 
   return {
+    streetSummary,
     streetSeries: series.map((r) => ({
       bucket: r.bucket.toISOString().slice(0, 10),
       meanPricePerSqm: Number(r.mean_price_per_sqm),
