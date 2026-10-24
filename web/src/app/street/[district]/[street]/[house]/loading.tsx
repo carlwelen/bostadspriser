@@ -1,2 +1,5 @@
-// Same skeleton shape as the street overview.
-export { default } from "../(overview)/loading";
+import { AnalyticsLoading } from "@/components/AnalyticsLoading";
+
+export default function Loading() {
+  return <AnalyticsLoading title="adressens priser" />;
+}
