@@ -106,7 +106,7 @@ function ChartTooltip({
   );
 }
 
-/** Dot renderer: buckets with few sales are hollow and faint, the rest solid. */
+/** Dot renderer: buckets with few sales are larger and hollow, the rest solid. */
 function dotFor(name: string, color: string) {
   function Dot(props: { cx?: number; cy?: number; payload?: ChartRow; index?: number }) {
     const { cx, cy, payload } = props;
@@ -120,11 +120,11 @@ function dotFor(name: string, color: string) {
         data-low-sample={low ? "true" : "false"}
         cx={cx}
         cy={cy}
-        r={low ? 3 : 2.5}
+        r={low ? 4 : 2.5}
         fill={low ? "#ffffff" : color}
         stroke={low ? color : "none"}
-        strokeWidth={low ? 1.25 : 0}
-        strokeOpacity={low ? 0.55 : 1}
+        strokeWidth={low ? 1.75 : 0}
+        strokeOpacity={1}
       />
     );
   }

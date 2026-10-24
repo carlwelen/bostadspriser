@@ -84,3 +84,30 @@ test("the legend sits inside the chart card", async ({ page }) => {
   const legendBox = await legend.boundingBox();
   expect(legendBox!.y + legendBox!.height).toBeLessThanOrEqual(cardBox!.y + cardBox!.height);
 });
+
+for (const path of ["/street/ostermalm/karlavagen/2", "/street/sodermalm/gotgatan/22"]) {
+  test(`low-sample address dots remain visible with 3:1 contrast: ${path}`, async ({ page }) => {
+    await page.goto(path);
+    await page.waitForLoadState("networkidle");
+    const dots = page.locator('svg circle.recharts-dot[data-low-sample="true"][stroke="#2563eb"]');
+    await expect(dots.first()).toBeVisible();
+    const styles = await dots.evaluateAll((els) => els.map((el) => {
+      const style = getComputedStyle(el);
+      const rgb = style.stroke.match(/[\d.]+/g)!.slice(0, 3).map(Number);
+      const alpha = Number(style.strokeOpacity) * Number(style.opacity);
+      const linear = rgb.map((v) => {
+        const s = (alpha * v + (1 - alpha) * 255) / 255;
+        return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      });
+      const luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+      return { contrast: 1.05 / (luminance + 0.05), alpha, radius: Number(el.getAttribute("r")), width: parseFloat(style.strokeWidth), fill: style.fill };
+    }));
+    for (const style of styles) {
+      expect(style.contrast).toBeGreaterThanOrEqual(3);
+      expect(style.alpha).toBe(1);
+      expect(style.radius).toBeGreaterThanOrEqual(4);
+      expect(style.width).toBeGreaterThanOrEqual(1.5);
+      expect(style.fill).toBe("rgb(255, 255, 255)");
+    }
+  });
+}
