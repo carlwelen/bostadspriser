@@ -7,20 +7,26 @@ and return numeric types or None.
 
 from __future__ import annotations
 
+import math
 import re
 from decimal import ROUND_HALF_UP, Decimal
 
 # Matches digit groups with optional non-breaking/regular spaces.
 _DIGIT_RE = re.compile(r"[\d \s]+")
-_DECIMAL_RE = re.compile(r"\d+(?:[.,]\d+)?")
+_DECIMAL_RE = re.compile(r"[+-]?(?:\d+(?:[.,]\d+)?|nan|inf(?:inity)?)", re.IGNORECASE)
 
 
-def parse_sek(text: str | None) -> int | None:
+def parse_sek(text: str | None) -> int | float | None:
     """'4 900 000 kr' or '140 000 kr/m²' → 4900000 / 140000."""
     if not text:
         return None
+    # Preserve nonfinite numeric tokens so validators reject them rather than
+    # treating them as missing and deriving a plausible replacement.
+    token = text.split()[0].lower() if text.split() else ""
+    if token.lstrip("+-") in {"nan", "inf", "infinity"}:
+        return float(token)
     digits = re.sub(r"[^\d]", "", text)
-    return int(digits) if digits else None
+    return (-1 if text.lstrip().startswith("-") else 1) * int(digits) if digits else None
 
 
 def parse_sqm(text: str | None) -> float | None:
@@ -115,8 +121,16 @@ def parse_street_address(addr: str | None) -> tuple[str, str | None]:
     return street, house
 
 
+def sane_measurements(area: float | None, rooms: float | None) -> bool:
+    """Validate known values before rounding; absent optional measurements stay absent."""
+    return all(
+        value is None or (math.isfinite(value) and low <= value <= high)
+        for value, low, high in [(area, 10, 400), (rooms, 1, 15)]
+    )
+
+
 def resolve_prices(
-    price_sek: int | None, per_sqm_sek: int | None, area_sqm: float | None
+    price_sek: int | float | None, per_sqm_sek: int | float | None, area_sqm: float | None
 ) -> tuple[int, int] | None:
     """Final price and kr/m² for a sale, or None if the row can't be stored.
 
@@ -125,12 +139,14 @@ def resolve_prices(
     derived as round(price / area); with neither kr/m² nor a usable area the
     row is skipped rather than stored with 0.
     """
-    if not price_sek:
+    if price_sek is None or price_sek <= 0 or (isinstance(price_sek, float) and not math.isfinite(price_sek)):
         return None
-    if not per_sqm_sek:
-        if not area_sqm:
+    if per_sqm_sek is None:
+        if area_sqm is None or not math.isfinite(area_sqm) or area_sqm <= 0:
             return None
         per_sqm_sek = int(round(price_sek / area_sqm))
+    if not 20_000 <= per_sqm_sek <= 400_000:
+        return None
     return int(price_sek), int(per_sqm_sek)
 
 

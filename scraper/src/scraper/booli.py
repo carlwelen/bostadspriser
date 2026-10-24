@@ -36,6 +36,7 @@ from .normalize import (
     parse_street_address,
     resolve_prices,
     round_1dp,
+    sane_measurements,
 )
 from .source_base import Source, crawl
 
@@ -181,6 +182,9 @@ def card_fields(card: dict, district: str) -> dict | None:
     # when missing. Rows with no final price (or neither kr/m² nor area) are
     # skipped, not stored with 0.
     area_sqm = parse_sqm(area_text)
+    rooms = parse_rooms(rooms_text)
+    if not sane_measurements(area_sqm, rooms):
+        return None
     prices = resolve_prices(price_sek, parse_sek(sqm_price_text), area_sqm)
     if prices is None:
         return None
@@ -195,7 +199,7 @@ def card_fields(card: dict, district: str) -> dict | None:
         "street": street,
         "houseNumber": house,
         "district": district,
-        "rooms": round_1dp(parse_rooms(rooms_text)),
+        "rooms": round_1dp(rooms),
         "areaSqm": round_1dp(area_sqm),
         "priceSek": final_price,
         "pricePerSqmSek": price_per_sqm,

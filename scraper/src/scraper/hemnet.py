@@ -27,6 +27,7 @@ from .normalize import (
     parse_street_address,
     resolve_prices,
     round_1dp,
+    sane_measurements,
 )
 from .source_base import Source, crawl
 
@@ -115,6 +116,9 @@ def card_fields(card: dict, district: str) -> dict | None:
 
     coords = card.get("coordinates") or {}
     area_sqm = parse_sqm(card.get("livingArea"))
+    rooms = parse_rooms(card.get("rooms"))
+    if not sane_measurements(area_sqm, rooms):
+        return None
     prices = resolve_prices(
         parse_sek(card.get("finalPrice")), parse_sek(card.get("squareMeterPrice")), area_sqm
     )
@@ -127,7 +131,7 @@ def card_fields(card: dict, district: str) -> dict | None:
         "street": street,
         "houseNumber": house,
         "district": district,
-        "rooms": round_1dp(parse_rooms(card.get("rooms"))),
+        "rooms": round_1dp(rooms),
         "areaSqm": round_1dp(area_sqm),
         "priceSek": price_sek,
         "pricePerSqmSek": price_per_sqm,
