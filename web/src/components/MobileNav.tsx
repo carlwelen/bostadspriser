@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { StreetSearch } from "./StreetSearch";
+import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 
 export type NavCrumb = { label: string; href?: string };
 
@@ -14,11 +14,36 @@ const LINK =
  * collapse into a "Meny" disclosure. Rendered inside `SiteHeader`; hidden from
  * md up, where the full nav is shown instead.
  */
-export function MobileNav({ crumbs }: { crumbs: NavCrumb[] }) {
+export function MobileNav({ crumbs, openSearch }: { crumbs: NavCrumb[]; openSearch: () => void }) {
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const pathname = usePathname();
+  useEffect(() => setOpen(false), [pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      // The search modal owns Escape while it is open.
+      if (event.key === "Escape" && !document.querySelector('[role="dialog"]')) {
+        setOpen(false);
+        toggleRef.current?.focus();
+      }
+    };
+    const onPointer = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node) &&
+          !(event.target as Element).closest('[role="dialog"], .backdrop-fade')) setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointer);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointer);
+    };
+  }, [open]);
   return (
-    <div className="md:hidden">
+    <div ref={rootRef} className="md:hidden">
       <button
+        ref={toggleRef}
         type="button"
         aria-expanded={open}
         aria-controls="mobile-nav"
@@ -39,8 +64,8 @@ export function MobileNav({ crumbs }: { crumbs: NavCrumb[] }) {
         </svg>
         Meny
       </button>
-      {open && (
-        <nav
+      <nav
+          hidden={!open}
           id="mobile-nav"
           aria-label="Huvudmeny"
           // Close when a link is followed; the search button manages its own dialog.
@@ -79,11 +104,12 @@ export function MobileNav({ crumbs }: { crumbs: NavCrumb[] }) {
               </Link>
             </li>
             <li className="px-3 pt-2">
-              <StreetSearch />
+              <button type="button" aria-haspopup="dialog" onClick={openSearch} className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50">
+                Sök gata
+              </button>
             </li>
           </ul>
         </nav>
-      )}
     </div>
   );
 }
