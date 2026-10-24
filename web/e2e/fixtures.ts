@@ -1,4 +1,5 @@
 import { test as base, expect } from "@playwright/test";
+import { originProxy } from "./originProxy";
 
 /**
  * Console errors that are known baseline bugs. Each entry names the backlog
@@ -15,6 +16,12 @@ type Fixtures = { consoleErrors: string[] };
  *     the test, minus KNOWN_CONSOLE_ERRORS. Assert it is empty.
  */
 export const test = base.extend<Fixtures>({
+  proxy: async ({ baseURL, browserName }, provide) => {
+    if (browserName !== "chromium") throw new Error("The hermetic e2e proxy is verified for Chromium projects");
+    const proxy = await originProxy(new URL(baseURL!).origin);
+    try { await provide(proxy.options); } finally { await proxy.close(); }
+  },
+  serviceWorkers: "block",
   consoleErrors: [async ({ page, baseURL }, provide) => {
     const origin = new URL(baseURL!).origin;
     await page.context().route("**/*", (route) =>
