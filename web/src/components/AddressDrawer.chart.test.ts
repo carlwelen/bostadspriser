@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { AddressDrawer, type AddressSelection } from "./AddressDrawer";
+import { drawerSeries } from "./map/drawerSeries";
 import type { AddressResponse } from "@/lib/api-types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -127,4 +128,30 @@ it("shows a visible tooltip for an address date with no street bucket (F12)", as
     const wrapper = host.querySelector<HTMLElement>(".recharts-tooltip-wrapper");
     expect(wrapper?.style.visibility).toBe("visible");
   });
+});
+
+it("uses the uncapped SQL street median and count for its headline (B14)", async () => {
+  await renderChart({ ...fixture, streetSummary: {
+    count: 700, medianPricePerSqm: 117_000, meanPricePerSqm: 200_000,
+    earliest: "2025-01-01", latest: "2025-07-01",
+  } }, (host) => {
+    const card = [...host.querySelectorAll("p")].find((p) => p.textContent === "Median på gatan")?.parentElement;
+    expect(card?.textContent).toContain("117 000 kr/m²");
+    expect(card?.textContent).toContain("700 försäljningar");
+    expect(card?.textContent).toContain("200 000 kr/m²");
+    expect(host.textContent).toContain("Visade affärer");
+    expect(host.textContent).not.toContain("bucket");
+  });
+});
+
+it("does not manufacture a street summary when SQL data is unavailable (B14)", async () => {
+  await renderChart(fixture, (host) => {
+    const card = [...host.querySelectorAll("p")].find((p) => p.textContent === "Median på gatan")?.parentElement;
+    expect(card?.textContent).toContain("—");
+    expect(card?.textContent).not.toContain("kr/m²");
+  });
+});
+
+it("plots each SQL bucket median without re-aggregating rows (B14)", () => {
+  expect(drawerSeries(fixture).trendRows.map((point) => point.trend)).toEqual([145_000, 155_000]);
 });

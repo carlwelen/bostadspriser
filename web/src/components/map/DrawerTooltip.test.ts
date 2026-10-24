@@ -26,3 +26,9 @@ it("does not invent counts for a missing bucket or inactive tooltip (F12)", () =
   expect(renderToStaticMarkup(createElement(DrawerTooltip, { active: true, label: Date.parse("2025-07-01"), data }))).toBe("");
   expect(renderToStaticMarkup(createElement(DrawerTooltip, { active: false, label: Date.parse("2025-06-01"), data }))).toBe("");
 });
+
+it("leads with the median and keeps the SQL mean as context (B14)", () => {
+  const html = renderToStaticMarkup(createElement(DrawerTooltip, { active: true, label: Date.parse("2025-06-01"), data }));
+  expect(html).toContain("Gatans median: 130 000 kr/m²");
+  expect(html).toContain("Medel: 140 000 kr/m²");
+});

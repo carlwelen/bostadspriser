@@ -234,8 +234,8 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
                         {districtName(s.district)} • {s.count} {soldWord(s.count)}
                       </p>
                     </div>
-                    <span className="shrink-0 text-xs tabular-nums text-zinc-500">
-                      {SEK.format(s.meanPricePerSqm)} kr/m²
+                    <span title="Medianpris per kvadratmeter" className="shrink-0 text-xs tabular-nums text-zinc-500">
+                      {SEK.format(s.medianPricePerSqm)} kr/m²
                     </span>
                   </li>
                 ))}

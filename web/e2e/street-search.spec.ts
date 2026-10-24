@@ -133,3 +133,15 @@ for (const [street, query] of [
     expect(consoleErrors).toEqual([]);
   });
 }
+
+test("search results lead with the SQL median (B14)", async ({ page }) => {
+  await page.route("**/api/streets/all", (route) => route.fulfill({ json: [{
+    district: "ostermalm", street: "Karlavägen", slug: "karlavagen", count: 5,
+    meanPricePerSqm: 195_000, medianPricePerSqm: 123_456,
+  }] }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Sök gata", exact: true }).click();
+  const result = page.getByRole("option").filter({ hasText: "Karlavägen" });
+  await expect(result).toContainText("123 456 kr/m²");
+  await expect(result).not.toContainText("195 000");
+});

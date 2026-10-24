@@ -13,6 +13,7 @@ import {
 } from "recharts";
 
 import { DrawerTooltip, StreetDot } from "./map/DrawerTooltip";
+import { formatSales } from "./plural";
 import { SourceBadge } from "./SourceBadge";
 import { registerModal } from "./map/focusTrap";
 import type { Period } from "@/lib/api-types";
@@ -100,24 +101,9 @@ export function AddressDrawer({
   if (!selection) return null;
 
   const stats = data
-    ? {
-        latest: data.addressSales[0],
-        addressCount: data.addressSales.length,
-        streetMean:
-          data.streetSeries.length > 0
-            ? Math.round(
-                data.streetSeries.reduce(
-                  (s, p) => s + p.meanPricePerSqm * p.count,
-                  0
-                ) /
-                  Math.max(
-                    1,
-                    data.streetSeries.reduce((s, p) => s + p.count, 0)
-                  )
-              )
-            : null,
-      }
+    ? { latest: data.addressSales[0], addressCount: data.addressSales.length }
     : null;
+  const summary = data?.streetSummary;
 
   return (
     <>
@@ -166,11 +152,11 @@ export function AddressDrawer({
         <div className="flex-1 overflow-y-auto px-5 py-5">
           <PeriodPills period={period} onChange={setPeriod} />
 
-          <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="mt-4 grid grid-cols-2 gap-2">
             <MiniStat
-              label="Försäljningar"
+              label="Visade affärer"
               value={stats?.addressCount?.toString() ?? "—"}
-              hint={selection.houseNumber ? "denna adress" : "hela gatan"}
+              hint="i diagrammet"
             />
             <MiniStat
               label="Senaste pris"
@@ -182,9 +168,10 @@ export function AddressDrawer({
               hint={stats?.latest?.soldAt}
             />
             <MiniStat
-              label="Gatumedel"
-              value={stats?.streetMean ? `${SEK.format(stats.streetMean)} kr/m²` : "—"}
-              hint={`${data?.granularity ?? "—"} bucket`}
+              wide
+              label="Median på gatan"
+              value={summary?.medianPricePerSqm != null ? `${SEK.format(summary.medianPricePerSqm)} kr/m²` : "—"}
+              hint={summary ? `${formatSales(summary.count)}${summary.meanPricePerSqm != null ? ` · medel ${SEK.format(summary.meanPricePerSqm)} kr/m²` : ""}` : undefined}
             />
           </div>
 
@@ -281,7 +268,7 @@ export function AddressDrawer({
               )}
             </div>
             <p className="mt-2 text-[10px] text-zinc-500">
-              Linje = gatans medel · prickar = enskilda försäljningar på {selection.address}.
+              Linje = gatans median · prickar = enskilda försäljningar på {selection.address}.
               {" "}Ofylld ring = färre än 3 affärer på gatan.
             </p>
           </section>
@@ -365,13 +352,15 @@ function MiniStat({
   label,
   value,
   hint,
+  wide = false,
 }: {
   label: string;
   value: string;
   hint?: string;
+  wide?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-3">
+    <div className={`min-w-0 rounded-xl border border-zinc-200 bg-white p-3${wide ? " col-span-2" : ""}`}>
       <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">{label}</p>
       <p className="mt-1 text-sm font-semibold tabular-nums text-zinc-900 leading-tight">
         {value}
