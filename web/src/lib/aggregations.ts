@@ -946,7 +946,8 @@ export type LatestScrapeRun = {
   oldestSoldAt: string | null;
 };
 
-/** For every (source, district): its most recently finished ok/partial run. */
+/** For every (source, district): its latest finished ok/partial non-backfill run.
+ * Legacy rows retain their old meaning because historical kinds are unknown. */
 async function latestScrapeRunsUncached(): Promise<LatestScrapeRun[]> {
   const rows = await prisma.$queryRaw<
     Array<{
@@ -966,6 +967,7 @@ async function latestScrapeRunsUncached(): Promise<LatestScrapeRun[]> {
            "startedAt", "finishedAt", pages, "rowsUpserted", "rowsRejected", "oldestSoldAt"
     FROM "ScrapeRun"
     WHERE status IN ('ok', 'partial') AND "finishedAt" IS NOT NULL
+      AND kind <> 'backfill'
     ORDER BY source, district, "finishedAt" DESC, "startedAt" DESC
   `);
   return rows.map((r) => ({
@@ -983,7 +985,7 @@ async function latestScrapeRunsUncached(): Promise<LatestScrapeRun[]> {
 
 export type SourceFreshness = {
   source: string;
-  /** Finish time (ISO, UTC) of the source's latest ok/partial run; null if it has none. */
+  /** Finish time (ISO, UTC) of the latest ok/partial non-backfill run; null if none. */
   lastSuccessAt: string | null;
   /** Raw (not deduplicated) rows from this source, and the sold-date range they cover. */
   listingCount: number;
@@ -1006,6 +1008,7 @@ async function sourceFreshnessUncached(): Promise<SourceFreshness[]> {
       SELECT source, MAX("finishedAt") AS last_success
       FROM "ScrapeRun"
       WHERE status IN ('ok', 'partial') AND "finishedAt" IS NOT NULL
+      AND kind <> 'backfill'
       GROUP BY source
     ), coverage AS (
       SELECT source, COUNT(*)::bigint AS n, MIN("soldAt") AS earliest, MAX("soldAt") AS latest
