@@ -1,5 +1,16 @@
 # Handoff: continuing the hardening loop (for Codex or any other agent)
 
+## Current checkpoint (2026-10-24)
+
+This checkpoint supersedes the historical handoff below. `docs/backlog.md` contains the live queue and merge ledger.
+
+- Main is green through the complete B13 stack: `e87d287`, `25ed187`, `f8b53db`. Fresh reviewers verified source-safe matching, correction/recomputation, and real PostgreSQL lock-timeout recovery on a no-change retry. Latest full main gate: 407 vitest, 112 Playwright, 488 pytest.
+- All original B and C handoff commits are now merged. E remains unmerged. E F20 `1f957f7` is approved; F11/F12 `50859e7` plus `2f86ad6` are approved. F28 `64c50bf` needs a follow-up: SSR containment clips a tall four-series tooltip after hydration. E is fixing it; require fresh re-review before merging the E batch oldest-first.
+- Prepared C follow-ups on `hardening/c-data` are fresh-review approved: `f50b6e8` (F16 SQL room filters), `081ccb7` (B51 cache bound/misses), `acd9acb` (B14 median MoM and SQL drawer summary). Merge after the original E queue, then adopt the contracts in E/D.
+- B continues B14 ingest bounds, B15 district metadata, B49 revalidation, and B23 shared Python vectors on `hardening/b-scraper` in `/tmp/bostadspriser-hardening-b-next` (test DB `bostadspriser_test_b2`, port 3106).
+- The user subsequently authorized GitHub pushes and unattended work. Root pushed reviewed green main through `76d0c85` to `github.com/carlwelen/temp`. Approved C branch through `acd9acb` is also published as `hardening/c-data`. A continuing goal is active. Publish further complete green checkpoints; implementers/reviewers still never push themselves. Root now has full access with approval policy `never`; omit `sandbox_permissions` under that policy. Child runtimes may retain their prior tool policy.
+- Audit rounds completed: **0**. Remaining P1/P2 work and two consecutive clean P0/P1 audits are still required before the final report. Rate-limit/session recovery cannot be guaranteed; keep this checkpoint and the ledger resumable.
+
 Written 2026-10-23 when the Claude Code orchestrator ran out of budget. Read this first, then `AGENTS.md`, `CLAUDE.md` and `docs/backlog.md`.
 
 ## 0. Starting Codex
