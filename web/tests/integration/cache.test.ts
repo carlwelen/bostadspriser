@@ -111,6 +111,27 @@ describe("cached aggregations", () => {
     }
   });
 
+  it("does not populate the cache for missing street slugs", async () => {
+    const spy = dbCalls();
+    for (const slug of ["missing-one", "missing-two", "missing-one"]) {
+      expect(await agg.streetFromSlug("vasastan", slug)).toBeNull();
+    }
+    expect(spy).toHaveBeenCalledTimes(3);
+    expect(fake.store.size).toBe(0);
+  });
+
+  it("queries valid slug lookups once, caches them and revalidates their tag", async () => {
+    const spy = dbCalls();
+    expect(await agg.streetFromSlug("vasastan", "odengatan")).toBe("Odengatan");
+    expect(await agg.streetFromSlug("vasastan", "odengatan")).toBe("Odengatan");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(fake.store.size).toBe(1);
+    expect((await post(auth, { tags: ["agg:streetFromSlug"] })).status).toBe(200);
+    expect(fake.store.size).toBe(0);
+    expect(await agg.streetFromSlug("vasastan", "odengatan")).toBe("Odengatan");
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
   it("tags every entry with the global tag and its own function tag", async () => {
     await districtSummary("vasastan");
     await globalSummary();

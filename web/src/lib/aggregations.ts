@@ -1052,7 +1052,23 @@ export async function dedupKeysInMultipleClusters(
 // `...Uncached` implementation above. Left uncached on purpose: heatmapPoints
 // and addressDrawerData (large or user-keyed, covered by HTTP caching),
 // dedupKeysInMultipleClusters (a diagnostic that must see live data).
-export const streetFromSlug = cached("streetFromSlug", streetFromSlugUncached);
+// Next only stores fulfilled results. Reject missing streets inside the cache
+// boundary, then restore the public null contract outside it. This keeps random
+// URL misses out of the LRU without a second query for valid cold lookups.
+class MissingStreet extends Error {}
+const cachedStreetFromSlug = cached("streetFromSlug", async (district: DistrictSlug, slug: string) => {
+  const street = await streetFromSlugUncached(district, slug);
+  if (street === null) throw new MissingStreet();
+  return street;
+});
+export async function streetFromSlug(district: DistrictSlug, slug: string): Promise<string | null> {
+  try {
+    return await cachedStreetFromSlug(district, slug);
+  } catch (error) {
+    if (error instanceof MissingStreet) return null;
+    throw error;
+  }
+}
 export const districtTimeseries = cached("districtTimeseries", districtTimeseriesUncached);
 export const streetTimeseries = cached("streetTimeseries", streetTimeseriesUncached);
 export const listStreets = cached("listStreets", listStreetsUncached);
