@@ -77,3 +77,51 @@ test("the street search backdrop covers the whole viewport", async ({ page }) =>
   await page.mouse.click(5, 790); // far below the header: lands on the backdrop
   await expect(input).toBeHidden();
 });
+
+for (const width of [320, 1280]) {
+  for (const menuOpen of [false, true]) {
+    test(`one visible keyboard search at ${width}px, menu open=${menuOpen}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto("/insights");
+      await page.waitForLoadState("networkidle");
+      if (menuOpen && width < 768) await page.getByRole("button", { name: "Meny" }).click();
+      await page.keyboard.press("Control+k");
+      await expect(page.getByRole("dialog", { name: "Sök gata", includeHidden: true })).toHaveCount(1);
+      await expect(page.getByRole("combobox", { name: "Sök gata eller stadsdel" })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("dialog", { name: "Sök gata", includeHidden: true })).toHaveCount(0);
+      await expect(page.locator("body")).not.toHaveCSS("overflow", "hidden");
+    });
+  }
+}
+
+test("mobile menu supports Escape, outside dismissal and valid closed controls", async ({ page }) => {
+  await page.goto("/insights");
+  const menu = await openMenu(page, 320);
+  const toggle = page.getByRole("button", { name: "Meny" });
+  await menu.getByRole("link", { name: "Jämför" }).focus();
+  await page.keyboard.press("Escape");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toBeFocused();
+  const id = await toggle.getAttribute("aria-controls");
+  expect(id).toBeTruthy();
+  await expect(page.locator(`[id="${id}"]`)).toBeAttached();
+  await expect(menu).toBeHidden();
+  await toggle.click();
+  await page.mouse.click(5, 790);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+});
+
+test("menu search Escape restores its trigger and selection closes the menu", async ({ page }) => {
+  await page.goto("/insights");
+  const menu = await openMenu(page, 320);
+  const trigger = menu.getByRole("button", { name: "Sök gata" });
+  await trigger.click();
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await page.getByRole("combobox").fill("karlav");
+  await page.getByRole("option").first().click();
+  await expect(page).toHaveURL(/\/street\/ostermalm\/karlavagen$/);
+  await expect(page.getByRole("button", { name: "Meny" })).toHaveAttribute("aria-expanded", "false");
+});
