@@ -1,0 +1,37 @@
+.overlays {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.summaries {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.badge {
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+.recent {
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+@container (min-width: 36rem) {
+  .summaries {
+    flex-direction: row;
+  }
+
+  .badge {
+    align-self: flex-end;
+  }
+}

@@ -7,6 +7,7 @@ import type { HeatmapResponse } from "@/lib/api-types";
 import type { DistrictSlug } from "@/lib/districts";
 
 vi.mock("mapbox-gl/dist/mapbox-gl.css", () => ({}));
+vi.mock("./HeatmapMap.module.css", () => ({ default: {} }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
