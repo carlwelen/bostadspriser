@@ -81,11 +81,13 @@ async function streetFromSlugUncached(
   slug: string
 ): Promise<string | null> {
   const rows = await prisma.$queryRaw<Array<{ street: string }>>(Prisma.sql`
-    SELECT DISTINCT street
+    SELECT street
     FROM "DedupedListingMat"
-    WHERE district = ${district}::"District"
+    WHERE district = ${district}::"District" AND "streetSlug" = ${slug}
+    ORDER BY street COLLATE "C" ASC
+    LIMIT 1
   `);
-  return rows.find((r) => slugifyStreet(r.street) === slug)?.street ?? null;
+  return rows[0]?.street ?? null;
 }
 
 async function districtTimeseriesUncached(
