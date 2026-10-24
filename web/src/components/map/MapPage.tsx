@@ -7,6 +7,7 @@ import { BrandMark } from "@/components/BrandMark";
 import { StreetSearch } from "@/components/StreetSearch";
 import { PriceLegend } from "./PriceLegend";
 import { DEFAULT_PRICE_BREAKS } from "./priceRamp";
+import styles from "./MapPage.module.css";
 import Link from "next/link";
 import { DISTRICTS, type DistrictSlug } from "@/lib/districts";
 import {
@@ -82,7 +83,7 @@ export function MapPage() {
     <div className="flex h-dvh flex-col overflow-hidden bg-zinc-50">
       <TopNav />
       {/* Phones: map on top, sidebar scrolling below it. md+: side by side. */}
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 md:flex-row">
+      <div className={`${styles.layout} flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3 md:flex-row`}>
         <main className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-zinc-200 bg-white">
           <HeatmapMap
             districts={state.districts}
@@ -116,9 +117,8 @@ function TopNav() {
     <div className="px-3 pt-3">
       <nav className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-xl border border-zinc-200 bg-white px-3 py-3 sm:px-5">
         {/* Below sm the "STHLM" tag goes; at 320 px the actions wrap under the brand. */}
-        <div className="max-sm:[&_span.uppercase]:hidden">
-          <BrandMark />
-        </div>
+        <div className="sm:hidden"><BrandMark compact /></div>
+        <div className="hidden sm:flex"><BrandMark /></div>
         <div className="flex shrink-0 items-center gap-0.5 text-sm sm:gap-1">
           <Link
             href="/insights"
@@ -189,7 +189,7 @@ function Sidebar({
   }, [measure]);
 
   return (
-    <div className="flex max-h-[45%] w-full shrink-0 flex-col md:max-h-none md:w-80">
+    <div className={`${styles.sidebar} flex max-h-[45%] w-full shrink-0 flex-col md:max-h-none md:w-80`}>
     <aside
       ref={asideRef}
       onScroll={measure}

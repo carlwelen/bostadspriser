@@ -26,6 +26,7 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
   const [error, setError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [active, setActive] = useState(-1);
+  const [viewport, setViewport] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -66,6 +67,27 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
 
   useEffect(() => {
     if (open && inputRef.current) inputRef.current.focus();
+  }, [open]);
+
+  // A phone keyboard can shrink and pan the visual viewport without changing
+  // the layout viewport. Keep the header and scrolling results inside it.
+  useEffect(() => {
+    if (!open) return;
+    const measure = () => {
+      const v = window.visualViewport;
+      setViewport({ top: v?.offsetTop ?? 0, left: v?.offsetLeft ?? 0,
+        width: v?.width ?? window.innerWidth, height: v?.height ?? window.innerHeight });
+    };
+    const v = window.visualViewport;
+    measure();
+    window.addEventListener("resize", measure);
+    v?.addEventListener("resize", measure);
+    v?.addEventListener("scroll", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      v?.removeEventListener("resize", measure);
+      v?.removeEventListener("scroll", measure);
+    };
   }, [open]);
 
   // Cmd/Ctrl-K toggles the search from anywhere.
@@ -149,7 +171,9 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
 
       {open && (
         <div
-          className="backdrop-fade fixed inset-0 z-[60] grid place-items-start bg-zinc-950/30 backdrop-blur-sm"
+          className="backdrop-fade fixed inset-0 z-[60] flex flex-col items-center overflow-hidden bg-zinc-950/30 p-3 backdrop-blur-sm"
+          style={viewport ? { top: viewport.top, left: viewport.left, width: viewport.width, height: viewport.height,
+            paddingTop: Math.min(96, Math.max(12, (viewport.height - 400) / 4)) } : undefined}
           onClick={close}
         >
           <div
@@ -157,10 +181,10 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
             role="dialog"
             aria-modal="true"
             aria-label="Sök gata"
-            className="drawer-enter mx-auto mt-24 w-full max-w-xl overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-[0_24px_60px_-20px_rgb(15_23_42_/_0.18)]"
+            className="drawer-enter mx-auto flex min-h-0 max-h-full w-full max-w-xl flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-[0_24px_60px_-20px_rgb(15_23_42_/_0.18)]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center gap-2 border-b border-zinc-200 px-4 py-3">
+            <div className="flex shrink-0 items-center gap-2 border-b border-zinc-200 px-4 py-3">
               <SearchIcon className="text-zinc-500" />
               <input
                 ref={inputRef}
@@ -174,7 +198,7 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={onInputKeyDown}
                 placeholder="Sök gata eller stadsdel…"
-                className="flex-1 bg-transparent text-sm text-zinc-900 placeholder:text-zinc-500 focus:outline-none"
+                className="min-w-0 flex-1 bg-transparent text-sm text-zinc-900 placeholder:text-zinc-500 focus:outline-none"
               />
               <button
                 type="button"
@@ -188,7 +212,7 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
             <p role="status" className="sr-only">
               {status}
             </p>
-            <div className="max-h-[60vh] overflow-y-auto">
+            <div className="min-h-0 max-h-[60dvh] overflow-y-auto">
               {error ? (
                 <div role="alert" className="px-4 py-6 text-sm text-red-700">
                   <p>Kunde inte hämta data.</p>
