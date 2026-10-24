@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { comparisonHref } from "@/components/comparison";
 import { GranularityToggle } from "@/components/GranularityToggle";
 import { granularityCaption, parseGranularity } from "@/components/granularity";
 import { PageHero } from "@/components/PageHero";
@@ -105,7 +106,7 @@ export default async function StreetPage({
               <p className="text-xs text-zinc-500">{granularityCaption(granularity)}</p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-3">
-            <Link href={`/compare?series=street:${district}/${streetSlug}`} className="text-sm text-zinc-500 hover:text-zinc-900">Jämför →</Link>
+            <Link href={comparisonHref([`street:${district}/${streetSlug}`], granularity)} className="text-sm text-zinc-500 hover:text-zinc-900">Jämför →</Link>
             <GranularityToggle
               granularity={granularity}
               path={`/street/${district}/${streetSlug}`}

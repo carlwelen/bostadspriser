@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ComparisonNavigation } from "@/components/ComparisonNavigation";
 import { CompareBuilder } from "@/components/CompareBuilder";
 import { CHART_COLORS } from "@/components/chartColors";
 import { comparisonHref, comparisonIds, parseComparisonSpec, type ComparisonSpec } from "@/components/comparison";
@@ -67,6 +68,7 @@ export default async function ComparePage({
         }
         subtitle={`${granularityCaption(granularity)}. Välj gator och stadsdelar att jämföra i samma graf.`}
       />
+      <ComparisonNavigation>
       <main className="mx-auto max-w-6xl space-y-6 px-6 py-10">
         <section aria-label="Prisjämförelse" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex justify-end">
@@ -89,6 +91,7 @@ export default async function ComparePage({
         </section>
 
       </main>
+      </ComparisonNavigation>
       <SiteFooter />
     </>
   );

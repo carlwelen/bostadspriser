@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { comparisonHref } from "@/components/comparison";
 import { GranularityToggle } from "@/components/GranularityToggle";
 import { granularityCaption, parseGranularity } from "@/components/granularity";
 import { PageHero } from "@/components/PageHero";
@@ -111,7 +112,7 @@ export default async function DistrictPage({
             <div className="flex items-center gap-3">
               <GranularityToggle granularity={granularity} path={`/district/${slug}`} params={sp} />
               <Link
-                href={`/compare?series=district:${slug}`}
+                href={comparisonHref([`district:${slug}`], granularity)}
                 className="text-sm text-zinc-500 hover:text-zinc-900"
               >
                 Jämför →
