@@ -14,6 +14,7 @@ import {
 
 import { useMemo } from "react";
 import type { Granularity } from "@/lib/aggregations";
+import { CHART_COLORS } from "./chartColors";
 import { formatSales } from "./plural";
 import {
   buildChartData,
@@ -31,9 +32,6 @@ export type Series = {
   points: ChartSeries["points"];
 };
 
-// Multi-series palette tuned to feel data-forward, not playful.
-// Lead with the brand accent; subsequent series use desaturated companions.
-const PALETTE = ["#1d4ed8", "#0f172a", "#0d9488", "#b45309", "#9f1239"];
 const SEK = new Intl.NumberFormat("sv-SE");
 const MAX_X_TICKS = 8;
 const MONTHS = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
@@ -151,7 +149,7 @@ export function PriceChart({
     rows.map((r) => r.t),
     MAX_X_TICKS
   );
-  const colorOf = (s: Series, i: number) => s.color ?? PALETTE[i % PALETTE.length];
+  const colorOf = (s: Series, i: number) => s.color ?? CHART_COLORS[i % CHART_COLORS.length];
 
   const axes = (
     <>

@@ -104,11 +104,14 @@ export default async function StreetPage({
               </h2>
               <p className="text-xs text-zinc-500">{granularityCaption(granularity)}</p>
             </div>
+            <div className="flex flex-wrap items-center justify-end gap-3">
+            <Link href={`/compare?series=street:${district}/${streetSlug}`} className="text-sm text-zinc-500 hover:text-zinc-900">Jämför →</Link>
             <GranularityToggle
               granularity={granularity}
               path={`/street/${district}/${streetSlug}`}
               params={sp}
             />
+            </div>
           </div>
           <PriceChart series={[{ name: street, points }]} granularity={granularity} />
         </section>
