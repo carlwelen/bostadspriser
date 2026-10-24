@@ -67,3 +67,26 @@ it("backfills legacy rows idempotently using the migration statement", async () 
     await tx.$executeRawUnsafe('ALTER TABLE "Listing" ENABLE TRIGGER "Listing_streetSlug"');
   });
 });
+
+it("resolves existing Angstrom-sign street URLs after SQL folding", async () => {
+  await seed(prisma, [{ ...buildFixture()[0], street: "Ågatan", district: "vasastan" }]);
+  expect(slugifyStreet("Ågatan")).toBe("agatan");
+  expect(await streetFromSlug("vasastan", "agatan")).toBe("Ågatan");
+});
+
+it("corrects previously persisted Angstrom slugs idempotently", async () => {
+  await seed(prisma, [{ ...buildFixture()[0], street: "Ågatan" }]);
+  const migration = readFileSync(new URL("../../prisma/migrations/20261024120000_street_slug_angstrom/migration.sql", import.meta.url), "utf8");
+  const backfill = migration.match(/UPDATE "Listing"[^;]+;/)?.[0];
+  expect(backfill).toBeDefined();
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe('ALTER TABLE "Listing" DISABLE TRIGGER "Listing_streetSlug"');
+    await tx.$executeRaw`UPDATE "Listing" SET "streetSlug" = 'gatan'`;
+    await tx.$executeRawUnsafe('ALTER TABLE "Listing" ENABLE TRIGGER "Listing_streetSlug"');
+    expect(await tx.$executeRawUnsafe(backfill!)).toBe(1);
+    expect(await tx.$executeRawUnsafe(backfill!)).toBe(0);
+    await tx.$executeRaw`SELECT refresh_deduped_listing()`;
+    const [row] = await tx.$queryRaw<Array<{ streetSlug: string }>>`SELECT "streetSlug" FROM "DedupedListingMat"`;
+    expect(row.streetSlug).toBe("agatan");
+  });
+});
