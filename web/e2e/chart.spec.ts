@@ -78,7 +78,7 @@ test("a multi-series tooltip lists every series with its sales count", async ({ 
 test("the legend sits inside the chart card", async ({ page }) => {
   await page.goto("/compare?series=district:ostermalm,district:vasastan");
   await page.waitForLoadState("networkidle");
-  const card = page.locator("main section").first();
+  const card = page.getByRole("region", { name: "Prisjämförelse" });
   const legend = card.getByText("Vasastan", { exact: true });
   const cardBox = await card.boundingBox();
   const legendBox = await legend.boundingBox();
