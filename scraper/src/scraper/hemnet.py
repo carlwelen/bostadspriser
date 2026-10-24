@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 from .normalize import (
     dedup_key,
     parse_rooms,
+    parse_per_sqm,
     parse_sek,
     parse_sqm,
     parse_street_address,
@@ -118,12 +119,13 @@ def card_fields(card: dict, district: str) -> dict | None:
     try:
         area_sqm = parse_sqm(card.get("livingArea"))
         rooms = parse_rooms(card.get("rooms"))
+        per_sqm = parse_per_sqm(card.get("squareMeterPrice"))
     except ValueError:
         return None
     if not sane_measurements(area_sqm, rooms):
         return None
     prices = resolve_prices(
-        parse_sek(card.get("finalPrice")), parse_sek(card.get("squareMeterPrice")), area_sqm
+        parse_sek(card.get("finalPrice"), unit="kr"), per_sqm, area_sqm
     )
     if prices is None:
         return None
