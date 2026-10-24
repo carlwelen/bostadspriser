@@ -14,6 +14,7 @@
     { "input": "Sankt - Eriksgatan", "expected": "sankt-eriksgatan" },
     { "input": "Mäster Samuelsgatan", "expected": "master-samuelsgatan" },
     { "input": "ÅÄÖ", "expected": "aao" },
+    { "input": "Ågatan", "expected": "agatan", "note": "Angstrom sign lowercases to å before the stable a fold" },
     { "input": "Östermalmsgatan", "expected": "ostermalmsgatan" },
     { "input": "Drottninggatan 12", "expected": "drottninggatan-12" },
     { "input": "Hörnet-Gränd", "expected": "hornet-grand" },

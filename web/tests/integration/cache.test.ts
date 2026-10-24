@@ -93,6 +93,45 @@ describe("cached aggregations", () => {
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
+  it("keys segmented queries by their room selection", async () => {
+    const spy = dbCalls();
+    const calls = [
+      (rooms?: number[]) => agg.districtTimeseries("vasastan", "month", rooms),
+      (rooms?: number[]) => agg.streetTimeseries("vasastan", "Odengatan", "month", undefined, rooms),
+      (rooms?: number[]) => agg.streetSummary("vasastan", "Odengatan", rooms),
+      (rooms?: number[]) => agg.districtStreetCount("vasastan", rooms),
+    ];
+    for (const call of calls) {
+      const n = spy.mock.calls.length;
+      const all = await call();
+      const selected = await call([5]);
+      expect(await call()).toEqual(all);
+      expect(await call([5])).toEqual(selected);
+      expect(spy.mock.calls.length - n).toBe(2);
+    }
+  });
+
+  it("does not populate the cache for missing street slugs", async () => {
+    const spy = dbCalls();
+    for (const slug of ["missing-one", "missing-two", "missing-one"]) {
+      expect(await agg.streetFromSlug("vasastan", slug)).toBeNull();
+    }
+    expect(spy).toHaveBeenCalledTimes(3);
+    expect(fake.store.size).toBe(0);
+  });
+
+  it("queries valid slug lookups once, caches them and revalidates their tag", async () => {
+    const spy = dbCalls();
+    expect(await agg.streetFromSlug("vasastan", "odengatan")).toBe("Odengatan");
+    expect(await agg.streetFromSlug("vasastan", "odengatan")).toBe("Odengatan");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(fake.store.size).toBe(1);
+    expect((await post(auth, { tags: ["agg:streetFromSlug"] })).status).toBe(200);
+    expect(fake.store.size).toBe(0);
+    expect(await agg.streetFromSlug("vasastan", "odengatan")).toBe("Odengatan");
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
   it("tags every entry with the global tag and its own function tag", async () => {
     await districtSummary("vasastan");
     await globalSummary();
