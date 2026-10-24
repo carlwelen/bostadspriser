@@ -32,10 +32,10 @@ async function mountBoth(initialOnClose = vi.fn()) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  const render = (onClose: () => void) =>
+  const render = (onClose: () => void, showDrawer = true) =>
     act(async () => {
       root.render(
-        createElement("div", null, createElement(StreetSearch), createElement(AddressDrawer, { selection, onClose }))
+        createElement("div", null, createElement(StreetSearch), createElement(AddressDrawer, { selection: showDrawer ? selection : null, onClose }))
       );
     });
   await render(initialOnClose);
@@ -51,6 +51,47 @@ const searchDialog = () => document.querySelector<HTMLElement>('[role="dialog"][
 const drawerDialog = () => document.querySelector<HTMLElement>('[role="dialog"][aria-labelledby]');
 
 describe("search opened over the address drawer", () => {
+  it("makes the lower drawer inert and releases it when search closes (F37)", async () => {
+    const { root } = await mountBoth();
+    try {
+      expect(drawerDialog()!.hasAttribute("inert")).toBe(false);
+      await key("k", { metaKey: true });
+      expect(drawerDialog()!.hasAttribute("inert")).toBe(true);
+      expect(searchDialog()!.hasAttribute("inert")).toBe(false);
+      await key("Escape");
+      expect(drawerDialog()!.hasAttribute("inert")).toBe(false);
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it("removing the lower drawer leaves focus in search (F37)", async () => {
+    const opener = document.createElement("button");
+    document.body.appendChild(opener);
+    opener.focus();
+    const { root, render } = await mountBoth();
+    try {
+      await key("k", { metaKey: true });
+      const input = searchDialog()!.querySelector("input")!;
+      expect(document.activeElement).toBe(input);
+      await render(vi.fn(), false);
+      expect(document.activeElement).toBe(input);
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it("ignores composing Escape and search shortcuts (F37)", async () => {
+    const { root, onClose } = await mountBoth();
+    try {
+      await key("Escape", { isComposing: true });
+      expect(onClose).not.toHaveBeenCalled();
+      await key("k", { ctrlKey: true, isComposing: true });
+      expect(searchDialog()).toBeNull();
+      await key("k", { ctrlKey: true });
+      await key("Escape", { keyCode: 229 });
+      expect(searchDialog()).not.toBeNull();
+      await key("k", { metaKey: true, isComposing: true });
+      expect(searchDialog()).not.toBeNull();
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it("Esc closes only the search", async () => {
     const { root, onClose } = await mountBoth();
     await key("k", { metaKey: true });

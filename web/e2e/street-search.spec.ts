@@ -133,3 +133,52 @@ for (const [street, query] of [
     expect(consoleErrors).toEqual([]);
   });
 }
+
+for (const gesture of ["Control", "Meta", "middle"] as const) {
+  test(`search result keeps native ${gesture} open-in-new-tab behavior (F37)`, async ({ page }) => {
+    const { dialog } = await openSearch(page);
+    await dialog.getByRole("combobox").fill("karla");
+    const link = dialog.getByRole("option").getByRole("link");
+    await expect(link).toHaveAttribute("href", "/street/ostermalm/karlavagen");
+    // Observe the event after React handles it, then suppress browser default
+    // navigation in this probe: OS/headless handling of background tabs differs.
+    const prevented = await link.evaluate((el, modifier) => {
+      const type = modifier === "middle" ? "auxclick" : "click";
+      let appPrevented: boolean | null = null;
+      document.addEventListener(type, (event) => {
+        appPrevented = event.defaultPrevented;
+        event.preventDefault();
+      }, { once: true });
+      el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true,
+        button: modifier === "middle" ? 1 : 0,
+        ctrlKey: modifier === "Control", metaKey: modifier === "Meta" }));
+      return appPrevented;
+    }, gesture);
+    expect(prevented).toBe(false);
+    await expect(page).toHaveURL(/\/$/);
+    await expect(dialog).toBeVisible();
+  });
+}
+
+test("IME confirmation does not select a street or consume Escape and shortcuts (F37)", async ({ page }) => {
+  const { dialog } = await openSearch(page);
+  const input = dialog.getByRole("combobox");
+  await input.fill("karla");
+  await expect(dialog.getByRole("option")).toHaveCount(1);
+  await input.dispatchEvent("compositionstart", { data: "あ" });
+  for (const key of ["ArrowDown", "Enter", "Escape", "k"]) {
+    await input.dispatchEvent("keydown", { key, isComposing: true, ctrlKey: key === "k" });
+    await expect(dialog).toBeVisible();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(input).not.toHaveAttribute("aria-activedescendant", /.+/);
+  }
+  // Safari can report composition confirmation as keyCode 229.
+  await input.dispatchEvent("keydown", { key: "Enter", keyCode: 229 });
+  await expect(dialog).toBeVisible();
+  // Some composition sequences omit isComposing on their final key event.
+  await input.dispatchEvent("keydown", { key: "Escape" });
+  await expect(dialog).toBeVisible();
+  await input.dispatchEvent("compositionend", { data: "あ" });
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/street\/ostermalm\/karlavagen$/);
+});

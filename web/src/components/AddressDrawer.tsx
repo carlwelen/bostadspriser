@@ -88,8 +88,8 @@ export function AddressDrawer({
     // over the drawer takes them over until it closes.
     const unregister = registerModal(() => panelRef.current, () => onCloseRef.current());
     return () => {
-      unregister();
-      if (previouslyFocused && document.contains(previouslyFocused)) previouslyFocused.focus();
+      const wasTop = unregister();
+      if (wasTop && previouslyFocused && document.contains(previouslyFocused)) previouslyFocused.focus();
     };
   }, [open]);
 
