@@ -194,3 +194,84 @@ def test_malformed_money_rejections_use_existing_crawl_counter(source, monkeypat
     assert incomplete is None
     assert len(ids) == 1
     assert progress.rejected == 1
+
+
+def typed_measurement_card(source, field, value):
+    card = card_for(source)
+    if source == "hemnet":
+        card["livingArea" if field == "area" else "rooms"] = value
+    else:
+        index = 0 if field == "area" else 1
+        card["displayAttributes"]["dataPoints"][index]["value"]["plainText"] = value
+    return card
+
+
+@pytest.mark.parametrize("source", ["hemnet", "booli"])
+@pytest.mark.parametrize("field", ["area", "rooms"])
+@pytest.mark.parametrize("value", [0, False, True, {}, [], 35, 35.0, float("nan"), float("inf")])
+def test_present_non_string_measurements_are_rejected_without_raising(source, field, value):
+    module = hemnet if source == "hemnet" else booli
+    card = typed_measurement_card(source, field, value)
+    assert module.card_fields(card, "ostermalm") is None
+    assert module._to_row(card, "ostermalm") is None
+
+
+@pytest.mark.parametrize("source", ["hemnet", "booli"])
+@pytest.mark.parametrize("field,value", [
+    ("area", "9,999999999999999999"), ("area", "400,00000000000000001"),
+    ("rooms", "0,999999999999999999"), ("rooms", "15,00000000000000001"),
+])
+def test_raw_measurement_bounds_preserve_decimal_precision(source, field, value):
+    module = hemnet if source == "hemnet" else booli
+    assert module.card_fields(card_for(source, **{field: value}), "ostermalm") is None
+
+
+@pytest.mark.parametrize("source", ["hemnet", "booli"])
+def test_wrong_typed_measurement_counts_and_continues_crawl(source, monkeypatch):
+    module, _, extract = SOURCES[source]
+    bad = typed_measurement_card(source, "area", 0)
+    good = card_for(source)
+    bad["soldDate"] = "2026-05-02"
+    good.update(id="valid", listingId="valid", soldDate="2026-05-02")
+    progress = source_base.CrawlProgress()
+    ids, incomplete = _run_crawl(module, monkeypatch, extract, {1: [bad], 2: [good]}, progress=progress)
+    assert incomplete is None
+    assert len(ids) == 1
+    assert progress.rejected == 1
+
+
+@pytest.mark.parametrize("source", ["hemnet", "booli"])
+def test_reparse_counts_wrong_typed_measurement_without_aborting(source, db):
+    module = hemnet if source == "hemnet" else booli
+    row = module._to_row(card_for(source), "ostermalm")
+    row["raw"] = typed_measurement_card(source, "area", 0)
+    upsert_listing(row)
+    summary = reparse()
+    assert (summary.scanned, summary.changed, summary.unparseable) == (1, 0, 1)
+
+
+@pytest.mark.parametrize("source", ["hemnet", "booli"])
+@pytest.mark.parametrize("area,price", [
+    ("50,000000000000000000000000000001", 1_000_000),
+    ("49,999999999999999999999999999999", 20_000_000),
+])
+def test_derived_pps_keeps_high_precision_measurements_until_bounds(source, area, price):
+    module = hemnet if source == "hemnet" else booli
+    card = card_for(source, area=area, pps=None)
+    if source == "hemnet":
+        card["finalPrice"] = f"{price} kr"
+    else:
+        card["soldPrice"] = {"raw": price}
+    assert module.card_fields(card, "ostermalm") is None
+
+
+@pytest.mark.parametrize("source", ["hemnet", "booli"])
+@pytest.mark.parametrize("area,rooms,expected", [
+    ("10,000000000000000001", "1,000000000000000001", (10.0, 1.0)),
+    ("399,999999999999999999", "14,999999999999999999", (400.0, 15.0)),
+])
+def test_inside_raw_measurement_bounds_can_still_round_to_boundary(source, area, rooms, expected):
+    module = hemnet if source == "hemnet" else booli
+    row = module.card_fields(card_for(source, area=area, rooms=rooms), "ostermalm")
+    assert row is not None
+    assert (row["areaSqm"], row["rooms"]) == expected
