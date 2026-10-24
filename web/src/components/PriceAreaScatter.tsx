@@ -54,8 +54,8 @@ export function PriceAreaScatter({ data }: { data: Point[] }) {
 
   return (
     <div className="space-y-3">
-      <div className="h-80 w-full min-w-0 overflow-hidden">
-        <ResponsiveContainer initialDimension={{ width: 640, height: 320 }}>
+      <div className="h-80 w-full min-w-0">
+        <ResponsiveContainer initialDimension={{ width: 200, height: 320 }}>
           <ScatterChart margin={{ top: 8, right: 16, bottom: 16, left: 4 }}>
             <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
             <XAxis

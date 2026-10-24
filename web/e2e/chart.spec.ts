@@ -127,3 +127,33 @@ test("address markers remain painted above coincident street and district marker
     return top === el;
   }))).toEqual([true, true, true, true]);
 });
+
+
+for (const width of [320, 1280]) {
+  test(`the full four-district tooltip is painted at ${width}px`, async ({ page, consoleErrors }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/compare?series=district:ostermalm,district:vasastan,district:norrmalm,district:sodermalm");
+    await page.waitForLoadState("networkidle");
+    await page.locator(".recharts-wrapper").scrollIntoViewIfNeeded();
+    const dot = await page.locator("circle.recharts-dot").first().boundingBox();
+    await page.mouse.move(dot!.x + dot!.width / 2, dot!.y + dot!.height / 2);
+    const tooltip = page.locator(".recharts-tooltip-wrapper");
+    await expect(tooltip).toContainText("Södermalm");
+    // The last series count must actually be painted, including any part that
+    // extends below the chart. DOM visibility alone misses ancestor clipping.
+    const count = tooltip.locator("li").last().locator("p").last();
+    await expect(count).toContainText("försäljningar");
+    await expect.poll(() => count.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      // Tooltips ignore pointer events by default. Enable hit testing only for
+      // this label; this does not change its layout or clipping.
+      const previous = el.style.pointerEvents;
+      el.style.pointerEvents = "auto";
+      const painted = document.elementsFromPoint(box.x + box.width / 2, box.bottom - 1)
+        .some((node) => node === el || el.contains(node));
+      el.style.pointerEvents = previous;
+      return painted;
+    })).toBe(true);
+    expect(consoleErrors).toEqual([]);
+  });
+}

@@ -187,8 +187,8 @@ export function PriceChart({
     const color = colorOf(s, 0);
     const gradId = `g-${s.name.replace(/[^a-z0-9]/gi, "_")}`;
     return (
-      <div className="h-72 w-full min-w-0 overflow-hidden">
-        <ResponsiveContainer initialDimension={{ width: 640, height: 288 }}>
+      <div className="h-72 w-full min-w-0">
+        <ResponsiveContainer initialDimension={{ width: 200, height: 288 }}>
           <AreaChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 4 }}>
             <defs>
               <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
@@ -215,8 +215,8 @@ export function PriceChart({
 
   return (
     <div>
-      <div className="h-72 w-full min-w-0 overflow-hidden">
-        <ResponsiveContainer initialDimension={{ width: 640, height: 288 }}>
+      <div className="h-72 w-full min-w-0">
+        <ResponsiveContainer initialDimension={{ width: 200, height: 288 }}>
           <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 4 }}>
             {axes}
             {/* Paint the lead series last so coincident comparison dots cannot hide it. */}
