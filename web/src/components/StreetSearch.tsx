@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { fetchJson } from "./map/fetchJson";
-import { registerModal } from "./map/focusTrap";
+import { isComposingKey, registerModal } from "./map/focusTrap";
 import { soldWord } from "./map/format";
 import { districtName } from "@/lib/districts";
 import type { StreetsAllItem } from "@/lib/api-types";
@@ -30,6 +31,7 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const composingRef = useRef(false);
   const listboxId = useId();
   const optionId = useCallback((i: number) => `${listboxId}-opt-${i}`, [listboxId]);
 
@@ -43,8 +45,6 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
   }, []);
   const close = useCallback(() => {
     setOpen(false);
-    const back = openerRef.current && document.contains(openerRef.current) ? openerRef.current : triggerRef.current;
-    back?.focus();
   }, []);
 
   // Lazy-load the street index when the search is first opened.
@@ -93,6 +93,7 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
   // Cmd/Ctrl-K toggles the search from anywhere.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (composingRef.current || isComposingKey(e)) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         if (open) close();
@@ -107,7 +108,18 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
   // and only the topmost modal reacts (see registerModal).
   useEffect(() => {
     if (!open) return;
-    return registerModal(() => dialogRef.current, close);
+    const trigger = triggerRef.current;
+    const opener = openerRef.current;
+    const unregister = registerModal(() => dialogRef.current, close);
+    return () => {
+      const wasTop = unregister();
+      composingRef.current = false;
+      // The underlying drawer must leave inert before it can receive focus.
+      if (wasTop) {
+        const back = opener && document.contains(opener) ? opener : trigger;
+        back?.focus();
+      }
+    };
   }, [open, close]);
 
   const filtered = useMemo(() => {
@@ -132,6 +144,10 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
   };
 
   const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (composingRef.current || isComposingKey(e.nativeEvent)) {
+      e.stopPropagation();
+      return;
+    }
     const n = filtered.length;
     if (n === 0) return;
     if (e.key === "ArrowDown") {
@@ -197,6 +213,8 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={onInputKeyDown}
+                onCompositionStart={() => { composingRef.current = true; }}
+                onCompositionEnd={() => { composingRef.current = false; }}
                 placeholder="Sök gata eller stadsdel…"
                 className="min-w-0 flex-1 bg-transparent text-sm text-zinc-900 placeholder:text-zinc-500 focus:outline-none"
               />
@@ -246,21 +264,29 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
                     role="option"
                     aria-selected={i === active}
                     onMouseMove={() => active !== i && setActive(i)}
-                    onClick={() => go(s)}
                     className={
-                      "flex cursor-pointer items-center justify-between gap-3 px-4 py-2.5 text-sm hover:bg-zinc-50 " +
+                      "text-sm hover:bg-zinc-50 " +
                       (i === active ? "bg-zinc-100" : "")
                     }
                   >
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-zinc-900">{s.street}</p>
-                      <p className="text-xs text-zinc-500">
-                        {districtName(s.district)} • {s.count} {soldWord(s.count)}
-                      </p>
-                    </div>
-                    <span title="Medianpris per kvadratmeter" className="shrink-0 text-xs tabular-nums text-zinc-500">
-                      {SEK.format(s.medianPricePerSqm)} kr/m²
-                    </span>
+                    <Link
+                      href={hrefOf(s)}
+                      tabIndex={-1}
+                      className="flex items-center justify-between gap-3 px-4 py-2.5"
+                      onClick={(e) => {
+                        if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) close();
+                      }}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-zinc-900">{s.street}</p>
+                        <p className="text-xs text-zinc-500">
+                          {districtName(s.district)} • {s.count} {soldWord(s.count)}
+                        </p>
+                      </div>
+                      <span title="Medianpris per kvadratmeter" className="shrink-0 text-xs tabular-nums text-zinc-500">
+                        {SEK.format(s.medianPricePerSqm)} kr/m²
+                      </span>
+                    </Link>
                   </li>
                 ))}
               </ul>
