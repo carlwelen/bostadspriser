@@ -164,48 +164,71 @@ class RunReport:
     committed_page: int = 0
     # Likewise for the oldest sale date: only what the committed batches cover.
     committed_oldest: date | None = None
+    newest: date | None = None
+    state_saved: bool = False
 
 
 def _run_recorded(
-    source: str, district: str, since: date, *, start_page: int = 1, max_pages: int = MAX_PAGES
+    source: str, district: str, since: date, *, start_page: int = 1, max_pages: int = MAX_PAGES,
+    kind: str = "scrape", base_last_page: int = 0, base_oldest: date | None = None,
+    watermark: date | None = None,
 ) -> RunReport:
-    """Crawl one source/district from `since`, upserting in batches and recording a
-    ScrapeRun row. Never raises (KeyboardInterrupt aside): errors land in the report."""
-    iter_district = _SOURCE_ITER[source]
+    """Commit rows before advancing durable progress; persistence failures fail the run."""
     progress = CrawlProgress()
-    report = RunReport(0, progress)
-    run_id = scrape_run.start_run(source, district)
+    report = RunReport(0, progress, committed_page=base_last_page, committed_oldest=base_oldest)
+    run_id = None
+
+    def checkpoint() -> None:
+        report.committed_page = max(report.committed_page, progress.last_completed_page)
+        report.committed_oldest = min(
+            (d for d in (report.committed_oldest, progress.oldest_sold_at) if d is not None), default=None
+        )
 
     def _count(n: int) -> None:
         report.upserted += n
-        report.committed_page = progress.last_completed_page
-        report.committed_oldest = progress.oldest_sold_at
+        checkpoint()
         scrape_run.bump(
-            run_id,
-            pages=progress.pages,
-            rows_upserted=report.upserted,
-            rows_rejected=progress.rejected,
-            oldest_sold_at=report.committed_oldest,
+            run_id, pages=progress.pages, rows_upserted=report.upserted,
+            rows_rejected=progress.rejected, oldest_sold_at=report.committed_oldest,
+            last_page=report.committed_page, required=True,
         )
 
+    async def tracked():
+        async for row in _SOURCE_ITER[source](
+            district, since, progress=progress, max_pages=max_pages, start_page=start_page
+        ):
+            sold_at = row.get("soldAt")
+            if isinstance(sold_at, date):
+                report.newest = max(report.newest or sold_at, sold_at)
+            yield row
+
     try:
-        rows = iter_district(district, since, progress=progress, max_pages=max_pages, start_page=start_page)
-        asyncio.run(_ingest(rows, on_batch=_count))
-    except CrawlIncomplete as e:
-        report.partial = report.upserted > 0
-        report.error = " ".join(str(e).split())
+        run_id = scrape_run.start_run(
+            source, district, kind=kind, since=since,
+            last_page=base_last_page, oldest_sold_at=base_oldest,
+        )
+        if run_id is None:
+            raise RuntimeError("durable run could not be started")
+        asyncio.run(_ingest(tracked(), on_batch=_count))
+        # The final batch has committed, including pages containing only rejections.
+        checkpoint()
     except Exception as e:  # noqa: BLE001
-        report.partial = report.upserted > 0
+        report.partial = report.upserted > 0 and (kind != "update" or isinstance(e, CrawlIncomplete))
         report.error = " ".join(f"{type(e).__name__}: {e}".split())
-    scrape_run.finish_run(
-        run_id,
-        "ok" if report.error is None else ("partial" if report.partial else "failed"),
-        pages=progress.pages,
-        rows_upserted=report.upserted,
-        rows_rejected=progress.rejected,
-        oldest_sold_at=report.committed_oldest,
-        error=report.error,
-    )
+    if run_id is not None:
+        try:
+            scrape_run.finish_run(
+                run_id, "ok" if report.error is None else ("partial" if report.partial else "failed"),
+                pages=progress.pages, rows_upserted=report.upserted, rows_rejected=progress.rejected,
+                oldest_sold_at=report.committed_oldest, last_page=report.committed_page,
+                complete_through=(max(report.newest, watermark or report.newest)
+                                  if kind == "update" and report.error is None and report.newest else None),
+                error=report.error, required=True,
+            )
+            report.state_saved = True
+        except Exception as e:  # noqa: BLE001
+            report.partial = report.upserted > 0 and kind != "update"
+            report.error = f"{report.error + '; ' if report.error else ''}durable state not saved: {type(e).__name__}: {e}"
     return report
 
 
@@ -272,50 +295,30 @@ def backfill(district: str, since: date, source: str, resume: bool, max_pages: i
     the `update` cutoff.
     """
     start_page = 1
-    base_next = 1  # the resume point recorded so far (a failed run must never move it back)
-    base_oldest: date | None = None  # likewise the oldest date reached so far
+    base_next = 1
+    base_oldest = None
     if resume:
-        try:
-            saved = crawl_state.backfill_progress(source, district)
-        except crawl_state.CorruptCrawlState as e:
-            click.echo(f"warning: cannot read resume point, starting at page 1: {e}", err=True)
-            saved = None
+        saved = crawl_state.backfill_progress(source, district)
         if saved is None:
             click.echo("no recorded progress for this source/district; starting at page 1")
         elif saved["since"] != since:
-            click.echo(
-                f"recorded progress is for a different --since ({saved['since']}); starting at page 1"
-            )
+            click.echo(f"recorded progress is for a different --since ({saved['since']}); starting at page 1")
         else:
             base_next = saved["next_page"]
             base_oldest = saved["oldest_sold_at"]
-            # One page of overlap: rows tied on soldAt have no stable order and
-            # delistings shift pages up, so the recorded page may start mid-way.
             start_page = max(1, base_next - 1)
             click.echo(f"resuming {source}/{district} at page {start_page} (recorded: {base_next})")
-    report = _run_recorded(source, district, since, start_page=start_page, max_pages=max_pages)
+    report = _run_recorded(
+        source, district, since, start_page=start_page, max_pages=max_pages, kind="backfill",
+        base_last_page=base_next - 1, base_oldest=base_oldest,
+    )
     click.echo(f"upserted {report.upserted} listings for {district} from {source}")
     if report.upserted:
         refresh_deduped()
-    # Only pages whose rows were committed count (not merely yielded).
-    next_page = max(base_next, report.committed_page + 1)
-    try:
-        if report.error is None:
-            crawl_state.clear_backfill_progress(source, district)
-        else:
-            crawl_state.save_backfill_progress(
-                source, district, since=since, next_page=next_page,
-                oldest_sold_at=min(
-                    (d for d in (base_oldest, report.committed_oldest) if d is not None), default=None
-                ),
-            )
-    except crawl_state.CorruptCrawlState as e:
-        click.echo(f"warning: progress not saved: {e}", err=True)
-        next_page = None
     if report.error is not None:
         click.echo(f"crawl incomplete: {report.error}", err=True)
-        if next_page is not None:
-            click.echo(f"progress saved; continue with: backfill ... --resume (next page {next_page})", err=True)
+        if report.state_saved:
+            click.echo(f"progress saved; continue with: backfill ... --resume (next page {report.committed_page + 1})", err=True)
         sys.exit(1)
 
 
@@ -341,8 +344,8 @@ def backfill(district: str, since: date, source: str, resume: bool, max_pages: i
     "--lookback-days",
     default=14,
     show_default=True,
-    type=int,
-    help="Floor for the since cutoff when no rows exist for the district yet.",
+    type=click.IntRange(min=1),
+    help="Initial window when no durable update state exists; older history requires backfill.",
 )
 @click.option(
     "--max-pages",
@@ -361,7 +364,8 @@ def update(
     of overlap to catch late-listed sales. The cutoff is scoped to the source so a
     fresh Booli backfill doesn't piggyback on Hemnet's, and it only advances after a
     crawl that finished (see crawl_state.py): partial/failed crawls are retried from
-    the same cutoff. Without recorded state it falls back to MAX(soldAt).
+    the same cutoff. Without a database watermark it bootstraps --lookback-days and persists that
+    initial window for retries. Older history requires an explicit backfill.
     """
     overlap = timedelta(days=7)
     results: list[UpdateResult] = []
@@ -418,78 +422,18 @@ def _refresh(
 ) -> UpdateResult:
     """Refresh one source/district. Never raises: failures land in the result."""
     result = UpdateResult(source, district)
-    iter_district = _SOURCE_ITER[source]
-    progress = CrawlProgress()
-    run_id = scrape_run.start_run(source, district)
-
-    committed_oldest: list[date | None] = [None]  # as of the last committed batch
-
-    def _count(n: int) -> None:
-        result.upserted += n
-        committed_oldest[0] = progress.oldest_sold_at
-        scrape_run.bump(
-            run_id,
-            pages=progress.pages,
-            rows_upserted=result.upserted,
-            rows_rejected=progress.rejected,
-            oldest_sold_at=committed_oldest[0],
-        )
-
-    run_newest: list[date] = []  # newest soldAt this crawl yielded (0 or 1 item)
-
-    async def _tracked(rows: AsyncIterator[dict]) -> AsyncIterator[dict]:
-        async for row in rows:
-            sold_at = row.get("soldAt")
-            if isinstance(sold_at, date) and (not run_newest or sold_at > run_newest[0]):
-                run_newest[:] = [sold_at]
-            yield row
-
-    async def _run() -> None:
-        assert result.since is not None
-        rows = iter_district(district, result.since, progress=progress, max_pages=max_pages)
-        await _ingest(_tracked(rows), on_batch=_count)
-
     try:
-        # The cutoff comes from the last *finished* crawl (B39), not MAX(soldAt):
-        # a partial crawl upserts the newest rows first and would otherwise hide
-        # its own failed tail. Without recorded state, fall back to the DB max.
-        recorded = crawl_state.complete_through(source, district)
-        latest = recorded or latest_sold_at(source, district)
-        result.since = (
-            (latest - overlap) if latest else (date.today() - timedelta(days=lookback_days))
-        )
+        result.since, watermark = crawl_state.update_window(source, district, overlap, lookback_days)
         click.echo(f"{source}/{district}: refreshing since {result.since.isoformat()}")
-        asyncio.run(_run())
-        click.echo(f"  upserted {result.upserted} for {source}/{district}")
-        # Finished without error: everything newer than `since`, up to the newest
-        # sale this crawl yielded, is stored. Record that (never the DB max, which
-        # a partial run may have pushed past a gap) and never move backwards. A
-        # crawl that yielded nothing records nothing.
-        if run_newest:
-            try:
-                crawl_state.record_complete(source, district, max(run_newest[0], recorded or run_newest[0]))
-            except crawl_state.CorruptCrawlState as e:
-                click.echo(f"  warning: crawl state not updated, {e}", err=True)
-    except CrawlIncomplete as e:
-        # Partial means some rows landed. An incomplete crawl with none (e.g. a
-        # page-1 block) is a plain failure.
-        result.partial = result.upserted > 0
-        result.error = " ".join(str(e).split())
-        click.echo(
-            f"  {source}/{district} {'partial' if result.partial else 'failed'}: {result.error}", err=True
-        )
+        report = _run_recorded(source, district, result.since, max_pages=max_pages, kind="update", watermark=watermark)
+        result.upserted, result.error, result.partial = report.upserted, report.error, report.partial
+        if result.error:
+            click.echo(f"  {source}/{district} {'partial' if result.partial else 'failed'}: {result.error}", err=True)
+        else:
+            click.echo(f"  upserted {result.upserted} for {source}/{district}")
     except Exception as e:  # noqa: BLE001
         result.error = " ".join(f"{type(e).__name__}: {e}".split())
         click.echo(f"  {source}/{district} failed: {result.error}", err=True)
-    scrape_run.finish_run(
-        run_id,
-        "ok" if result.error is None else ("partial" if result.partial else "failed"),
-        pages=progress.pages,
-        rows_upserted=result.upserted,
-        rows_rejected=progress.rejected,
-        oldest_sold_at=committed_oldest[0],
-        error=result.error,
-    )
     return result
 
 

@@ -9,13 +9,12 @@ goes to conftest's in-memory ScrapeRun recorder; the progress file is in the tem
 
 from __future__ import annotations
 
-import json
 from datetime import date, timedelta
 
 import pytest
 from click.testing import CliRunner
 
-from scraper import crawl_state, run
+from scraper import crawl_state, run, scrape_run
 from scraper.errors import CrawlIncomplete
 
 SINCE = "2026-01-01"
@@ -51,13 +50,16 @@ def crawler(monkeypatch):
     c = Crawler()
     monkeypatch.setitem(run._SOURCE_ITER, "hemnet", c.iterator())
     monkeypatch.setattr(run, "upsert_listings", lambda rows, **kw: (c.upserted.extend(rows), len(rows))[1])
-    crawl_state.state_path().unlink(missing_ok=True)
     yield c
-    crawl_state.state_path().unlink(missing_ok=True)
 
 
 def _state() -> dict:
-    return json.loads(crawl_state.state_path().read_text())
+    saved = crawl_state.backfill_progress("hemnet", "ostermalm")
+    if saved is None:
+        return {}
+    return {"backfill/hemnet/ostermalm": {"since": saved["since"].isoformat(),
+            "next_page": saved["next_page"],
+            "oldest_sold_at": saved["oldest_sold_at"].isoformat() if saved["oldest_sold_at"] else None}}
 
 
 def test_fresh_backfill_uses_the_explicit_high_page_cap(crawler, scrape_runs) -> None:
@@ -68,7 +70,7 @@ def test_fresh_backfill_uses_the_explicit_high_page_cap(crawler, scrape_runs) ->
     assert len(crawler.upserted) == 6
     (r,) = scrape_runs.runs
     assert (r["source"], r["district"], r["status"], r["rows_upserted"], r["pages"]) == ("hemnet", "ostermalm", "ok", 6, 6)
-    assert not crawl_state.state_path().exists()  # nothing to resume
+    assert crawl_state.backfill_progress("hemnet", "ostermalm") is None  # nothing to resume
 
 
 def test_max_pages_option_overrides_the_backfill_cap(crawler) -> None:
@@ -105,7 +107,7 @@ def test_resume_continues_from_the_recorded_page_and_clears_it_on_success(crawle
     # One page of overlap: ties on soldAt have no stable order and delistings shift pages up.
     assert [c["start_page"] for c in crawler.calls] == [1, 3]
     assert [r["page"] for r in crawler.upserted] == [1, 2, 3, 3, 4, 5, 6]
-    assert "backfill/hemnet/ostermalm" not in (_state() if crawl_state.state_path().exists() else {})
+    assert "backfill/hemnet/ostermalm" not in _state()
     assert [r["status"] for r in scrape_runs.runs] == ["partial", "ok"]
 
 
@@ -148,7 +150,9 @@ def test_progress_is_per_source_and_district(crawler, monkeypatch) -> None:
 
 
 def test_backfill_does_not_touch_the_update_cutoff(crawler) -> None:
-    crawl_state.record_complete("hemnet", "ostermalm", date(2026, 5, 10))
+    rid = scrape_run.start_run("hemnet", "ostermalm", kind="update", since=date(2026, 5, 1))
+    scrape_run.finish_run(rid, "ok", pages=1, rows_upserted=1, rows_rejected=0, oldest_sold_at=None,
+                          complete_through=date(2026, 5, 10))
     CliRunner().invoke(run.cli, BASE)
     assert crawl_state.complete_through("hemnet", "ostermalm") == date(2026, 5, 10)
     crawler.fail_at = 4
@@ -156,17 +160,12 @@ def test_backfill_does_not_touch_the_update_cutoff(crawler) -> None:
     assert crawl_state.complete_through("hemnet", "ostermalm") == date(2026, 5, 10)
 
 
-def test_corrupt_progress_file_warns_starts_over_and_is_not_overwritten(crawler) -> None:
-    crawl_state.state_path().write_text("not json")
+def test_unavailable_resume_database_does_not_fetch_or_claim_saved(crawler, monkeypatch) -> None:
+    monkeypatch.setattr(scrape_run, "latest_run", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("state DB down")))
     result = CliRunner().invoke(run.cli, [*BASE, "--resume"])
-    assert result.exit_code == 0
-    assert crawler.calls[-1]["start_page"] == 1
-    assert str(crawl_state.state_path()) in result.output
-    assert crawl_state.state_path().read_text() == "not json"
-    crawler.fail_at = 4
-    result = CliRunner().invoke(run.cli, BASE)
-    assert result.exit_code == 1 and str(crawl_state.state_path()) in result.output  # progress not saved
-    assert crawl_state.state_path().read_text() == "not json"
+    assert result.exit_code != 0
+    assert crawler.calls == []
+    assert "progress saved" not in result.output
 
 
 def test_a_backfill_that_made_no_progress_is_a_plain_failure(crawler, scrape_runs) -> None:
@@ -270,3 +269,11 @@ def test_saved_oldest_is_monotonic_across_failed_resumes(crawler) -> None:
     CliRunner().invoke(run.cli, [*BASE, "--resume"])
     state = _state()["backfill/hemnet/ostermalm"]
     assert state["oldest_sold_at"] == saved and state["next_page"] == 4
+
+
+def test_finish_persistence_failure_never_claims_resume_was_saved(crawler, monkeypatch):
+    monkeypatch.setattr(scrape_run, "finish_run", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("state finish failed")))
+    result = CliRunner().invoke(run.cli, BASE)
+    assert result.exit_code == 1
+    assert "durable state not saved" in result.output
+    assert "progress saved" not in result.output

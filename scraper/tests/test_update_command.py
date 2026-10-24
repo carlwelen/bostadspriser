@@ -8,7 +8,7 @@ from datetime import date, timedelta
 import pytest
 from click.testing import CliRunner
 
-from scraper import crawl_state, run
+from scraper import crawl_state, run, scrape_run
 from scraper.errors import CrawlIncomplete
 
 
@@ -34,10 +34,16 @@ def fake_world(monkeypatch):
     monkeypatch.setattr(
         run, "latest_sold_at", lambda source, district: date(2026, 5, 10) if source == "hemnet" else None
     )
-    # `update` persists a crawl-state file next to the (temp) storage state; start clean.
-    crawl_state.state_path().unlink(missing_ok=True)
+    latest = scrape_run.latest_run
+
+    def seeded_watermark(source, district, *, kind, watermark=False):
+        row = latest(source, district, kind=kind, watermark=watermark)
+        if row is None and source == "hemnet" and kind == "update" and watermark:
+            return {"completeThrough": date(2026, 5, 10)}
+        return row
+
+    monkeypatch.setattr(scrape_run, "latest_run", seeded_watermark)
     yield upserted, since_seen
-    crawl_state.state_path().unlink(missing_ok=True)
 
 
 def test_update_exits_nonzero_and_prints_summary_when_any_combination_fails(fake_world) -> None:
@@ -84,10 +90,10 @@ def test_update_exits_zero_when_everything_succeeds(fake_world) -> None:
 
 
 def test_update_counts_a_failing_cutoff_lookup_as_a_failure(fake_world, monkeypatch) -> None:
-    def boom(source: str, district: str):
+    def boom(*args, **kwargs):
         raise RuntimeError("connection refused")
 
-    monkeypatch.setattr(run, "latest_sold_at", boom)
+    monkeypatch.setattr(crawl_state, "update_window", boom)
     result = CliRunner().invoke(run.cli, ["update", "--source", "hemnet", "--district", "ostermalm"])
     assert result.exit_code == 1
     assert "connection refused" in result.output
@@ -204,13 +210,12 @@ def test_update_records_partial_and_failed_runs_with_the_error(fake_world, scrap
 
 
 def test_update_records_a_failed_run_when_the_cutoff_lookup_fails(fake_world, scrape_runs, monkeypatch) -> None:
-    def boom(source, district):
+    def boom(*args, **kwargs):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr(run, "latest_sold_at", boom)
+    monkeypatch.setattr(crawl_state, "update_window", boom)
     CliRunner().invoke(run.cli, ["update", "--source", "hemnet", "--district", "ostermalm"])
-    (r,) = scrape_runs.runs
-    assert r["status"] == "failed" and "db down" in r["error"]
+    assert scrape_runs.runs == []  # no run starts before its durable cutoff is known
 
 
 def test_update_passes_max_pages_to_the_crawl(fake_world, monkeypatch) -> None:
