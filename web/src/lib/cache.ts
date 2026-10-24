@@ -15,7 +15,8 @@ import { unstable_cache } from "next/cache";
 //     overrides, mainly for tests). In `next dev` and in vitest every call goes
 //     to the database.
 //   - The data cache lives in memory only (`experimental.isrFlushToDisk: false`
-//     in next.config.ts): bounded by Next's LRU (`cacheMaxMemorySize`, 50 MB)
+//     in next.config.ts): bounded by Next's LRU (16 MiB serialized payload;
+//     heap usage is higher due to keys, objects and entry overhead)
 //     and gone on restart. Anything on disk would grow without bound, because
 //     some cached functions are keyed by URL input (street names), and would
 //     survive restarts.
