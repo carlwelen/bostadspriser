@@ -1,0 +1,11 @@
+/* Short landscape phones need the same vertical room as the desktop layout. */
+@media (min-width: 480px) and (max-width: 767px) and (max-height: 480px) {
+  .layout {
+    flex-direction: row;
+  }
+
+  .sidebar {
+    max-height: none;
+    width: 240px;
+  }
+}

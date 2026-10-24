@@ -12,9 +12,13 @@ import {
   YAxis,
 } from "recharts";
 
+import { DrawerTooltip, StreetDot } from "./map/DrawerTooltip";
+import { formatSales } from "./plural";
 import { SourceBadge } from "./SourceBadge";
 import { registerModal } from "./map/focusTrap";
 import type { Period } from "@/lib/api-types";
+import { slugifyStreet } from "@/lib/text";
+import { drawerSeries } from "./map/drawerSeries";
 import { useAddressData } from "./map/useAddressData";
 
 const PERIODS = [
@@ -87,48 +91,19 @@ export function AddressDrawer({
     // over the drawer takes them over until it closes.
     const unregister = registerModal(() => panelRef.current, () => onCloseRef.current());
     return () => {
-      unregister();
-      if (previouslyFocused && document.contains(previouslyFocused)) previouslyFocused.focus();
+      const wasTop = unregister();
+      if (wasTop && previouslyFocused && document.contains(previouslyFocused)) previouslyFocused.focus();
     };
   }, [open]);
 
-  const merged = useMemo(() => {
-    if (!data) return [];
-    const byBucket = new Map<string, { bucket: string; trend?: number; sale?: number }>();
-    for (const p of data.streetSeries) {
-      byBucket.set(p.bucket, { bucket: p.bucket, trend: p.meanPricePerSqm });
-    }
-    for (const s of data.addressSales) {
-      const existing = byBucket.get(s.soldAt) ?? { bucket: s.soldAt };
-      existing.sale = s.pricePerSqmSek;
-      byBucket.set(s.soldAt, existing);
-    }
-    return [...byBucket.values()].sort((a, b) =>
-      String(a.bucket).localeCompare(String(b.bucket))
-    );
-  }, [data]);
+  const { trendRows, saleRows, ticks } = useMemo(() => drawerSeries(data), [data]);
 
   if (!selection) return null;
 
   const stats = data
-    ? {
-        latest: data.addressSales[0],
-        addressCount: data.addressSales.length,
-        streetMean:
-          data.streetSeries.length > 0
-            ? Math.round(
-                data.streetSeries.reduce(
-                  (s, p) => s + p.meanPricePerSqm * p.count,
-                  0
-                ) /
-                  Math.max(
-                    1,
-                    data.streetSeries.reduce((s, p) => s + p.count, 0)
-                  )
-              )
-            : null,
-      }
+    ? { latest: data.addressSales[0], addressCount: data.addressSales.length }
     : null;
+  const summary = data?.streetSummary;
 
   return (
     <>
@@ -177,11 +152,11 @@ export function AddressDrawer({
         <div className="flex-1 overflow-y-auto px-5 py-5">
           <PeriodPills period={period} onChange={setPeriod} />
 
-          <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="mt-4 grid grid-cols-2 gap-2">
             <MiniStat
-              label="Försäljningar"
+              label="Visade affärer"
               value={stats?.addressCount?.toString() ?? "—"}
-              hint={selection.houseNumber ? "denna adress" : "hela gatan"}
+              hint="i diagrammet"
             />
             <MiniStat
               label="Senaste pris"
@@ -193,9 +168,10 @@ export function AddressDrawer({
               hint={stats?.latest?.soldAt}
             />
             <MiniStat
-              label="Gatumedel"
-              value={stats?.streetMean ? `${SEK.format(stats.streetMean)} kr/m²` : "—"}
-              hint={`${data?.granularity ?? "—"} bucket`}
+              wide
+              label="Median på gatan"
+              value={summary?.medianPricePerSqm != null ? `${SEK.format(summary.medianPricePerSqm)} kr/m²` : "—"}
+              hint={summary ? `${formatSales(summary.count)}${summary.meanPricePerSqm != null ? ` · medel ${SEK.format(summary.meanPricePerSqm)} kr/m²` : ""}` : undefined}
             />
           </div>
 
@@ -229,13 +205,13 @@ export function AddressDrawer({
                 <div className="grid h-full place-items-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50/60 text-sm text-zinc-500">
                   Laddar…
                 </div>
-              ) : merged.length === 0 ? (
+              ) : trendRows.length === 0 && saleRows.length === 0 ? (
                 <div className="grid h-full place-items-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50/60 text-sm text-zinc-500">
                   Ingen data i vald tidsperiod.
                 </div>
               ) : (
                 <ResponsiveContainer>
-                  <ComposedChart data={merged} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
+                  <ComposedChart margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
                     <defs>
                       <linearGradient id="addrGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#1d4ed8" stopOpacity={0.18} />
@@ -244,13 +220,19 @@ export function AddressDrawer({
                     </defs>
                     <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
                     <XAxis
-                      dataKey="bucket"
-                      tickFormatter={(b) => formatBucket(String(b), data?.granularity ?? "month")}
+                      dataKey="t"
+                      type="number"
+                      scale="time"
+                      ticks={ticks}
+                      padding={{ left: 6, right: 6 }}
+                      domain={["dataMin", "dataMax"]}
+                      tickFormatter={(b) => formatBucket(new Date(Number(b)).toISOString(), data?.granularity ?? "month")}
                       tick={{ fontSize: 11, fill: "#71717a" }}
                       tickLine={false}
                       axisLine={false}
                     />
                     <YAxis
+                      padding={{ top: 6, bottom: 6 }}
                       tick={{ fontSize: 11, fill: "#71717a" }}
                       tickLine={false}
                       axisLine={false}
@@ -258,31 +240,23 @@ export function AddressDrawer({
                       width={48}
                       domain={["auto", "auto"]}
                     />
-                    <Tooltip
-                      contentStyle={{
-                        fontSize: 12,
-                        borderRadius: 10,
-                        border: "1px solid #e4e4e7",
-                      }}
-                      labelFormatter={(v) =>
-                        formatBucket(String(v), data?.granularity ?? "month")
-                      }
-                      formatter={(value, name) => [
-                        `${SEK.format(Number(value))} kr/m²`,
-                        name === "trend" ? "Gatumedel" : "Försäljning",
-                      ]}
-                    />
+                    {/* Resolve samples by date; Scatter axis payload indices span separate series. */}
+                    <Tooltip position={{ y: 8 }} filterNull={false} content={({ active, label }) => (
+                      <DrawerTooltip active={active} label={label} data={data} />
+                    )} />
                     <Area
+                      data={trendRows}
                       type="monotone"
                       dataKey="trend"
                       name="trend"
                       stroke="#1d4ed8"
                       strokeWidth={1.75}
                       fill="url(#addrGrad)"
-                      connectNulls
-                      dot={false}
+                      connectNulls={false}
+                      dot={StreetDot}
                     />
                     <Scatter
+                      data={saleRows}
                       dataKey="sale"
                       name="sale"
                       fill="#0b0d12"
@@ -294,7 +268,8 @@ export function AddressDrawer({
               )}
             </div>
             <p className="mt-2 text-[10px] text-zinc-500">
-              Linje = gatans medel · prickar = enskilda försäljningar på {selection.address}
+              Linje = gatans median · prickar = enskilda försäljningar på {selection.address}.
+              {" "}Ofylld ring = färre än 3 affärer på gatan.
             </p>
           </section>
 
@@ -323,7 +298,7 @@ export function AddressDrawer({
           )}
 
           <a
-            href={`/street/${selection.district}/${slugify(selection.street)}${
+            href={`/street/${selection.district}/${slugifyStreet(selection.street)}${
               selection.houseNumber ? `/${encodeURIComponent(selection.houseNumber)}` : ""
             }`}
             className="mt-6 inline-flex items-center gap-2 text-sm text-zinc-700 hover:text-zinc-900"
@@ -377,13 +352,15 @@ function MiniStat({
   label,
   value,
   hint,
+  wide = false,
 }: {
   label: string;
   value: string;
   hint?: string;
+  wide?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-3">
+    <div className={`min-w-0 rounded-xl border border-zinc-200 bg-white p-3${wide ? " col-span-2" : ""}`}>
       <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">{label}</p>
       <p className="mt-1 text-sm font-semibold tabular-nums text-zinc-900 leading-tight">
         {value}
@@ -400,15 +377,4 @@ function periodLabel(p: Period): string {
     case "12mo": return "senaste 12 månader";
     case "all": return "all tid";
   }
-}
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/å/g, "a")
-    .replace(/ä/g, "a")
-    .replace(/ö/g, "o")
-    .replace(/é/g, "e")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
 }

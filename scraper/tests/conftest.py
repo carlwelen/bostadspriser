@@ -197,29 +197,42 @@ class FakeScrapeRuns:
     def __init__(self) -> None:
         self.runs: list[dict] = []
 
-    def start_run(self, source: str, district: str) -> str:
+    def start_run(self, source: str, district: str, *, kind="legacy", since=None, last_page=0, oldest_sold_at=None) -> str:
         self.runs.append(
             {"id": f"run-{len(self.runs) + 1}", "source": source, "district": district,
              "status": "running", "pages": 0, "rows_upserted": 0, "rows_rejected": 0,
-             "oldest_sold_at": None, "error": None}
+             "oldest_sold_at": oldest_sold_at, "error": None, "kind": kind, "since": since,
+             "last_page": last_page, "complete_through": None, "finishedAt": None}
         )
         return self.runs[-1]["id"]
 
     def _get(self, run_id):
         return next(r for r in self.runs if r["id"] == run_id) if run_id else None
 
-    def bump(self, run_id, *, pages, rows_upserted, rows_rejected, oldest_sold_at) -> None:
+    def bump(self, run_id, *, pages, rows_upserted, rows_rejected, oldest_sold_at, last_page=0, required=False) -> None:
         r = self._get(run_id)
         if r:
             r.update(pages=pages, rows_upserted=rows_upserted, rows_rejected=rows_rejected,
-                     oldest_sold_at=oldest_sold_at)
+                     oldest_sold_at=oldest_sold_at, last_page=last_page)
 
-    def finish_run(self, run_id, status, *, pages, rows_upserted, rows_rejected, oldest_sold_at, error=None) -> None:
+    def finish_run(self, run_id, status, *, pages, rows_upserted, rows_rejected, oldest_sold_at, error=None,
+                   last_page=0, complete_through=None, required=False) -> None:
         assert status in ("ok", "partial", "failed")
         r = self._get(run_id)
         if r:
             r.update(status=status, pages=pages, rows_upserted=rows_upserted,
-                     rows_rejected=rows_rejected, oldest_sold_at=oldest_sold_at, error=error)
+                     rows_rejected=rows_rejected, oldest_sold_at=oldest_sold_at, error=error,
+                     last_page=last_page, complete_through=complete_through, finishedAt=True)
+
+    def latest_run(self, source, district, *, kind, watermark=False):
+        rows = [r for r in self.runs if r["source"] == source and r["district"] == district and r["kind"] == kind]
+        if watermark:
+            rows = [r for r in rows if r["status"] == "ok" and r["finishedAt"] and r["complete_through"]]
+        if not rows:
+            return None
+        r = rows[-1]
+        return {**r, "lastPage": r["last_page"], "completeThrough": r["complete_through"],
+                "oldestSoldAt": r["oldest_sold_at"]}
 
 
 @pytest.fixture(autouse=True)
@@ -234,6 +247,7 @@ def scrape_runs(request, monkeypatch):
     monkeypatch.setattr(scrape_run, "start_run", fake.start_run)
     monkeypatch.setattr(scrape_run, "bump", fake.bump)
     monkeypatch.setattr(scrape_run, "finish_run", fake.finish_run)
+    monkeypatch.setattr(scrape_run, "latest_run", fake.latest_run)
     # `update` relabels inline-coordinate rows at the end; no database in these tests.
     monkeypatch.setattr("scraper.run.mark_inline_pending", lambda: 0)
     # ...and clusters cross-source copies; the matcher has its own database tests.

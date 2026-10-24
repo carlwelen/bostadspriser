@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AddressDrawer, type AddressSelection } from "./AddressDrawer";
 import { focusableWithin } from "./map/focusTrap";
+import slugVectors from "../../../shared/slug-vectors.json";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -64,6 +65,16 @@ const key = (k: string, init: KeyboardEventInit = {}) =>
   act(async () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }));
   });
+
+describe("AddressDrawer stable street links (B23)", () => {
+  it.each(slugVectors.slug)("keeps the shared URL for $input", async ({ input, expected }) => {
+    const { host, root, render } = await mountPending();
+    await render({ ...selection, street: input });
+    expect(host.querySelector('a[href^="/street/"]')?.getAttribute("href"))
+      .toBe(`/street/ostermalm/${expected}/10`);
+    await act(async () => root.unmount());
+  });
+});
 
 describe("AddressDrawer dialog behaviour (F21)", () => {
   it("is a modal dialog labelled by its heading", async () => {

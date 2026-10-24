@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { comparisonHref } from "@/components/comparison";
 import { GranularityToggle } from "@/components/GranularityToggle";
 import { granularityCaption, parseGranularity } from "@/components/granularity";
 import { PageHero } from "@/components/PageHero";
@@ -10,6 +11,8 @@ import { RecentSalesTable } from "@/components/RecentSalesTable";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { StatCard } from "@/components/StatCard";
+import { RoomChips } from "@/components/RoomChips";
+import { parseRooms, roomsHref } from "@/components/rooms";
 import { SummaryCards } from "@/components/SummaryCards";
 import {
   listHouseNumbers,
@@ -44,26 +47,28 @@ export default async function StreetPage({
   searchParams,
 }: {
   params: Promise<{ district: string; street: string }>;
-  searchParams: Promise<{ g?: string | string[] }>;
+  searchParams: Promise<{ g?: string | string[]; rooms?: string | string[] }>;
 }) {
   const { district: districtParam, street: streetSlug } = await params;
-  const granularity = parseGranularity((await searchParams).g);
+  const sp = await searchParams;
+  const granularity = parseGranularity(sp.g);
+  const rooms = parseRooms(sp.rooms);
   const resolved = await resolveStreet(districtParam, streetSlug);
   if (!resolved) notFound();
   const { district, street } = resolved;
 
   const [points, summary, houses, sales] = await Promise.all([
-    streetTimeseries(district, street, granularity),
-    streetSummary(district, street),
-    listHouseNumbers(district, street),
-    recentSales({ district, street }, 50),
+    streetTimeseries(district, street, granularity, undefined, rooms),
+    streetSummary(district, street, rooms),
+    listHouseNumbers(district, street, rooms),
+    recentSales({ district, street, rooms }, 50),
   ]);
 
   return (
     <>
       <SiteHeader
         crumbs={[
-          { label: districtName(district), href: `/district/${district}` },
+          { label: districtName(district), href: roomsHref(`/district/${district}`, sp, rooms) },
           { label: street },
         ]}
       />
@@ -74,6 +79,7 @@ export default async function StreetPage({
         subtitle={`${districtName(district)}, Stockholms innerstad`}
       />
       <main className="mx-auto max-w-6xl space-y-10 px-6 py-10">
+        <RoomChips path={`/street/${district}/${streetSlug}`} params={sp} rooms={rooms} />
         <SummaryCards
           summary={summary}
           extra={
@@ -99,10 +105,14 @@ export default async function StreetPage({
               </h2>
               <p className="text-xs text-zinc-500">{granularityCaption(granularity)}</p>
             </div>
+            <div className="flex flex-wrap items-center justify-end gap-3">
+            <Link href={comparisonHref([`street:${district}/${streetSlug}`], granularity)} className="text-sm text-zinc-500 hover:text-zinc-900">Jämför →</Link>
             <GranularityToggle
               granularity={granularity}
               path={`/street/${district}/${streetSlug}`}
+              params={sp}
             />
+            </div>
           </div>
           <PriceChart series={[{ name: street, points }]} granularity={granularity} />
         </section>

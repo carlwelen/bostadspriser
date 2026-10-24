@@ -94,6 +94,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
   const [points, setPoints] = useState<HeatmapResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [selectedAddress, setSelectedAddress] = useState<AddressSelection | null>(null);
 
   // Initialize map once.
@@ -166,7 +167,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
     return () => {
       cancelled = true;
     };
-  }, [districts, filters?.priceMin, filters?.priceMax, filters?.rooms, filters?.sinceDays]);
+  }, [districts, filters?.priceMin, filters?.priceMax, filters?.rooms, filters?.sinceDays, reloadKey]);
 
   // Colour breaks follow the points on screen (quantiles, so a few outliers
   // can't flatten the ramp). The legend gets the same numbers.
@@ -360,6 +361,8 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
   const featureCount = points?.features.length ?? 0;
   const noDistricts = districts.length === 0;
   const empty = !loading && !error && !noDistricts && featureCount === 0;
+  // Keep cap metadata coupled to the same response as the displayed points.
+  const truncated = !loading && !error && !noDistricts && featureCount > 0 && points?.truncated === true;
 
   const recent = useMemo(() => {
     if (!points) return [] as Array<{ address: string; pricePerSqm: number; soldAt: string }>;
@@ -373,7 +376,7 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
 
   return (
     <div className="relative h-full w-full">
-      <div ref={containerRef} data-testid="map-container" className="h-full w-full" />
+      <div ref={containerRef} data-testid="map-container" tabIndex={-1} role="region" aria-label="Karta över försäljningar" className="h-full w-full" />
 
       {!MAPBOX_TOKEN && (
         <div role="status" className="absolute inset-x-3 top-3 z-20 flex justify-center">
@@ -386,22 +389,55 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
         </div>
       )}
 
-      {/* coverage / loading badge */}
-      {!error && !noDistricts && (
-        <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-2 rounded-full bg-white/85 px-3 py-1 text-xs text-zinc-700 shadow-sm ring-1 ring-zinc-200 backdrop-blur">
-          {loading ? (
-            <>
-              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-zinc-400" />
-              Laddar försäljningar…
-            </>
-          ) : (
-            <>
-              <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-              {formatSalesInSelection(featureCount)}
-            </>
-          )}
-        </div>
-      )}
+      {/* Wrap the recent-sales card above the badge when both cannot fit. */}
+      <div className="pointer-events-none absolute inset-x-3 bottom-3 z-10 flex flex-wrap-reverse items-start gap-3">
+        {/* coverage / loading badge */}
+        {!error && !noDistricts && (
+          <div className={`flex max-w-full gap-1 bg-white/85 px-3 py-1 text-xs text-zinc-700 shadow-sm ring-1 ring-zinc-200 backdrop-blur ${truncated ? "flex-col items-start rounded-xl" : "items-center rounded-full"}`}>
+            <div className="flex items-center gap-2">
+              {loading ? (
+                <>
+                  <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-zinc-400" />
+                  Laddar försäljningar…
+                </>
+              ) : (
+                <>
+                  <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                  {truncated
+                    ? `${SEK_FMT.format(featureCount)} ${featureCount === 1 ? "försäljning" : "försäljningar"} visas`
+                    : formatSalesInSelection(featureCount)}
+                </>
+              )}
+            </div>
+            {truncated && (
+              <p data-testid="map-truncation" role="status" className="max-w-60 text-[11px]">
+                Urvalet är begränsat. Bara de senaste matchande försäljningarna visas.
+              </p>
+            )}
+          </div>
+        )}
+
+        {recent.length > 0 && (
+          <div className="pointer-events-auto ml-auto hidden w-72 shrink-0 overflow-hidden rounded-2xl bg-white/90 shadow-md ring-1 ring-zinc-200 backdrop-blur md:block">
+            <div className="border-b border-zinc-200/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+              Senaste försäljningar
+            </div>
+            <ul className="divide-y divide-zinc-100">
+              {recent.map((r, i) => (
+                <li key={`${r.address}-${r.soldAt}-${i}`} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-zinc-900">{r.address}</p>
+                    <p className="text-[11px] text-zinc-500">{r.soldAt}</p>
+                  </div>
+                  <span className="shrink-0 tabular-nums text-zinc-700">
+                    {SEK_FMT.format(r.pricePerSqm)} kr/m²
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
 
       <AddressDrawer
         selection={selectedAddress}
@@ -410,8 +446,18 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
 
       {error && (
         <div role="alert" className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
-          <div className="rounded-2xl bg-white/95 px-5 py-4 text-center text-sm text-red-700 shadow-md ring-1 ring-red-200">
-            Kunde inte hämta data.
+          <div className="pointer-events-auto rounded-2xl bg-white/95 px-5 py-4 text-center text-sm text-red-700 shadow-md ring-1 ring-red-200">
+            <p>Kunde inte hämta data.</p>
+            <button
+              type="button"
+              className="mt-3 rounded-md border border-red-200 bg-white px-3 py-1.5 font-medium hover:bg-red-50"
+              onClick={() => {
+                setReloadKey((key) => key + 1);
+                containerRef.current?.focus();
+              }}
+            >
+              Försök igen
+            </button>
           </div>
         </div>
       )}
@@ -438,26 +484,6 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
         </div>
       )}
 
-      {recent.length > 0 && (
-        <div className="absolute bottom-3 right-3 z-10 hidden w-72 overflow-hidden rounded-2xl bg-white/90 shadow-md ring-1 ring-zinc-200 backdrop-blur md:block">
-          <div className="border-b border-zinc-200/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-            Senaste försäljningar
-          </div>
-          <ul className="divide-y divide-zinc-100">
-            {recent.map((r, i) => (
-              <li key={`${r.address}-${r.soldAt}-${i}`} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-zinc-900">{r.address}</p>
-                  <p className="text-[11px] text-zinc-500">{r.soldAt}</p>
-                </div>
-                <span className="shrink-0 tabular-nums text-zinc-700">
-                  {SEK_FMT.format(r.pricePerSqm)} kr/m²
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 }

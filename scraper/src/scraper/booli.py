@@ -31,6 +31,7 @@ from urllib.parse import quote
 from .normalize import (
     dedup_key,
     parse_rooms,
+    parse_per_sqm,
     parse_sek,
     parse_sqm,
     parse_street_address,
@@ -115,7 +116,11 @@ def _data_point_text(card: dict, predicate) -> str | None:
     """Find the first dataPoint whose plainText matches `predicate(text)`."""
     dp_list = (card.get("displayAttributes") or {}).get("dataPoints") or []
     for dp in dp_list:
-        text = ((dp.get("value") or {}).get("plainText")) or ""
+        text = (dp.get("value") or {}).get("plainText")
+        if text is None:
+            continue
+        if not isinstance(text, str):
+            raise ValueError("malformed measurement type")
         if predicate(text):
             return text
     return None
@@ -167,25 +172,34 @@ def card_fields(card: dict, district: str) -> dict | None:
     # Booli puts living area, rooms, and kr/m² in `displayAttributes.dataPoints`
     # as positional, label-less entries. Pick by content shape — the sample
     # always contains "<n> m²", "<n> rum", optional "vån <n>", and "<n> kr/m²".
-    area_text = _data_point_text(card, lambda s: "m²" in s and "kr" not in s)
-    rooms_text = _data_point_text(card, lambda s: "rum" in s)
-    sqm_price_text = _data_point_text(card, lambda s: "kr/m²" in s)
+    try:
+        area_text = _data_point_text(card, lambda s: "m²" in s and "kr" not in s)
+        rooms_text = _data_point_text(card, lambda s: "rum" in s)
+        sqm_price_text = _data_point_text(card, lambda s: "kr/m²" in s)
+    except ValueError:
+        return None
 
     sold_price = card.get("soldPrice") or {}
     # `soldPrice.raw` is the cleanest source; fall back to parsing `formatted`
     # so we stay tolerant if Booli ever drops the raw field.
     price_sek = sold_price.get("raw")
-    if not isinstance(price_sek, int):
-        price_sek = parse_sek(sold_price.get("formatted") or sold_price.get("value"))
+    if price_sek is None:
+        price_sek = parse_sek(sold_price.get("formatted") or sold_price.get("value"), unit="kr")
+    elif isinstance(price_sek, bool) or not isinstance(price_sek, (int, float)):
+        return None
 
     # Booli does not always expose a per-sqm value; derive it from price/area
     # when missing. Rows with no final price (or neither kr/m² nor area) are
     # skipped, not stored with 0.
-    area_sqm = parse_sqm(area_text)
-    rooms = parse_rooms(rooms_text)
+    try:
+        area_sqm = parse_sqm(area_text)
+        rooms = parse_rooms(rooms_text)
+        per_sqm = parse_per_sqm(sqm_price_text)
+    except ValueError:
+        return None
     if not sane_measurements(area_sqm, rooms):
         return None
-    prices = resolve_prices(price_sek, parse_sek(sqm_price_text), area_sqm)
+    prices = resolve_prices(price_sek, per_sqm, area_sqm)
     if prices is None:
         return None
     final_price, price_per_sqm = prices

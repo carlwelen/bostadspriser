@@ -2,7 +2,7 @@
 
 Hemnet ships values like "4 900 000 kr", "35 m²", "2,5 rum" — Swedish formatting
 with non-breaking spaces and comma decimals. These helpers tolerate the variants
-and return numeric types or None.
+and return numeric types or None. Malformed present measurements raise ValueError.
 """
 
 from __future__ import annotations
@@ -10,36 +10,56 @@ from __future__ import annotations
 import math
 import re
 from decimal import ROUND_HALF_UP, Decimal
+from fractions import Fraction
 
-# Matches digit groups with optional non-breaking/regular spaces.
-_DIGIT_RE = re.compile(r"[\d \s]+")
-_DECIMAL_RE = re.compile(r"[+-]?(?:\d+(?:[.,]\d+)?|nan|inf(?:inity)?)", re.IGNORECASE)
+_NUMBER = r"[+-]?(?:\d+(?:[.,]\d+)?|nan|inf(?:inity)?)"
 
 
-def parse_sek(text: str | None) -> int | float | None:
-    """'4 900 000 kr' or '140 000 kr/m²' → 4900000 / 140000."""
-    if not text:
+def parse_sek(text: str | None, *, unit: str | None = None) -> int | Decimal | None:
+    """Parse a complete localized money token, never concatenate arbitrary digits."""
+    if not isinstance(text, str) or not text.strip():
         return None
-    # Preserve nonfinite numeric tokens so validators reject them rather than
-    # treating them as missing and deriving a plausible replacement.
-    token = text.split()[0].lower() if text.split() else ""
-    if token.lstrip("+-") in {"nan", "inf", "infinity"}:
-        return float(token)
-    digits = re.sub(r"[^\d]", "", text)
-    return (-1 if text.lstrip().startswith("-") else 1) * int(digits) if digits else None
-
-
-def parse_sqm(text: str | None) -> float | None:
-    """'35 m²' → 35.0; '79,5 m²' → 79.5."""
-    if not text:
+    number = r"[+-]?(?:(?:[0-9]{1,3}(?:[ \u00a0\u202f]+[0-9]{3})+|[0-9]+)(?:[.,][0-9]+)?|nan|inf(?:inity)?)"
+    suffix = re.escape(unit) if unit is not None else r"kr(?:/m²)?"
+    match = re.fullmatch(rf"\s*({number})\s*(?:{suffix})?\s*", text, re.IGNORECASE)
+    if match is None:
         return None
-    m = _DECIMAL_RE.search(text.replace(" ", " "))
-    return float(m.group(0).replace(",", ".")) if m else None
+    token = re.sub(r"\s", "", match.group(1)).replace(",", ".")
+    return Decimal(token) if "." in token or token.lstrip("+-").lower() in {"nan", "inf", "infinity"} else int(token)
 
 
-def parse_rooms(text: str | None) -> float | None:
-    """'1 rum' → 1.0; '2,5 rum' → 2.5."""
-    return parse_sqm(text)
+def parse_per_sqm(text: str | None) -> int | Decimal | None:
+    """Only an absent PPS can be derived; malformed explicit PPS rejects the card."""
+    if text is None or (isinstance(text, str) and not text.strip()):
+        return None
+    value = parse_sek(text, unit="kr/m²")
+    if value is None:
+        raise ValueError("malformed square-metre price")
+    return value
+
+
+def _parse_measurement(text: str | None, unit: str) -> Decimal | None:
+    """Missing is optional; malformed present measurements must not become missing."""
+    if text is None:
+        return None
+    if not isinstance(text, str):
+        raise ValueError("malformed measurement type")
+    if not text.strip():
+        return None
+    match = re.fullmatch(rf"\s*({_NUMBER})\s*(?:{unit})?\s*", text, re.IGNORECASE)
+    if match is None:
+        raise ValueError("malformed measurement")
+    return Decimal(match.group(1).replace(",", "."))
+
+
+def parse_sqm(text: str | None) -> Decimal | None:
+    """'35 m²' -> 35.0; malformed nonempty fields raise ValueError."""
+    return _parse_measurement(text, "m²")
+
+
+def parse_rooms(text: str | None) -> Decimal | None:
+    """'2,5 rum' -> 2.5; malformed nonempty fields raise ValueError."""
+    return _parse_measurement(text, "rum")
 
 
 # --------------------------------------------------------------------------
@@ -121,7 +141,7 @@ def parse_street_address(addr: str | None) -> tuple[str, str | None]:
     return street, house
 
 
-def sane_measurements(area: float | None, rooms: float | None) -> bool:
+def sane_measurements(area: float | Decimal | None, rooms: float | Decimal | None) -> bool:
     """Validate known values before rounding; absent optional measurements stay absent."""
     return all(
         value is None or (math.isfinite(value) and low <= value <= high)
@@ -130,7 +150,7 @@ def sane_measurements(area: float | None, rooms: float | None) -> bool:
 
 
 def resolve_prices(
-    price_sek: int | float | None, per_sqm_sek: int | float | None, area_sqm: float | None
+    price_sek: int | float | Decimal | None, per_sqm_sek: int | float | Decimal | None, area_sqm: float | Decimal | None
 ) -> tuple[int, int] | None:
     """Final price and kr/m² for a sale, or None if the row can't be stored.
 
@@ -139,18 +159,29 @@ def resolve_prices(
     derived as round(price / area); with neither kr/m² nor a usable area the
     row is skipped rather than stored with 0.
     """
-    if price_sek is None or price_sek <= 0 or (isinstance(price_sek, float) and not math.isfinite(price_sek)):
+    if price_sek is None or isinstance(price_sek, bool):
+        return None
+    if not isinstance(price_sek, int) and not math.isfinite(price_sek):
+        return None
+    if price_sek <= 0 or price_sek != int(price_sek):
+        return None
+    price_sek = int(price_sek)
+    if per_sqm_sek is not None and not isinstance(per_sqm_sek, int) and not math.isfinite(per_sqm_sek):
         return None
     if per_sqm_sek is None:
         if area_sqm is None or not math.isfinite(area_sqm) or area_sqm <= 0:
             return None
-        per_sqm_sek = int(round(price_sek / area_sqm))
+        # Preserve exact source decimals even at a derived PPS boundary.
+        per_sqm_sek = Fraction(price_sek) / Fraction(area_sqm)
+        if not 20_000 <= per_sqm_sek <= 400_000:
+            return None
+        per_sqm_sek = int(round(per_sqm_sek))
     if not 20_000 <= per_sqm_sek <= 400_000:
         return None
-    return int(price_sek), int(per_sqm_sek)
+    return int(price_sek), int(round(per_sqm_sek))
 
 
-def round_1dp(value: float | None) -> float | None:
+def round_1dp(value: float | Decimal | None) -> float | None:
     """Round like Postgres does for the Decimal(_, 1) columns (half away from zero).
 
     Applied to rooms and areaSqm before they leave the parsers so what an insert

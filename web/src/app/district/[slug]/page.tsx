@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { comparisonHref } from "@/components/comparison";
 import { GranularityToggle } from "@/components/GranularityToggle";
 import { granularityCaption, parseGranularity } from "@/components/granularity";
 import { PageHero } from "@/components/PageHero";
@@ -10,6 +11,8 @@ import { RecentSalesTable } from "@/components/RecentSalesTable";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { StatCard } from "@/components/StatCard";
+import { RoomChips } from "@/components/RoomChips";
+import { parseRooms, roomsHref } from "@/components/rooms";
 import { SummaryCards } from "@/components/SummaryCards";
 import {
   MIN_MOM_SALES,
@@ -44,18 +47,20 @@ export default async function DistrictPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ g?: string | string[] }>;
+  searchParams: Promise<{ g?: string | string[]; rooms?: string | string[] }>;
 }) {
   const { slug } = await params;
-  const granularity = parseGranularity((await searchParams).g);
+  const sp = await searchParams;
+  const granularity = parseGranularity(sp.g);
+  const rooms = parseRooms(sp.rooms);
   if (!isDistrictSlug(slug)) notFound();
 
   const [points, summary, mom, topStreets, sales] = await Promise.all([
-    districtTimeseries(slug, granularity),
-    districtStreetCount(slug),
-    districtMomChange(slug),
-    listStreets(slug, 12),
-    recentSales({ district: slug }, 25),
+    districtTimeseries(slug, granularity, rooms),
+    districtStreetCount(slug, rooms),
+    districtMomChange(slug, undefined, rooms),
+    listStreets(slug, 12, rooms),
+    recentSales({ district: slug, rooms }, 25),
   ]);
 
   const momCard = describeMom(mom, MIN_MOM_SALES);
@@ -80,6 +85,7 @@ export default async function DistrictPage({
         }
       />
       <main className="mx-auto max-w-6xl space-y-10 px-6 py-10">
+        <RoomChips path={`/district/${slug}`} params={sp} rooms={rooms} />
         <SummaryCards
           summary={summary}
           extra={
@@ -104,9 +110,9 @@ export default async function DistrictPage({
               <p className="text-xs text-zinc-500">{granularityCaption(granularity)}</p>
             </div>
             <div className="flex items-center gap-3">
-              <GranularityToggle granularity={granularity} path={`/district/${slug}`} />
+              <GranularityToggle granularity={granularity} path={`/district/${slug}`} params={sp} />
               <Link
-                href={`/compare?series=district:${slug}`}
+                href={comparisonHref([`district:${slug}`], granularity)}
                 className="text-sm text-zinc-500 hover:text-zinc-900"
               >
                 Jämför →
@@ -126,7 +132,7 @@ export default async function DistrictPage({
               {topStreets.map((s) => (
                 <li key={s.slug}>
                   <Link
-                    href={`/street/${slug}/${s.slug}`}
+                    href={roomsHref(`/street/${slug}/${s.slug}`, sp, rooms)}
                     className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-4 py-3 transition hover:border-zinc-300 hover:shadow-sm"
                   >
                     <div className="min-w-0">

@@ -1,5 +1,6 @@
 import type { Period } from "@/lib/api-types";
 import { DISTRICTS, type DistrictSlug } from "@/lib/districts";
+import { foldForSearch } from "@/lib/text";
 
 // Map filters as they appear in the landing page URL (F15):
 //   /?districts=vasastan,norrmalm&rooms=2,3&period=3mo&mode=frequency&heatmap=0
@@ -50,7 +51,7 @@ export function parseFilters(params: URLSearchParams): MapFilterState {
   if (rawDistricts === "") {
     districts = [];
   } else if (rawDistricts !== null) {
-    const wanted = new Set(csv(rawDistricts).map((x) => x.toLowerCase()));
+    const wanted = new Set(csv(rawDistricts).map((x) => foldForSearch(x.normalize("NFC"))));
     const valid = ALL_DISTRICTS.filter((slug) => wanted.has(slug));
     if (valid.length > 0) districts = valid;
   }

@@ -63,10 +63,23 @@ export function lockBodyScroll(): () => void {
   };
 }
 
-type ModalEntry = { container: () => HTMLElement | null; onEscape: () => void };
+type ModalEntry = { container: () => HTMLElement | null; onEscape: () => void; wasInert: boolean };
 const modalStack: ModalEntry[] = [];
 
+export function isComposingKey(e: KeyboardEvent): boolean {
+  return e.isComposing || e.keyCode === 229;
+}
+
+function updateModalInert() {
+  const top = modalStack[modalStack.length - 1]?.container();
+  for (const entry of modalStack) {
+    const el = entry.container();
+    el?.toggleAttribute("inert", el !== top || entry.wasInert);
+  }
+}
+
 function onModalKeyDown(e: KeyboardEvent) {
+  if (isComposingKey(e)) return;
   // Only the topmost modal reacts; the ones below it stay inert.
   const top = modalStack[modalStack.length - 1];
   if (!top) return;
@@ -82,17 +95,24 @@ function onModalKeyDown(e: KeyboardEvent) {
 /**
  * Register an open modal: it gets Esc and Tab handling while it is the most
  * recently opened one, and holds a page scroll lock. Returns the function that
- * unregisters it (call it when the modal closes or unmounts).
+ * unregisters it (call it when the modal closes or unmounts). That function
+ * returns whether it was on top, so only that modal restores focus.
  */
-export function registerModal(container: () => HTMLElement | null, onEscape: () => void): () => void {
-  const entry: ModalEntry = { container, onEscape };
+export function registerModal(container: () => HTMLElement | null, onEscape: () => void): () => boolean {
+  const entry: ModalEntry = { container, onEscape, wasInert: container()?.hasAttribute("inert") ?? false };
   if (modalStack.length === 0) window.addEventListener("keydown", onModalKeyDown);
   modalStack.push(entry);
+  updateModalInert();
   const unlock = lockBodyScroll();
   return () => {
     const i = modalStack.indexOf(entry);
-    if (i >= 0) modalStack.splice(i, 1);
+    if (i < 0) return false;
+    const wasTop = i === modalStack.length - 1;
+    modalStack.splice(i, 1);
+    container()?.toggleAttribute("inert", entry.wasInert);
+    updateModalInert();
     if (modalStack.length === 0) window.removeEventListener("keydown", onModalKeyDown);
     unlock();
+    return wasTop;
   };
 }

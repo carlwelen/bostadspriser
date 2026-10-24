@@ -1,12 +1,17 @@
 import Link from "next/link";
+import { ComparisonNavigation } from "@/components/ComparisonNavigation";
+import { CompareBuilder } from "@/components/CompareBuilder";
+import { CHART_COLORS } from "@/components/chartColors";
+import { comparisonHref, comparisonIds, parseComparisonSpec, type ComparisonSpec } from "@/components/comparison";
 import { GranularityToggle } from "@/components/GranularityToggle";
-import { granularityHref, granularityCaption, parseGranularity } from "@/components/granularity";
+import { granularityCaption, parseGranularity } from "@/components/granularity";
 import { PageHero } from "@/components/PageHero";
 import { PriceChart, type Series } from "@/components/PriceChart";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import {
   districtTimeseries,
+  listAllStreets,
   streetFromSlug,
   type Granularity,
   streetTimeseries,
@@ -15,35 +20,11 @@ import {
 import {
   DISTRICTS,
   districtName,
-  isDistrictSlug,
-  type DistrictSlug,
 } from "@/lib/districts";
 
 export const dynamic = "force-dynamic";
 
-const PALETTE = ["#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c"];
-
-type ParsedSpec =
-  | { kind: "district"; slug: DistrictSlug }
-  | { kind: "street"; district: DistrictSlug; streetSlug: string };
-
-function parseSpec(raw: string): ParsedSpec | null {
-  const [kind, ...rest] = raw.split(":");
-  if (kind === "district") {
-    const slug = rest.join(":");
-    return isDistrictSlug(slug) ? { kind, slug } : null;
-  }
-  if (kind === "street") {
-    const path = rest.join(":");
-    const [district, streetSlug] = path.split("/");
-    return district && isDistrictSlug(district) && streetSlug
-      ? { kind, district, streetSlug }
-      : null;
-  }
-  return null;
-}
-
-async function loadSeries(spec: ParsedSpec, granularity: Granularity): Promise<{ name: string; points: TimeseriesPoint[] } | null> {
+async function loadSeries(spec: ComparisonSpec, granularity: Granularity): Promise<{ name: string; points: TimeseriesPoint[] } | null> {
   if (spec.kind === "district") {
     const points = await districtTimeseries(spec.slug, granularity);
     return { name: districtName(spec.slug), points };
@@ -61,15 +42,19 @@ export default async function ComparePage({
 }) {
   const sp = await searchParams;
   const granularity = parseGranularity(sp.g);
-  const rawSeries = sp.series
-    ? (Array.isArray(sp.series) ? sp.series : sp.series.split(",")).filter(Boolean)
-    : DISTRICTS.map((d) => `district:${d.slug}`);
-
-  const specs = rawSeries.map(parseSpec).filter((x): x is ParsedSpec => !!x);
-  const loaded = await Promise.all(specs.map((spec) => loadSeries(spec, granularity)));
-  const series: Series[] = loaded
-    .filter((s): s is NonNullable<typeof s> => !!s)
-    .map((s, i) => ({ ...s, color: PALETTE[i % PALETTE.length] }));
+  const rawSeries = comparisonIds(sp.series);
+  const loaded = await Promise.all(rawSeries.map(async (id) => {
+    const data = await loadSeries(parseComparisonSpec(id)!, granularity);
+    return data ? { ...data, id } : null;
+  }));
+  const selected = loaded.filter((s): s is NonNullable<typeof s> => !!s)
+    .map((s, i) => ({ ...s, color: CHART_COLORS[i % CHART_COLORS.length] }));
+  const series: Series[] = selected;
+  const streets = await listAllStreets();
+  const options = [
+    ...DISTRICTS.map((d) => ({ id: `district:${d.slug}`, name: d.displayName, color: "" })),
+    ...streets.map((s) => ({ id: `street:${s.district}/${s.slug}`, name: `${s.street} (${districtName(s.district)})`, color: "" })),
+  ];
 
   return (
     <>
@@ -81,64 +66,33 @@ export default async function ComparePage({
             ? "Inga serier valda"
             : series.map((s) => s.name).join(" vs ")
         }
-        subtitle={
-          <span>
-            {granularityCaption(granularity)}. Lägg till serier via URL:
-            <code className="mx-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-zinc-100">
-              ?series=district:ostermalm,district:vasastan
-            </code>
-          </span>
-        }
+        subtitle={`${granularityCaption(granularity)}. Välj gator och stadsdelar att jämföra i samma graf.`}
       />
+      <ComparisonNavigation>
       <main className="mx-auto max-w-6xl space-y-6 px-6 py-10">
-        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <section aria-label="Prisjämförelse" className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex justify-end">
             <GranularityToggle granularity={granularity} path="/compare" params={sp} />
           </div>
           <PriceChart series={series} granularity={granularity} />
         </section>
+        <CompareBuilder options={[...new Map(options.map((o) => [o.id, o])).values()]} selected={selected.map(({ id, name, color }) => ({ id, name, color }))} granularity={granularity} />
+        <section aria-label="Snabbval" className="flex flex-wrap gap-2">
+          {DISTRICTS.map((d) => {
+            const id = `district:${d.slug}`;
+            const ids = selected.map((s) => s.id);
+            const active = ids.includes(id);
+            return <Link key={id} href={comparisonHref(active ? ids.filter((value) => value !== id) : [...ids, id], granularity)}
+              aria-current={active ? "true" : undefined}
+              className={`rounded-full border px-3 py-1.5 text-sm ${active ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 bg-white text-zinc-700"}`}>
+              {d.displayName}
+            </Link>;
+          })}
+        </section>
 
-        <DistrictPresets active={rawSeries} granularity={granularity} />
       </main>
+      </ComparisonNavigation>
       <SiteFooter />
     </>
-  );
-}
-
-function DistrictPresets({
-  active,
-  granularity,
-}: {
-  active: string[];
-  granularity: Granularity;
-}) {
-  const inSet = new Set(active);
-  return (
-    <section>
-      <p className="mb-2 text-xs text-zinc-500">Snabbval</p>
-      <div className="flex flex-wrap gap-2">
-        {DISTRICTS.map((d) => {
-          const id = `district:${d.slug}`;
-          const set = new Set(active);
-          if (set.has(id)) set.delete(id);
-          else set.add(id);
-          const next = [...set].join(",");
-          return (
-            <Link
-              key={d.slug}
-              href={granularityHref("/compare", next ? { series: next } : {}, granularity)}
-              className={
-                "rounded-full border px-3 py-1.5 text-sm transition " +
-                (inSet.has(id)
-                  ? "border-zinc-900 bg-zinc-900 text-white"
-                  : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300")
-              }
-            >
-              {d.displayName}
-            </Link>
-          );
-        })}
-      </div>
-    </section>
   );
 }

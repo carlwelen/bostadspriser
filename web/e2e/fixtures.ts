@@ -1,4 +1,5 @@
 import { test as base, expect } from "@playwright/test";
+import { originProxy } from "./originProxy";
 
 /**
  * Console errors that are known baseline bugs. Each entry names the backlog
@@ -10,15 +11,21 @@ type Fixtures = { consoleErrors: string[] };
 
 /**
  * Extends `test` with:
- *   - hermetic network: any request that isn't to the app server is aborted;
+ *   - automatic hermetic network: any request outside the exact app origin is aborted;
  *   - `consoleErrors`: console.error / uncaught page errors collected during
  *     the test, minus KNOWN_CONSOLE_ERRORS. Assert it is empty.
  */
 export const test = base.extend<Fixtures>({
-  consoleErrors: async ({ page, baseURL }, provide) => {
+  proxy: async ({ baseURL, browserName }, provide) => {
+    if (browserName !== "chromium") throw new Error("The hermetic e2e proxy is verified for Chromium projects");
+    const proxy = await originProxy(new URL(baseURL!).origin);
+    try { await provide(proxy.options); } finally { await proxy.close(); }
+  },
+  serviceWorkers: "block",
+  consoleErrors: [async ({ page, baseURL }, provide) => {
     const origin = new URL(baseURL!).origin;
     await page.context().route("**/*", (route) =>
-      route.request().url().startsWith(origin) ? route.continue() : route.abort()
+      new URL(route.request().url()).origin === origin ? route.continue() : route.abort()
     );
     const errors: string[] = [];
     const keep = (msg: string) => {
@@ -29,7 +36,7 @@ export const test = base.extend<Fixtures>({
     });
     page.on("pageerror", (e) => keep(`pageerror: ${e.message}`));
     await provide(errors);
-  },
+  }, { auto: true }],
 });
 
 export { expect };
