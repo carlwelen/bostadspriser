@@ -1,14 +1,27 @@
+"use client";
+
 import Link from "next/link";
 import { BrandMark } from "./BrandMark";
+import { MobileNav } from "./MobileNav";
 import { StreetSearch } from "./StreetSearch";
 
 type Crumb = { label: string; href?: string };
 
 export function SiteHeader({ crumbs = [] }: { crumbs?: Crumb[] }) {
   return (
-    <header className="sticky top-0 z-30 border-b border-zinc-200/70 bg-white/75 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
-        <BrandMark />
+    <StreetSearch renderTrigger={(openSearch) => <header className="sticky top-0 z-30 border-b border-zinc-200/70">
+      {/* The blur sits on its own layer: backdrop-filter on the header itself would make
+          it the containing block of the fixed street-search overlay inside it. */}
+      <div aria-hidden className="absolute inset-0 -z-10 bg-white/75 backdrop-blur" />
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+        {/* The "STHLM" tag only fits from md up; below it the bar also holds the menu button. */}
+        <span className="md:hidden">
+          <BrandMark compact />
+        </span>
+        <span className="hidden md:block">
+          <BrandMark />
+        </span>
+        <MobileNav crumbs={crumbs} openSearch={openSearch} />
         <nav className="hidden items-center gap-1 text-sm text-zinc-500 md:flex">
           {crumbs.length > 0 ? (
             <>
@@ -43,9 +56,11 @@ export function SiteHeader({ crumbs = [] }: { crumbs?: Crumb[] }) {
           >
             Jämför
           </Link>
-          <StreetSearch />
+          <button type="button" aria-haspopup="dialog" onClick={openSearch} className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50">
+            Sök gata
+          </button>
         </div>
       </div>
-    </header>
+    </header>} />
   );
 }

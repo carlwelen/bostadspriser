@@ -9,6 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { formatSold } from "./plural";
 
 const SEK = new Intl.NumberFormat("sv-SE");
 
@@ -27,8 +28,8 @@ export function Histogram({
     );
   }
   return (
-    <div className="h-72 w-full">
-      <ResponsiveContainer>
+    <div className="h-72 w-full min-w-0">
+      <ResponsiveContainer initialDimension={{ width: 200, height: 288 }}>
         <BarChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 4 }}>
           <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
           <XAxis
@@ -52,7 +53,7 @@ export function Histogram({
               borderRadius: 10,
               border: "1px solid #e4e4e7",
             }}
-            formatter={(v) => [`${v} sålda`, "Antal"]}
+            formatter={(v) => [formatSold(Number(v)), "Antal"]}
             labelFormatter={(label) => {
               const start = Number(label);
               return `${SEK.format(start)}–${SEK.format(start + bucketWidth - 1)} kr/m²`;

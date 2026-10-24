@@ -9,14 +9,19 @@ export function BrandMark({
   href = "/",
   invert = false,
   showWordmark = true,
+  compact = false,
 }: {
   href?: string;
   invert?: boolean;
+  /** `false` renders the glyph only (the link gets an aria-label). */
   showWordmark?: boolean;
+  /** Drops the "STHLM" tag next to the wordmark, for narrow bars. */
+  compact?: boolean;
 }) {
   return (
     <Link
       href={href}
+      aria-label={showWordmark ? undefined : "Bostadspriser, startsidan"}
       className={
         "group inline-flex items-center gap-2.5 text-sm font-semibold tracking-tight transition-colors " +
         (invert ? "text-zinc-50 hover:text-white" : "text-zinc-900 hover:text-zinc-700")
@@ -51,14 +56,16 @@ export function BrandMark({
       {showWordmark && (
         <span className="flex items-baseline gap-1.5">
           <span className="tracking-[-0.01em]">Bostadspriser</span>
-          <span
-            className={
-              "text-[10px] font-medium uppercase tracking-[0.18em] " +
-              (invert ? "text-zinc-400" : "text-zinc-400")
-            }
-          >
-            sthlm
-          </span>
+          {!compact && (
+            <span
+              className={
+                "text-[10px] font-medium uppercase tracking-[0.18em] " +
+                (invert ? "text-zinc-400" : "text-zinc-400")
+              }
+            >
+              sthlm
+            </span>
+          )}
         </span>
       )}
     </Link>
