@@ -2,6 +2,8 @@
 
 ## Current checkpoint (2026-10-24)
 
+- Live integration checkpoint: 2e4a733 -> 8a04084, full gate green. Remaining approved queue: 6a2de79, 76919c1, adf2f95, 7ef637d, be51bfc, 772ab13, 7dfd56d, fb05162, a2009cd, 8001be3. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
+
 This supersedes the historical handoff below. `docs/backlog.md` is the live merge ledger and work queue.
 
 - **Published main:4b3d4ef.** All original B/C/E handoffs and all C follow-ups are integrated. Complete B ingestion/B15/B49/B23/B45/B36 stack is integrated, with full gates after every merge. E's F35/F16/B14 median follow-ups are also integrated through011bd0d ->19de04d. No live scraping, geocoding or data pruning was run.
