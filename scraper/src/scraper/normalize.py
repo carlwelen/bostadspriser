@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 import re
 from decimal import ROUND_HALF_UP, Decimal
+from fractions import Fraction
 
 _NUMBER = r"[+-]?(?:\d+(?:[.,]\d+)?|nan|inf(?:inity)?)"
 
@@ -37,22 +38,26 @@ def parse_per_sqm(text: str | None) -> int | Decimal | None:
     return value
 
 
-def _parse_measurement(text: str | None, unit: str) -> float | None:
+def _parse_measurement(text: str | None, unit: str) -> Decimal | None:
     """Missing is optional; malformed present measurements must not become missing."""
-    if text is None or not text.strip():
+    if text is None:
+        return None
+    if not isinstance(text, str):
+        raise ValueError("malformed measurement type")
+    if not text.strip():
         return None
     match = re.fullmatch(rf"\s*({_NUMBER})\s*(?:{unit})?\s*", text, re.IGNORECASE)
     if match is None:
         raise ValueError("malformed measurement")
-    return float(match.group(1).replace(",", "."))
+    return Decimal(match.group(1).replace(",", "."))
 
 
-def parse_sqm(text: str | None) -> float | None:
+def parse_sqm(text: str | None) -> Decimal | None:
     """'35 m²' -> 35.0; malformed nonempty fields raise ValueError."""
     return _parse_measurement(text, "m²")
 
 
-def parse_rooms(text: str | None) -> float | None:
+def parse_rooms(text: str | None) -> Decimal | None:
     """'2,5 rum' -> 2.5; malformed nonempty fields raise ValueError."""
     return _parse_measurement(text, "rum")
 
@@ -136,7 +141,7 @@ def parse_street_address(addr: str | None) -> tuple[str, str | None]:
     return street, house
 
 
-def sane_measurements(area: float | None, rooms: float | None) -> bool:
+def sane_measurements(area: float | Decimal | None, rooms: float | Decimal | None) -> bool:
     """Validate known values before rounding; absent optional measurements stay absent."""
     return all(
         value is None or (math.isfinite(value) and low <= value <= high)
@@ -145,7 +150,7 @@ def sane_measurements(area: float | None, rooms: float | None) -> bool:
 
 
 def resolve_prices(
-    price_sek: int | float | Decimal | None, per_sqm_sek: int | float | Decimal | None, area_sqm: float | None
+    price_sek: int | float | Decimal | None, per_sqm_sek: int | float | Decimal | None, area_sqm: float | Decimal | None
 ) -> tuple[int, int] | None:
     """Final price and kr/m² for a sale, or None if the row can't be stored.
 
@@ -166,7 +171,8 @@ def resolve_prices(
     if per_sqm_sek is None:
         if area_sqm is None or not math.isfinite(area_sqm) or area_sqm <= 0:
             return None
-        per_sqm_sek = price_sek / area_sqm
+        # Preserve exact source decimals even at a derived PPS boundary.
+        per_sqm_sek = Fraction(price_sek) / Fraction(area_sqm)
         if not 20_000 <= per_sqm_sek <= 400_000:
             return None
         per_sqm_sek = int(round(per_sqm_sek))
@@ -175,7 +181,7 @@ def resolve_prices(
     return int(price_sek), int(round(per_sqm_sek))
 
 
-def round_1dp(value: float | None) -> float | None:
+def round_1dp(value: float | Decimal | None) -> float | None:
     """Round like Postgres does for the Decimal(_, 1) columns (half away from zero).
 
     Applied to rooms and areaSqm before they leave the parsers so what an insert

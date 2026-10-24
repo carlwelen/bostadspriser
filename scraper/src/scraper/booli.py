@@ -116,7 +116,11 @@ def _data_point_text(card: dict, predicate) -> str | None:
     """Find the first dataPoint whose plainText matches `predicate(text)`."""
     dp_list = (card.get("displayAttributes") or {}).get("dataPoints") or []
     for dp in dp_list:
-        text = ((dp.get("value") or {}).get("plainText")) or ""
+        text = (dp.get("value") or {}).get("plainText")
+        if text is None:
+            continue
+        if not isinstance(text, str):
+            raise ValueError("malformed measurement type")
         if predicate(text):
             return text
     return None
@@ -168,9 +172,12 @@ def card_fields(card: dict, district: str) -> dict | None:
     # Booli puts living area, rooms, and kr/m² in `displayAttributes.dataPoints`
     # as positional, label-less entries. Pick by content shape — the sample
     # always contains "<n> m²", "<n> rum", optional "vån <n>", and "<n> kr/m²".
-    area_text = _data_point_text(card, lambda s: "m²" in s and "kr" not in s)
-    rooms_text = _data_point_text(card, lambda s: "rum" in s)
-    sqm_price_text = _data_point_text(card, lambda s: "kr/m²" in s)
+    try:
+        area_text = _data_point_text(card, lambda s: "m²" in s and "kr" not in s)
+        rooms_text = _data_point_text(card, lambda s: "rum" in s)
+        sqm_price_text = _data_point_text(card, lambda s: "kr/m²" in s)
+    except ValueError:
+        return None
 
     sold_price = card.get("soldPrice") or {}
     # `soldPrice.raw` is the cleanest source; fall back to parsing `formatted`
