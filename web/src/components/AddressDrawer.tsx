@@ -96,15 +96,20 @@ export function AddressDrawer({
   const merged = useMemo(() => {
     if (!data) return [];
     const byBucket = new Map<string, { bucket: string; trend?: number; sale?: number }>();
+    const sameDaySales: { bucket: string; sale: number }[] = [];
     for (const p of data.streetSeries) {
       byBucket.set(p.bucket, { bucket: p.bucket, trend: p.meanPricePerSqm });
     }
     for (const s of data.addressSales) {
       const existing = byBucket.get(s.soldAt) ?? { bucket: s.soldAt };
-      existing.sale = s.pricePerSqmSek;
-      byBucket.set(s.soldAt, existing);
+      if (existing.sale === undefined) {
+        existing.sale = s.pricePerSqmSek;
+        byBucket.set(s.soldAt, existing);
+      } else {
+        sameDaySales.push({ bucket: s.soldAt, sale: s.pricePerSqmSek });
+      }
     }
-    return [...byBucket.values()].sort((a, b) =>
+    return [...byBucket.values(), ...sameDaySales].sort((a, b) =>
       String(a.bucket).localeCompare(String(b.bucket))
     );
   }, [data]);
@@ -246,6 +251,7 @@ export function AddressDrawer({
                     <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
                     <XAxis
                       dataKey="bucket"
+                      allowDuplicatedCategory={false}
                       tickFormatter={(b) => formatBucket(String(b), data?.granularity ?? "month")}
                       tick={{ fontSize: 11, fill: "#71717a" }}
                       tickLine={false}
