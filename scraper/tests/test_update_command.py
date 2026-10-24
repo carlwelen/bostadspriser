@@ -257,3 +257,33 @@ def test_a_failing_relabel_does_not_change_the_update_exit_code(fake_world, monk
     result = CliRunner().invoke(run.cli, ["update", "--source", "hemnet", "--district", "ostermalm"])
     assert result.exit_code == 0, result.output
     assert "db hiccup" in result.output
+
+
+def test_update_oldest_sold_at_follows_committed_rows_not_yielded_ones(fake_world, scrape_runs, monkeypatch) -> None:
+    """Update-command twin of the backfill probe: one row per page, the second batch fails
+    to commit; the ScrapeRun row must only claim what the committed batch reached."""
+    from datetime import timedelta
+
+    async def it(district, since, *, progress=None, max_pages=None, start_page=1, **kw):
+        for page in range(start_page, 251):
+            yield {"source": "hemnet", "district": district, "soldAt": date(2026, 6, 1), "page": page}
+            progress.pages += 1
+            progress.last_completed_page = page
+            progress.oldest_sold_at = date(2026, 6, 1) - timedelta(days=page)
+
+    monkeypatch.setitem(run._SOURCE_ITER, "hemnet", it)
+    calls = {"n": 0}
+
+    def flaky(rows, **kw):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("db down")
+        return len(rows)
+
+    monkeypatch.setattr(run, "upsert_listings", flaky)
+    result = CliRunner().invoke(run.cli, ["update", "--source", "hemnet", "--district", "ostermalm"])
+    assert result.exit_code == 1, result.output
+    (r,) = scrape_runs.runs
+    assert r["status"] == "failed" and r["rows_upserted"] == 100  # a database error is a hard failure
+    # At the first (committed) flush the crawl had reached page 99's date, not page 200's.
+    assert r["oldest_sold_at"] == date(2026, 6, 1) - timedelta(days=99)

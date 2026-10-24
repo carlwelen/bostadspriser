@@ -264,6 +264,16 @@ def test_backfill_dedup_command_prints_the_count_once(db) -> None:
 
 
 def test_backfill_module_has_no_script_entry_point_that_bypasses_the_lock() -> None:
+    import ast
+
     import scraper.backfill as module
 
-    assert "__main__" not in open(module.__file__).read()
+    tree = ast.parse(open(module.__file__).read())
+    entry_points = [
+        node
+        for node in tree.body
+        # any mention of __name__ in a module-level `if` (either operand order)
+        if isinstance(node, ast.If)
+        and any(isinstance(n, ast.Name) and n.id == "__name__" for n in ast.walk(node.test))
+    ]
+    assert entry_points == []

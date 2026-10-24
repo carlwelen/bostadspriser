@@ -111,6 +111,12 @@ Both read `/api/heatmap` GeoJSON. The query currently caps at **50,000** feature
 
 API responses send `Cache-Control: public, max-age=60, stale-while-revalidate=300` (`/api/streets/all`: 300/600). `sitemap.xml` is rendered per request so `next build` needs no database.
 
+## Gotchas
+
+- **Recharts 3.8.1 + React 19 + Next 15.5:** never set `isAnimationActive={false}` on `PriceChart` series. On production builds it silently stops client-side `<Link>` navigation from committing. `e2e/granularity.spec.ts` guards this.
+- **Reads come from `"DedupedListingMat"`, a materialized snapshot.** It only changes when `refresh_deduped_listing()` runs. The scraper calls it after every writing command; `scraper refresh-view` runs it by hand. Any migration that changes `Listing` columns must drop and recreate both the mat view and the `DedupedListing` view.
+- **Scraper exit codes:** 0 ok, 1 failure, 75 lock busy or rate-limited or unavailable (retry later), 78 Mapbox token missing or rejected.
+
 ## Conventions
 
 - UI copy is **Swedish**; code, comments and commit messages are English.

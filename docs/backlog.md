@@ -4,13 +4,15 @@ Single source of truth for the hardening loop. A resumed session told "continue 
 
 ## Orchestration state
 
-- **Current phase:** Phase 2 (P1) in progress; Phase 1 P0 all done. Running: B (B16/B18 review fixes; next B46 refresh wiring), C (rebase + B21/B25/B26 review fixes), E (F32, F20-E, F34-E, F13-UI, F31, B14-UI, F8, F10, F11, F12, F18, F28, F29, F35). D idle (next: F36–F38, B23 adoption, B25 truncated hint). MERGE ORDER: B series (B43, B18, B16, B46) → C series (B13…B23, B21 last after B46).
+- **Current phase:** ACTIVE (2026-10-24). Main baseline `75c5d66` passed the full gate (407 vitest, 112 Playwright, 450 pytest). `git cherry` confirms B46/B16 review 4 and all C handoff commits already merged. B13 and the E batch remain; B and E are fixing their outstanding review findings before fresh adversarial review and B → C → E integration. Phase 1 (P0) complete; Phase 2 in progress.
 - **Gate:** `scripts/check.sh` (typecheck, lint with zero warnings, vitest unit + integration, production build, Playwright e2e desktop + mobile, ruff, pytest). Must be green after every merge to `main`.
 - **Process:** implementer agents (B scraper, C data/API, D map UI, E analytics UI) work in their own git worktrees, at most 3 at a time, one commit per backlog ID. A fresh reviewer (R) checks each task's diff and proving test. Only the orchestrator merges into `main`, one task at a time, re-running the gate after each merge. **Only the orchestrator edits this file**, so it never conflicts across worktrees; agents report status back to it.
 - **Per-worktree isolation:** each role uses its own test DB and e2e port: B → `TEST_DB_NAME=bostadspriser_test_b E2E_PORT=3102`, C → `_c`/3103, D → `_d`/3104, E → `_e`/3105, orchestrator on `main` → `bostadspriser_test` (default)/3100. Never the dev DB `bostadspriser`.
 - **Known-failing pins:** baseline bugs with a reproducing e2e test are marked `test.fail(...)` (or in `KNOWN_CONSOLE_ERRORS`) in `web/e2e/` with their ID. The fixing commit flips them to normal tests.
+- **Gotcha (R-confirmed):** Recharts 3.8.1 + React 19 + Next 15.5 — `isAnimationActive={false}` on PriceChart series silently stops client-side `<Link>` navigation from committing on production builds. Never set it.
 - **Platform gotchas fixed on main:** hidden `.pth` files on macOS/Python 3.13 (pytest `pythonpath`, check.sh `chflags`); stale `.next/types` after route moves (check.sh drops them).
 - **Worktree note:** agent worktrees start from the initial commit; implementers fast-forward to `main` first (they did so in P1). Worktrees live in `.claude/worktrees/` (gitignored).
+- **Active worktrees:** B `/tmp/bostadspriser-hardening-b` (`handoff/b-scraper`); E `/tmp/bostadspriser-hardening-e` (`handoff/e-analytics`). Implementers use gpt-6.1-sol; each fresh reviewer uses gpt-6-astra. Browser gates require execution outside the macOS sandbox (Chromium MachPortRendezvous permission denial inside it); the unrestricted baseline passed.
 - **Audit rounds completed:** 0 (stop condition needs two consecutive rounds with no new P0/P1).
 
 Status values: `todo`, `in-progress`, `review`, `done`, `BLOCKED: needs owner decision`.
@@ -56,23 +58,25 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | B43 | P1 | B | done | Single-instance `flock` lock for scrape/update/reparse; second run exits non-zero | 0633d16, a0ba25f | R approved |
 | B44 | P1 | B | done | Deep backfill not capped forever by MAX_PAGES: `scraper backfill --resume` with recorded progress, explicit `--max-pages` | 1457ded, 067e67a | R approved |
 | B45 | P2 | B+C | todo | Move crawl_state.json (update cutoffs, backfill resume) into ScrapeRun (`kind`, `lastPage` columns); resumed backfills don't count as freshness | | From B/R |
-| B46 | P1 | B | review | Scraper calls `refresh_deduped_listing()` after every writing command (guarded until the function exists), `refresh-view` command, mat-vs-live count check in `stats` |  | B 60e5a39 + 67349c5 in review (guarded refresh_deduped(), refresh-view, stats mat-vs-live, pytest statement_timeout). MERGE GATE for B21 |
+| B46 | P1 | B | done | Scraper calls `refresh_deduped_listing()` after every writing command (guarded until the function exists), `refresh-view` command, mat-vs-live count check in `stats` | 3730bfa, e021c63 | R approved; B+C integration verified |
 | B47 | P3 | B | todo | Parser: floor marker after a range letter (`2-3B tr`, `2-3 t r`) | | From R review of B2 |
-| B48 | P2 | B | review | Geocode exit codes: 75 rate-limited/unavailable, 78 bad token, 1 internal, 0 ok | | In B 57056f1 |
-| B13 | P1 | C+B | in-progress | Fuzzy cross-source matcher (same street+house, \ | ae5be64, 0d3c916 | Schema + canonical-key view merged (R approved). Matcher → B (now unblocked) |  | Schema (C) first |
-| B14 | P1 | B+C | in-progress | Ingest sanity bounds (area 10–400, kr/m² 20k–400k, rooms 1–15) reject + count; SQL exposes median + count everywhere; UI defaults to median | 272f279, 6435fe3 | SQL merged (R approved); ingest bounds → B; UI default median → E (in progress) |
+| B48 | P2 | B | done | Geocode exit codes: 75 rate-limited/unavailable, 78 bad token, 1 internal, 0 ok | aab93a9 | R approved; 75 rate-limited/unavailable, 78 bad token, 1 internal, 0 ok |
+| B49 | P2 | B | todo | Scraper calls `POST /api/revalidate` (Bearer REVALIDATE_SECRET, APP_URL) right after `refresh_deduped_listing()`; failure logs, never aborts | | From R review of B24 |
+| B51 | P2 | C | todo | Explicit `cacheMaxMemorySize` (8–16 MB) and no caching of null `streetFromSlug` results; docs say serialised-size bound | | From R review of 7bd12c2: 50 MB serialised ≈ several hundred MB heap for tiny entries |
+| B13 | P1 | C+B | in-progress | Fuzzy cross-source matcher: same normalized address, dates within 3 days, prices within 0.5%; compatible area/rooms; at most one dedupKey per source in a cluster; corrections undo stale matches | ae5be64, 0d3c916 | Schema + view merged. Matcher d0e24c6 on handoff/b-scraper has changes requested; B is fixing chaining, stale clusters, dry-run counts, split keys and SQL case-folding. Fresh review required before merge. |
+| B14 | P1 | B+C | in-progress | Ingest sanity bounds (area 10–400, kr/m² 20k–400k, rooms 1–15) reject + count; SQL exposes median + count everywhere; UI defaults to median | 272f279, 6435fe3 | SQL merged; UI default median in E review; ingest bounds → B |
 | B15 | P1 | B | todo | Check SaleCard for an area/location name and filter on it, or record that none exists | | |
-| B16 | P1 | B(+C) | in-progress | Geocode: status/retry column, 429 backoff, display-name query, inner-Stockholm bbox + reject outside; (d) storage terms | a9ca105, 2e3669e, , 5b3428b | Merged as strict improvement over baseline geocode (baseline leaked token via raise_for_status). B16 review 3 + B48 exit codes in review. Mapbox storage terms → owner decision |
+| B16 | P1 | B(+C) | BLOCKED: needs owner decision | Geocode: status/retry column, 429 backoff, display-name query, inner-Stockholm bbox + reject outside; (d) storage terms | a9ca105, 2e3669e, 58ed86a, 5b3428b, aab93a9, 0ee3ae5 | Engineering work merged through review 4 (R approved). Only Mapbox storage terms remain; see Owner decisions. |
 | B17 | P1 | B | done | Shared browser/source base; sources only define URL, `_looks_real`, extraction, `_to_row`; characterisation tests first | cdc61ba, 930c658 | R approved; guardrail diff byte-identical; shared core in source_base.py |
-| B18 | P1 | C+B | in-progress | `ScrapeRun` model (C); scraper writes it and uses `logging` (B); web shows freshness (F18) | 4893c3c, 1457ded, ad0f8ab | Scraper side merged (R approved). B18 review 3 (update-path test) in review. UI F18 → E |
+| B18 | P1 | C+B | in-progress | `ScrapeRun` model (C); scraper writes it and uses `logging` (B); web shows freshness (F18) | 4893c3c, 1457ded, ad0f8ab, 15c9b9a | Scraper side done (R approved). Remaining: UI F18 → E |
 | B19 | P1 | B | done | Oldest-covered date per source/district; `scraper backfill --source --district --since --resume` | 1457ded | R approved (backfill --resume) |
 | B20 | P1 | B | done | Batched upserts (page or 100 rows per transaction) | 5516ecc, a1fc82e | R approved |
-| B21 | P2 | C | in-progress | Measure ~200k rows + EXPLAIN ANALYZE into docs/perf.md; materialized view or `isCanonical`; re-measure |  | C: materialized view DedupedListingMat, before/after in docs/perf.md (queries 0.9–2.3s → ≤175ms at 200k rows). R: approved design; MERGE GATE: B adds guarded refresh_deduped_listing() calls first, then C B21 merges. C adding lock_timeout + test statement_timeout |
+| B21 | P2 | C | done | Measure ~200k rows + EXPLAIN ANALYZE into docs/perf.md; materialized view or `isCanonical`; re-measure | 9f50c89, 48475c2, de5cf76, 0ca2091 | Materialized DedupedListingMat; docs/perf.md 0.9–2.3s → ≤175ms at 200k rows; refreshed by scraper (B46) |
 | B22 | P2 | C+B | todo | Persisted `streetSlug` + index, shared slug vectors, React `cache()` on lookups | | Depends on B23. `streetFromSlug` scans all district streets; E added `resolveStreet.ts` cache() wrapper in F26 |
-| B23 | P2 | C(+B,D,E) | in-progress | One slug/fold implementation in `web/src/lib/text.ts`; `shared/slug-vectors.json` asserted by pytest and vitest |  | C b241ee5 R approved (lib/text.ts + shared/slug-vectors.json, URLs unchanged). Remaining: pytest vectors (B), StreetSearch/AddressDrawer adopt it (D) |
-| B24 | P2 | C/E | review | `revalidate` or tag caching + secret `POST /api/revalidate`; build never needs a DB |  | Build part done in P0.2; C 733bbbf (tag-based unstable_cache + POST /api/revalidate) in review |
-| B25 | P2 | C | review | Deliberate heatmap cap, minimal properties, bbox/zoom filtering, gzip; documented; response reports truncation |  | C 730b5f1 R approved (cap 30k + truncated flag); minors → C; UI hint → D later |
-| B26 | P2 | C | in-progress | topMovers: disjoint windows, higher thresholds, medians, expose n |  | C 72f1716: R changes requested (doc semantics); insights copy → E (F35) |
+| B23 | P2 | C(+B,D,E) | in-progress | One slug/fold implementation in `web/src/lib/text.ts`; `shared/slug-vectors.json` asserted by pytest and vitest | adfa1f9 | lib/text.ts + shared/slug-vectors.json merged. Open: pytest vectors (B), StreetSearch/AddressDrawer adopt (D) |
+| B24 | P2 | C/E | done | `revalidate` or tag caching + secret `POST /api/revalidate`; build never needs a DB | a710400, e9f574c | Memory-only data cache + POST /api/revalidate. Scraper call → B49; memory bound → B51 |
+| B25 | P2 | C | done | Deliberate heatmap cap, minimal properties, bbox/zoom filtering, gzip; documented; response reports truncation | a330a23, 5cabe19 | Cap 30k + truncated flag. UI hint for truncated → D (open) |
+| B26 | P2 | C | done | topMovers: disjoint windows, higher thresholds, medians, expose n | 957efe8, 81c2f7d, 82525af | Insights copy → F35 (E) |
 | B27 | P2 | C | done | Inline SQL in /api/address, /api/heatmap, /api/streets/all moved to aggregations.ts | 1906cab, d143604 | R approved; snapshots pinned to a fixed clock |
 | B28 | P3 | C | todo | PostGIS only if B21/B25 measurements justify it | | |
 | B29 | P3 | A/B | todo | Dockerfile + cron/systemd example for `update && geocode`, with lockfile | | |
@@ -88,34 +92,35 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | F5 | P0 | D | done | Hex layer handlers registered once (no pile-up across mode switches) | 8a9e499 | R approved; real-mapbox-gl integration test → D nits |
 | F6 | P0 | D | done | Missing Mapbox token → clear in-app message; remove the F6 entry from `KNOWN_CONSOLE_ERRORS` | 44b504c, 28003a6 | R approved; mobile layout now stacks map above sidebar (part of F20) |
 | F7 | P0 | E/D | done | Copy reflects Booli + selected period; footer uses `DISTRICTS` display names | 384d821, 149a692 | E + D parts, R approved |
-| F8 | P1 | E | todo | Månad/År toggle on every time-series chart, in URL (`?g=year`), year buckets formatted `2025` | | |
+| F8 | P1 | E | review | Månad/År toggle on every time-series chart, in URL (`?g=year`), year buckets formatted `2025` |  | On handoff/e-analytics, R approved; branch merges as a unit after the F20/F11/F28 fixes (docs/review-probes/e-batch-review.md) |
 | F9 | P1 | E | todo | Compare builder: add-series combobox (streets + districts), removable chips, "Jämför" buttons, dedupe, shared palette | | |
-| F10 | P1 | E | todo | House page shows address vs street vs district | | |
-| F11 | P1 | E/D | todo | Numeric time axis with honest gaps (PriceChart E, AddressDrawer D) | | |
-| F12 | P1 | E/D | todo | Tooltips show n; buckets with n < 3 de-emphasised | | |
-| F13 | P1 | C+E | in-progress | SQL `streetSummary` / `addressSummary` / `districtStreetCount`; correct labelled stats | 48d7aa0 | SQL side merged; UI wiring → E |
+| F10 | P1 | E | review | House page shows address vs street vs district |  | On handoff/e-analytics, R approved; branch merges as a unit after the F20/F11/F28 fixes (docs/review-probes/e-batch-review.md) |
+| F11 | P1 | E/D | in-progress | Numeric time axis with honest gaps (PriceChart E, AddressDrawer D) |  | On handoff/e-analytics: R CHANGES REQUESTED (low-n styling makes address series ~invisible, <3:1). See docs/review-probes/e-batch-review.md |
+| F12 | P1 | E/D | in-progress | Tooltips show n; buckets with n < 3 de-emphasised |  | On handoff/e-analytics: R CHANGES REQUESTED (low-n styling makes address series ~invisible, <3:1). See docs/review-probes/e-batch-review.md |
+| F13 | P1 | C+E | review | SQL `streetSummary` / `addressSummary` / `districtStreetCount`; correct labelled stats | 48d7aa0 | On handoff/e-analytics, R approved; branch merges as a unit after the F20/F11/F28 fixes (docs/review-probes/e-batch-review.md) |
 | F14 | P1 | C | done | House numbers sort naturally in SQL | a5b5813, 1ced813 | R approved |
 | F15 | P1 | D | done | Map filters round-trip through searchParams | 120347d, 7869c5a, 4efd397 | R approved; server-rendered from searchParams |
-| F16 | P1 | E(+C) | todo | Room/size segmentation chips on district + street pages | | |
+| F16 | P1 | E(+C) | todo | Room/size segmentation chips on district + street pages |  | Needs C: rooms?: number[] on districtTimeseries/streetTimeseries/streetSummary/districtStreetCount (5 = 5+). Then E wires chips |
 | F17 | P1 | D(+C) | done | Data-driven quantile price legend; ramp + legend in one module | 2de7d86, 2aa4c76, 4efd397 | R approved; outlier-stretch follow-up in F38 |
-| F18 | P1 | E | todo | "Senast uppdaterad …" + per-source coverage | | Depends on B18 |
+| F18 | P1 | E | review | "Senast uppdaterad …" + per-source coverage |  | On handoff/e-analytics, R approved; branch merges as a unit after the F20/F11/F28 fixes (docs/review-probes/e-batch-review.md) |
 | F30 | P1 | D/E | done | UI fetches check `res.ok` and handle `ApiErrorBody`; consume `@/lib/api-types` instead of local shapes (AddressDrawer, HeatmapMap, StreetSearch, compare) | b6400f1, cab4487 | R approved |
-| F31 | P1 | E | todo | District MoM card shows "för få affärer" when `pctChange` is null (use `currentCount`/`previousCount`) |  | From C B7 + R: hide "prev → cur" hint or show months/counts when pctChange is null |
+| F31 | P1 | E | review | District MoM card shows "för få affärer" when `pctChange` is null (use `currentCount`/`previousCount`) |  | On handoff/e-analytics, R approved; branch merges as a unit after the F20/F11/F28 fixes (docs/review-probes/e-batch-review.md) |
 | F19 | P1 | E/D | todo | error.tsx per segment, inline retry (drawer, map, search), loading.tsx for insights/compare/house | | |
 | F26 | P1 | E | done | Unknown district/street/house responds HTTP 404 (not a streamed 200); flip the pinned e2e test | 23a5ba3 | R approved. Layout-level validation + `(overview)` route group + `resolveStreet.ts` cache(). Nit: house page still runs its queries on 404 (→ B22) |
-| F20 | P2 | D | in-progress | Mobile layout for `/` (bottom sheet/drawer below md; mobile nav) | 28003a6, 79d90e9, 95658e9 | D part merged (R approved at 320–915px). Remaining: SiteHeader mobile nav (E), landscape-phone layout (F36) |
+| F20 | P2 | D | in-progress | Mobile layout for `/` (bottom sheet/drawer below md; mobile nav) | 28003a6, 79d90e9, 95658e9 | D part merged. E part on handoff/e-analytics: R CHANGES REQUESTED (two StreetSearch instances / hidden dialog on ⌘K; Esc/outside close; aria-controls) |
 | F21 | P2 | D/E | in-progress | aria-pressed toggles, drawer focus trap/return/aria-modal, StreetSearch combobox, SVG icon, contrast | 25810ae, , abcda9d | D part merged (modal stack). Remaining: E part (charts/tables/header), follow-ups F37 |
 | F22 | P2 | E | todo | One chart colour token source; colour-blind-safe district colours, identical everywhere | | |
 | F23 | P2 | E | todo | Per-page metadata, OG defaults, `metadataBase`, `/insights` in sitemap | | |
-| F27 | P2 | E | todo | Recent-sales table doesn't clip horizontally on mobile (scroll container or stacked rows) | | Found in P0 screenshot of /district/ostermalm at Pixel 7 width |
-| F28 | P2 | E | todo | Recharts `ResponsiveContainer` SSR warnings ("width(-1) and height(-1)") gone from server logs (initialDimension/minHeight) in PriceChart, Histogram, PriceAreaScatter | | From E (P1 run) |
-| F29 | P2 | E | todo | Insights subtitle "Allt räknas i SQL — inga sammanfattningar i frontend" is developer copy; rewrite for end users (Swedish) | | From E (P1 run) |
-| F32 | P1 | E | todo | No horizontal page overflow on mobile secondary pages (footer nav `flex-wrap`); e2e asserts `scrollWidth <= clientWidth` at Pixel 7 | | From R review of F1 |
-| F34 | P2 | D | in-progress | Singular/plural copy ("1 försäljning") | ee437af | D part done; E files (district/street/insights/Histogram) → E |
-| F35 | P1 | E | in-progress | Insights movers card/subtitle match B26 (90 d vs prior 12 mo, medians, recent/prior n) | | From R review of B26 |
+| F27 | P2 | E | review | Recent-sales table doesn't clip horizontally on mobile (scroll container or stacked rows) |  | On handoff/e-analytics, R approved; branch merges as a unit after the F20/F11/F28 fixes (docs/review-probes/e-batch-review.md) |
+| F28 | P2 | E | in-progress | Recharts `ResponsiveContainer` SSR warnings ("width(-1) and height(-1)") gone from server logs (initialDimension/minHeight) in PriceChart, Histogram, PriceAreaScatter |  | On handoff/e-analytics: R CHANGES REQUESTED (initialDimension 640 overflows phones before hydration) |
+| F29 | P2 | E | review | Insights subtitle "Allt räknas i SQL — inga sammanfattningar i frontend" is developer copy; rewrite for end users (Swedish) |  | On handoff/e-analytics, R approved (in same commit as F28) |
+| F32 | P1 | E | review | No horizontal page overflow on mobile secondary pages (footer nav `flex-wrap`); e2e asserts `scrollWidth <= clientWidth` at Pixel 7 |  | On handoff/e-analytics, R approved; branch merges as a unit after the F20/F11/F28 fixes (docs/review-probes/e-batch-review.md) |
+| F34 | P2 | D | review | Singular/plural copy ("1 försäljning") | ee437af | On handoff/e-analytics, R approved; branch merges as a unit after the F20/F11/F28 fixes (docs/review-probes/e-batch-review.md) |
+| F35 | P1 | E | todo | Insights movers card/subtitle match B26 (90 d vs prior 12 mo, medians, recent/prior n) |  | Pending B26 on main (E skipped as instructed) |
 | F36 | P2 | D | todo | Landscape-phone layout below md (map 110px / sidebar 81px at 568×320); search dialog fits short viewports / soft keyboard | | From R review of F20/F21 |
 | F37 | P2 | D | todo | Modals below the top one get `inert`; drawer restores focus only if on top; search results keep real links (open in new tab); IME composition guard | | From R review of F21 |
 | F38 | P2 | D | todo | Tied price breaks spread over [q05,q95] not min..max (outlier stretch); diacritic-insensitive district params | | From R review of F17 nits |
+| F39 | P3 | E | todo | PriceAreaScatter median/n-awareness; SummaryCards grid empty cell at lg | | From E |
 | F24 | P3 | D | todo | Hex click → sales list; shared-coordinate popups list all sales | | |
 | F25 | P3 | E | todo | Optional dark mode via F22 tokens | | |
 

@@ -54,6 +54,29 @@ describe("MIN_MOM_SALES", () => {
 });
 
 describe("districtMomChange", () => {
+  it("reports median change independently from outlier-sensitive means", async () => {
+    await seed(prisma, [
+      ...sales("2026-02", 3, 100_000),
+      ...sales("2026-03", 2, 110_000),
+      ...sales("2026-03", 1, 980_000),
+      ...sales("2026-04", 3, 900_000),
+    ]);
+    const mom = await districtMomChange("vasastan", APRIL);
+    expect(mom).toMatchObject({ current: 400_000, previous: 100_000, pctChange: 300,
+      currentMedian: 110_000, previousMedian: 100_000, currentCount: 3, previousCount: 3 });
+    expect(mom?.medianPctChange).toBeCloseTo(10);
+  });
+
+  it("gates median change by the same counts and adjacent complete windows", async () => {
+    for (const n of [0, 2]) {
+      await seed(prisma, [...sales("2026-02", 3, 100_000), ...sales("2026-03", n, 110_000)]);
+      expect(await districtMomChange("vasastan", APRIL)).toMatchObject({
+        previousMedian: 100_000, currentMedian: n ? 110_000 : null,
+        medianPctChange: null, currentCount: n, previousCount: 3,
+      });
+    }
+  });
+
   it("ignores the in-progress month", async () => {
     await seed(prisma, [
       ...sales("2026-02", N, 100_000),

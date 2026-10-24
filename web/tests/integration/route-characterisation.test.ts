@@ -86,7 +86,7 @@ describe("/api/address", () => {
   it.each(queries)("response for %j is unchanged", async (qs) => {
     const body = await call(addressGET, `/api/address?${qs}`);
     expect(body).toHaveProperty("granularity");
-    expect(digest([{ ...body, streetSeries: undefined, addressSales: undefined }])).toMatchSnapshot("meta");
+    expect(digest([{ ...body, streetSeries: undefined, addressSales: undefined, streetSummary: undefined }])).toMatchSnapshot("meta");
     expect(digest(body.streetSeries)).toMatchSnapshot("series");
     expect(digest(body.addressSales)).toMatchSnapshot("sales");
   });

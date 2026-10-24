@@ -14,6 +14,10 @@ enum District {
   sodermalm
 }
 
+// DedupedListing (the live dedup view) and DedupedListingMat (its materialized
+// snapshot, which the web app reads) are not modelled here. A migration that
+// changes this table's columns must recreate both: drop the Mat first, then the
+// view, then create them again with their indexes.
 model Listing {
   id              String        @id @default(uuid())
   source          String
@@ -25,11 +29,19 @@ model Listing {
   dedupKey        String?       @db.VarChar(64)
   // Fuzzy-match cluster (same street + house, sold within a few days, price
   // within a fraction of a percent): every copy of one real-world sale gets the
-  // same id, even when their exact dedupKeys differ. DedupedListing groups on
-  // COALESCE(clusterId, dedupKey, id), so the matcher must give a clusterId to
-  // all rows it merges. Null = not clustered.
+  // same id, even when their exact dedupKeys differ. DedupedListing derives a
+  // canonical key from both columns: a row's own clusterId, else the cluster of
+  // any row sharing its dedupKey, else its dedupKey, else its id. Contract for
+  // the matcher: all rows sharing a dedupKey carry one clusterId (new exact
+  // copies arrive without one until the matcher runs again), and merging two
+  // clusters rewrites the smaller one's rows to the larger's id.
+  // aggregations.ts dedupKeysInMultipleClusters() is the reference check for
+  // violations; the matcher (Python) implements the same check itself.
+  // Null = not clustered.
   clusterId       String?       @db.VarChar(64)
   street          String
+  // Maintained by a database trigger, including reflected scraper inserts/updates.
+  streetSlug      String        @default("")
   houseNumber     String?
   district        District
   rooms           Decimal?      @db.Decimal(4, 1)
@@ -56,6 +68,7 @@ model Listing {
   @@index([dedupKey])
   // Serves the fuzzy matcher's lookups; DedupedListing does not use it.
   @@index([clusterId])
+  @@index([district, streetSlug])
   @@index([district, soldAt])
   @@index([street, houseNumber, soldAt])
   @@index([lat, lng])
@@ -77,6 +90,14 @@ enum ScrapeStatus {
   failed
 }
 
+enum ScrapeKind {
+  // Existing rows and old writers cannot safely distinguish historical work.
+  legacy
+  scrape
+  update
+  backfill
+}
+
 // One row per scraper invocation for a (source, district). The scraper inserts
 // it as `running`, bumps the counters while paging, and closes it with a final
 // status. `oldestSoldAt` is the oldest sale date that run reached: coverage
@@ -94,6 +115,17 @@ model ScrapeRun {
   status       ScrapeStatus @default(running)
   error        String?
   oldestSoldAt DateTime?    @db.Date
+  kind         ScrapeKind   @default(legacy)
+  // Absolute last durably committed result page; 0 means no known progress.
+  // Unlike pages (invocation count), this preserves a resumed backfill's offset.
+  lastPage     Int          @default(0)
+  // Original requested cutoff: a resume is valid only for the same since date.
+  since        DateTime?    @db.Date
+  // Newest sale observed by this completed successful update, never DB MAX.
+  // Null on failed/partial runs, scrapes and backfills. Empty updates must not
+  // replace a previous watermark. PostgreSQL enforces the kind/status contract.
+  completeThrough DateTime? @db.Date
 
   @@index([source, district, startedAt])
+  @@index([source, district, kind, startedAt])
 }

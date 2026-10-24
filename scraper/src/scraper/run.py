@@ -16,18 +16,21 @@ from .backfill import backfill_dedup_keys
 from .booli import DISTRICT_AREA_IDS as _BOOLI_DISTRICTS
 from .booli import iter_district as _booli_iter
 from . import crawl_state, scrape_run
-from .db import DEFAULT_BATCH_SIZE, engine, upsert_listings
+from .db import DEFAULT_BATCH_SIZE, engine, refresh_deduped, upsert_listings
 from .errors import CrawlIncomplete
 from .geocode import MAX_ATTEMPTS as MAX_GEOCODE_ATTEMPTS
-from .geocode import geocode_pending, mark_inline_pending
+from .geocode import GeocodeConfigError, geocode_pending, mark_inline_pending
 from .hemnet import DISTRICT_LOCATION_IDS
 from .hemnet import iter_district as _hemnet_iter
+from .lock import EXIT_BUSY as EXIT_TEMPFAIL
 from .lock import exclusive
 from .reparse import format_summary, reparse
 from .source_base import MAX_PAGES, CrawlProgress
 
 # Both sources cover the same four districts; the CLI accepts the union of slugs.
 _ALL_DISTRICTS = sorted(set(DISTRICT_LOCATION_IDS) | set(_BOOLI_DISTRICTS))
+
+EXIT_CONFIG = 78  # EX_CONFIG: missing or rejected credentials
 
 # Source slug -> async district iterator. New sources slot in here.
 _SOURCE_ITER = {
@@ -129,7 +132,9 @@ def cli(log_level: str) -> None:
     share an exclusive lock on update.lock (next to storageState.json, in
     scraper/.state/). A second run exits with code 75 (EX_TEMPFAIL) and a message
     naming the lock; the lock is released when the process ends, so a leftover
-    file never blocks. Exit code 1 means the run failed or was incomplete.
+    file never blocks. Exit codes: 0 ok; 1 failed or incomplete; 75 (EX_TEMPFAIL) busy
+    or, for geocode, rate-limited/unavailable (try again later); 78 (EX_CONFIG) the
+    Mapbox token is missing or rejected.
 
     \b
     Because of that lock, a ScrapeRun row still `running` when a new run starts
@@ -225,6 +230,8 @@ def scrape(district: str, since: date, source: str, max_pages: int) -> None:
     """Scrape SOURCE sold-listings for DISTRICT back to SINCE."""
     report = _run_recorded(source, district, since, max_pages=max_pages)
     click.echo(f"upserted {report.upserted} listings for {district} from {source}")
+    if report.upserted:
+        refresh_deduped()  # also after an incomplete crawl: its rows are stored
     if report.error is not None:
         click.echo(f"crawl incomplete: {report.error}", err=True)
         sys.exit(1)
@@ -287,6 +294,8 @@ def backfill(district: str, since: date, source: str, resume: bool, max_pages: i
             click.echo(f"resuming {source}/{district} at page {start_page} (recorded: {base_next})")
     report = _run_recorded(source, district, since, start_page=start_page, max_pages=max_pages)
     click.echo(f"upserted {report.upserted} listings for {district} from {source}")
+    if report.upserted:
+        refresh_deduped()
     # Only pages whose rows were committed count (not merely yielded).
     next_page = max(base_next, report.committed_page + 1)
     try:
@@ -354,15 +363,23 @@ def update(
     the same cutoff. Without recorded state it falls back to MAX(soldAt).
     """
     overlap = timedelta(days=7)
-    results = [
-        _refresh(source, d, overlap, lookback_days, max_pages) for source in sources for d in districts
-    ]
+    results: list[UpdateResult] = []
     try:
-        # Rows that shipped coordinates inline must not stay `pending` just because
-        # cron never runs `geocode`. Best-effort: it can't change the exit code.
-        mark_inline_pending()
-    except Exception as e:  # noqa: BLE001
-        click.echo(f"warning: could not relabel inline-coordinate rows: {e}", err=True)
+        for source in sources:
+            for d in districts:
+                results.append(_refresh(source, d, overlap, lookback_days, max_pages))
+        try:
+            # Rows that shipped coordinates inline must not stay `pending` just because
+            # cron never runs `geocode`. Best-effort: it can't change the exit code.
+            mark_inline_pending()
+        except Exception as e:  # noqa: BLE001
+            click.echo(f"warning: could not relabel inline-coordinate rows: {e}", err=True)
+    finally:
+        # Once, after every source/district (partial and failed runs stored rows too).
+        # Unconditional: `update` is the cron entry point, so a refresh that failed on a
+        # previous run is retried even when this run found nothing new (about 1 s at
+        # 200k rows). The other commands only refresh when they wrote rows.
+        refresh_deduped()
     click.echo(_format_results(results))
     failed = [r for r in results if r.error is not None and not r.partial]
     partial = [r for r in results if r.partial]
@@ -493,22 +510,43 @@ def _format_results(results: list[UpdateResult]) -> str:
 def geocode(limit: int, max_attempts: int) -> None:
     """Geocode listings missing lat/lng via Mapbox (pending and previously failed rows).
 
-    Takes the same single-instance lock as scrape/update (exit code 75 when another
-    run holds it). Exits 1 if Mapbox rate-limited the pass or was unavailable
-    (3 rows in a row failing on 5xx/network errors); rows not reached keep their
-    attempt budget.
+    Takes the same single-instance lock as scrape/update. Exit codes: 0 done;
+    75 (EX_TEMPFAIL) another run holds the lock, Mapbox rate-limited the pass, or
+    Mapbox/the network was unavailable (nothing was charged, rows keep their attempt
+    budget; run again later); 78 (EX_CONFIG) the Mapbox token is missing or rejected;
+    1 an unexpected internal error repeated on several rows (nothing charged).
+
+    A row that Mapbox only ever answers with 5xx/network errors is never charged: it
+    stays selectable and costs about 4 requests (with backoff) each time it is reached
+    first, and the pass exits 75 when nothing else was answered.
     """
-    summary = geocode_pending(limit=limit, max_attempts=max_attempts)
+    try:
+        summary = geocode_pending(limit=limit, max_attempts=max_attempts)
+    except GeocodeConfigError as e:
+        click.echo(f"error: {e}", err=True)
+        stored = e.summary.ok if e.summary is not None else 0
+        if stored:  # coordinates saved before the token was rejected still change the view
+            refresh_deduped()
+        sys.exit(EXIT_CONFIG)
     click.echo(
         f"geocoded: ok {summary.ok}, not found {summary.not_found}, failed {summary.failed}"
     )
+    if summary.ok:  # only coordinates change what the deduplicated view shows
+        refresh_deduped()
     if summary.rate_limited:
         click.echo("rate limited by Mapbox: pass stopped early; run again later", err=True)
-        sys.exit(1)
+        sys.exit(EXIT_TEMPFAIL)
     if summary.unavailable:
         click.echo(
             "Mapbox unavailable (repeated 5xx/network errors): pass stopped early, "
             "no attempts were charged; run again later",
+            err=True,
+        )
+        sys.exit(EXIT_TEMPFAIL)
+    if summary.internal_error:
+        click.echo(
+            "internal error on several rows in a row: pass stopped early, no attempts "
+            "were charged (see the log)",
             err=True,
         )
         sys.exit(1)
@@ -520,6 +558,8 @@ def backfill_dedup() -> None:
     """Populate dedupKey on legacy rows that predate the column."""
     n = backfill_dedup_keys()
     click.echo(f"backfilled {n} rows")
+    if n:
+        refresh_deduped()
 
 
 @cli.command("reparse")
@@ -534,7 +574,27 @@ def backfill_dedup() -> None:
 @exclusive
 def reparse_cmd(dry_run: bool, batch_size: int) -> None:
     """Re-derive street, house number, rooms, area, prices and dedupKey from `raw`."""
-    click.echo(format_summary(reparse(dry_run=dry_run, batch_size=batch_size)))
+    summary = reparse(dry_run=dry_run, batch_size=batch_size)
+    click.echo(format_summary(summary))
+    if not dry_run and summary.changed:
+        refresh_deduped()
+
+
+@cli.command("refresh-view")
+@exclusive
+def refresh_view() -> None:
+    """Refresh the DedupedListingMat snapshot now (what runs after a crawl)."""
+    outcome = refresh_deduped()
+    if outcome == "refreshed":
+        click.echo("refreshed DedupedListingMat")
+    elif outcome == "missing":
+        click.echo("refresh_deduped_listing() does not exist in this database; nothing to do")
+    elif outcome == "busy":
+        click.echo("database busy (lock timeout); run again later", err=True)
+        sys.exit(EXIT_TEMPFAIL)
+    else:
+        click.echo("refresh failed (see the log)", err=True)
+        sys.exit(1)
 
 
 @cli.command()
@@ -555,6 +615,32 @@ def stats() -> None:
     for d, n, earliest, latest, mean in rows:
         click.echo(
             f"{d:12} {n:>6} {str(earliest):>12} {str(latest):>12} {(mean or 0):>12,}"
+        )
+    _echo_snapshot_counts()
+
+
+def _echo_snapshot_counts() -> None:
+    """When the DedupedListingMat snapshot exists, show it next to the live view and
+    warn if they differ: by row count, or by the newest lastSeenAt (same count but
+    stale content, e.g. a refresh failed after rows were re-scraped)."""
+    with engine().connect() as c:
+        if not c.execute(text("SELECT to_regclass('\"DedupedListingMat\"') IS NOT NULL")).scalar_one():
+            return
+        live, live_seen = c.execute(
+            text('SELECT COUNT(*), MAX("lastSeenAt") FROM "DedupedListing"')
+        ).one()
+        snap, snap_seen = c.execute(
+            text('SELECT COUNT(*), MAX("lastSeenAt") FROM "DedupedListingMat"')
+        ).one()
+    click.echo(
+        f"DedupedListing {live:>8} (newest seen {live_seen})  "
+        f"DedupedListingMat {snap:>8} (newest seen {snap_seen})"
+    )
+    if (live, live_seen) != (snap, snap_seen):
+        click.echo(
+            "warning: DedupedListing and DedupedListingMat differ (row count or newest "
+            "lastSeenAt); run `scraper refresh-view`",
+            err=True,
         )
 
 

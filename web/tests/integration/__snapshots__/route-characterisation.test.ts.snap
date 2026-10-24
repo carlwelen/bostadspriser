@@ -171,21 +171,21 @@ exports[`/api/address > response for "district=vasastan&street=Odengatan&period=
 exports[`/api/heatmap > response for "" is unchanged 1`] = `
 {
   "count": 149,
-  "sha": "dfeb54e8a9c613c7",
+  "sha": "5ae2e36510726108",
 }
 `;
 
 exports[`/api/heatmap > response for "?bbox=18.04,59.33,18.07,59.34" is unchanged 1`] = `
 {
   "count": 37,
-  "sha": "6cd2fe7f28314b3d",
+  "sha": "0543c805faddf569",
 }
 `;
 
 exports[`/api/heatmap > response for "?districts=norrmalm&rooms=2,5" is unchanged 1`] = `
 {
   "count": 19,
-  "sha": "04b2c6e6ae7d6c0f",
+  "sha": "60bfb3d8caa11a5d",
 }
 `;
 
@@ -199,49 +199,49 @@ exports[`/api/heatmap > response for "?districts=sodermalm&priceMin=9000000" is 
 exports[`/api/heatmap > response for "?districts=vasastan,sodermalm" is unchanged 1`] = `
 {
   "count": 74,
-  "sha": "647b9a34f7452e42",
+  "sha": "6f0d9cd3e34163be",
 }
 `;
 
 exports[`/api/heatmap > response for "?priceMin=125000&priceMax=140000" is unchanged 1`] = `
 {
   "count": 59,
-  "sha": "52a2fb4adaf8228c",
+  "sha": "6d81ef65fa9adbc0",
 }
 `;
 
 exports[`/api/heatmap > response for "?priceMin=150000" is unchanged 1`] = `
 {
   "count": 41,
-  "sha": "f64c2d7c61d8657c",
+  "sha": "19b7f16e18d93763",
 }
 `;
 
 exports[`/api/heatmap > response for "?rooms=4" is unchanged 1`] = `
 {
   "count": 24,
-  "sha": "6a2c89e90638a613",
+  "sha": "f07c2c50cf398ebd",
 }
 `;
 
 exports[`/api/heatmap > response for "?rooms=5" is unchanged 1`] = `
 {
   "count": 48,
-  "sha": "6c44ef2d3ae81ef7",
+  "sha": "70edaa7b98fce15c",
 }
 `;
 
 exports[`/api/heatmap > response for "?sinceDays=30" is unchanged 1`] = `
 {
   "count": 4,
-  "sha": "9cd6436dacb87ece",
+  "sha": "db13b0ccea39eb2b",
 }
 `;
 
 exports[`/api/heatmap > response for "?sinceDays=3650&districts=ostermalm&priceMax=160000&rooms=1,2,3" is unchanged 1`] = `
 {
   "count": 11,
-  "sha": "f5b2ce4ef6765977",
+  "sha": "0a707edc3be0b435",
 }
 `;
 

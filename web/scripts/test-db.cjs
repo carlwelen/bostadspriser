@@ -51,6 +51,28 @@ function testDatabaseUrl() {
     ? new URL(explicit)
     : new URL(process.env.DATABASE_URL || FALLBACK_URL);
   if (!explicit) url.pathname = `/${process.env.TEST_DB_NAME || "bostadspriser_test"}`;
+  // A pathological query (a refresh that stalls, a lock that is never released)
+  // should fail the test after a minute instead of hanging the suite. Set
+  // TEST_DB_STATEMENT_TIMEOUT_MS=0 to disable (the perf run does).
+  const timeoutMs = process.env.TEST_DB_STATEMENT_TIMEOUT_MS ?? "60000";
+  if (!/^\d+$/.test(timeoutMs)) {
+    throw new Error(
+      `TEST_DB_STATEMENT_TIMEOUT_MS must be a non-negative integer (milliseconds), got "${timeoutMs}"`
+    );
+  }
+  if (timeoutMs !== "0") {
+    // Append to any `options` the URL already has. Spaces must be %20, not the
+    // "+" URLSearchParams would write: libpq-style clients (psql, psycopg) don't
+    // decode "+" and reject the option. The other parameters are kept as the
+    // raw segments they were given in (re-serialising would turn %20 into "+").
+    const existing = url.searchParams.get("options");
+    const options = `${existing ? `${existing} ` : ""}-c statement_timeout=${timeoutMs}`;
+    const rest = url.search
+      .replace(/^\?/, "")
+      .split("&")
+      .filter((seg) => seg !== "" && !/^options=/.test(seg));
+    url.search = [...rest, `options=${encodeURIComponent(options)}`].join("&");
+  }
   const out = url.toString();
   assertTestUrl(out);
   return out;

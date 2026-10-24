@@ -8,17 +8,25 @@ import {
   withApiErrors,
 } from "@/lib/api-validation";
 
+/** Five decimals of a degree is about 1 m: plenty for a point on a map, and shorter JSON. */
+const round5 = (deg: number) => Math.round(deg * 1e5) / 1e5;
+
+// Not compressed here: `next start` does not gzip route-handler responses
+// (measured, docs/perf.md), so enable gzip/brotli in the proxy or CDN in front.
 export const GET = withApiErrors("/api/heatmap", async (request: Request) => {
   const parsed = parseQuery(heatmapQuery, new URL(request.url).searchParams);
   if (!parsed.ok) return parsed.response;
 
-  const rows = await heatmapPoints(parsed.data);
+  const { points, truncated } = await heatmapPoints(parsed.data);
 
+  // Only what the map reads (popup, hover list, address drawer): no raw
+  // per-source fields, no dedup key.
   const body: HeatmapResponse = {
     type: "FeatureCollection",
-    features: rows.map((r) => ({
+    truncated,
+    features: points.map((r) => ({
       type: "Feature",
-      geometry: { type: "Point", coordinates: [r.lng, r.lat] },
+      geometry: { type: "Point", coordinates: [round5(r.lng), round5(r.lat)] },
       properties: {
         pricePerSqm: r.pricePerSqm,
         address: r.houseNumber ? `${r.street} ${r.houseNumber}` : r.street,
@@ -26,11 +34,9 @@ export const GET = withApiErrors("/api/heatmap", async (request: Request) => {
         houseNumber: r.houseNumber,
         district: r.district,
         soldAt: r.soldAt.toISOString().slice(0, 10),
-        source: r.source,
         // Mapbox stringifies array properties when added through GeoJSON;
         // pass through as a comma-joined string so the popup can split it.
-        sources: (r.sources ?? [r.source]).join(","),
-        dedupKey: r.dedupKey,
+        sources: r.sources.join(","),
       },
     })),
   };

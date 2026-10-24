@@ -21,12 +21,16 @@ export async function truncateAll(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRawUnsafe(`TRUNCATE ${list} RESTART IDENTITY CASCADE`);
 }
 
-/** Truncate, then insert `rows` (defaults to the shared deterministic fixture). */
+/**
+ * Truncate, insert `rows` (defaults to the shared deterministic fixture), then
+ * refresh the materialized "DedupedListingMat" the web app reads from.
+ */
 export async function seed(
   prisma: PrismaClient,
   rows: FixtureListing[] = buildFixture()
 ): Promise<FixtureListing[]> {
   await truncateAll(prisma);
   await prisma.listing.createMany({ data: rows });
+  await prisma.$executeRaw`SELECT refresh_deduped_listing()`;
   return rows;
 }

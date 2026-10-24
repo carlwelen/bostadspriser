@@ -78,25 +78,28 @@ describe("sinceDays / period cut-offs use the Stockholm date", () => {
   });
 });
 
-describe("topMovers uses the Stockholm date for its 90-day window", () => {
-  // 90 days before 2026-04-01 is 2026-01-01 (before the fix: 2025-12-31).
+describe("topMovers uses the Stockholm date for its windows", () => {
+  // Stockholm's date is 2026-04-01: the recent window starts 90 days back
+  // (2026-01-01) and the prior window covers the 365 days before that. A
+  // 2025-12-31 sale therefore belongs to the *prior* window (with the UTC date,
+  // 2026-03-31, it would have counted as recent).
   beforeAll(async () => {
     await seed(prisma, [
-      ...[1, 2, 3, 4].map((d) => sale(`2025-06-0${d}`, 100_000)),
-      sale("2026-03-01", 200_000),
-      sale("2026-03-05", 200_000),
-      sale("2025-12-31", 1_000_000), // one day outside the Stockholm window
+      ...Array.from({ length: 10 }, (_, i) => sale(`2025-06-${String(i + 1).padStart(2, "0")}`, 100_000)),
+      ...Array.from({ length: 5 }, (_, i) => sale(`2026-03-0${i + 1}`, 200_000)),
+      sale("2025-12-31", 1_000_000),
     ]);
   });
 
-  it("excludes a sale one day before the window", async () => {
+  it("puts a sale one day before the recent window into the prior window", async () => {
     pin();
     const [mover] = await topMovers("up", 5);
-    expect(mover).toMatchObject({ street: "Odengatan", windowMeanPricePerSqm: 200_000 });
+    expect(mover).toMatchObject({ street: "Odengatan", recentCount: 5, priorCount: 11 });
+    expect(mover.recentMedianPricePerSqm).toBe(200_000);
   });
 
   it("accepts an explicit asOf", async () => {
     const [mover] = await topMovers("up", 5, PINNED);
-    expect(mover.windowMeanPricePerSqm).toBe(200_000);
+    expect(mover).toMatchObject({ recentCount: 5, priorCount: 11 });
   });
 });

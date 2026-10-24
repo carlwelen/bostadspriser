@@ -1,0 +1,42 @@
+{
+  "description": "Input -> expected output vectors for the street slug and the search fold. The TypeScript implementation (web/src/lib/text.ts) is asserted against this file by vitest; the Python scraper should assert against it too. Changing an existing 'slug' vector breaks URLs.",
+  "slug": [
+    { "input": "Karlavägen", "expected": "karlavagen" },
+    { "input": "Götgatan", "expected": "gotgatan" },
+    { "input": "Ringvägen", "expected": "ringvagen" },
+    { "input": "Rådmansgatan", "expected": "radmansgatan" },
+    { "input": "Brahégatan", "expected": "brahegatan" },
+    { "input": "Odengatan", "expected": "odengatan" },
+    { "input": "S:t Eriksgatan", "expected": "s-t-eriksgatan" },
+    { "input": "Sankt Eriksgatan", "expected": "sankt-eriksgatan" },
+    { "input": "Sankt Eriksgatan", "expected": "sankt-eriksgatan" },
+    { "input": "  Sankt   Eriksgatan  ", "expected": "sankt-eriksgatan" },
+    { "input": "Sankt - Eriksgatan", "expected": "sankt-eriksgatan" },
+    { "input": "Mäster Samuelsgatan", "expected": "master-samuelsgatan" },
+    { "input": "ÅÄÖ", "expected": "aao" },
+    { "input": "Ågatan", "expected": "agatan", "note": "Angstrom sign lowercases to å before the stable a fold" },
+    { "input": "Östermalmsgatan", "expected": "ostermalmsgatan" },
+    { "input": "Drottninggatan 12", "expected": "drottninggatan-12" },
+    { "input": "Hörnet-Gränd", "expected": "hornet-grand" },
+    { "input": "Rue Bèlle", "expected": "rue-b-lle", "note": "è is not folded in slugs: kept as-is so existing URLs do not change" },
+    { "input": "Müllergatan", "expected": "m-llergatan", "note": "ü is not folded in slugs, see above" },
+    { "input": "", "expected": "" },
+    { "input": "---", "expected": "" },
+    { "input": "123", "expected": "123" }
+  ],
+  "fold": [
+    { "input": "Östermalm", "expected": "ostermalm" },
+    { "input": "Södermalm", "expected": "sodermalm" },
+    { "input": "Karlavägen", "expected": "karlavagen" },
+    { "input": "Götgatan", "expected": "gotgatan" },
+    { "input": "Brahégatan", "expected": "brahegatan" },
+    { "input": "Rue Bèlle", "expected": "rue belle" },
+    { "input": "Müllergatan", "expected": "mullergatan" },
+    { "input": "ÅÄÖ ÉÈ Ü", "expected": "aao ee u" },
+    { "input": "S:t Eriksgatan", "expected": "s:t eriksgatan" },
+    { "input": "Sankt Eriksgatan", "expected": "sankt eriksgatan" },
+    { "input": "  Sankt   Eriksgatan  ", "expected": "sankt eriksgatan" },
+    { "input": "Hörnet-Gränd", "expected": "hornet-grand" },
+    { "input": "", "expected": "" }
+  ]
+}
