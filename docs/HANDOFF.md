@@ -2,7 +2,7 @@
 
 ## Current checkpoint (2026-10-24)
 
-- Live integration checkpoint: a2009cd -> 36057a1, full gate green. Remaining approved queue: 8001be3. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
+- Live integration checkpoint: 8001be3 -> cf709b0, full gate green. Remaining approved queue: later reviewed D/E UI batches; mandatory P1/P2 and audit rounds remain. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
 
 This supersedes the historical handoff below. `docs/backlog.md` is the live merge ledger and work queue.
 
