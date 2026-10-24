@@ -187,7 +187,7 @@ export function PriceChart({
     const color = colorOf(s, 0);
     const gradId = `g-${s.name.replace(/[^a-z0-9]/gi, "_")}`;
     return (
-      <div className="h-72 w-full">
+      <div className="h-72 w-full min-w-0 overflow-hidden">
         <ResponsiveContainer initialDimension={{ width: 640, height: 288 }}>
           <AreaChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 4 }}>
             <defs>
@@ -215,7 +215,7 @@ export function PriceChart({
 
   return (
     <div>
-      <div className="h-72 w-full">
+      <div className="h-72 w-full min-w-0 overflow-hidden">
         <ResponsiveContainer initialDimension={{ width: 640, height: 288 }}>
           <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 4 }}>
             {axes}

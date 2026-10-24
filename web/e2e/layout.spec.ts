@@ -48,3 +48,19 @@ test("the recent-sales table scrolls inside its container on a narrow screen", a
   await expect(lastHeader).toBeInViewport({ ratio: 1 });
   expect(await scroller.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
 });
+
+// F28: the server HTML must fit before Recharts measures the container.
+test.describe("without JavaScript", () => {
+  test.use({ javaScriptEnabled: false });
+  for (const path of SECONDARY_PAGES) {
+    test(`${path} has no horizontal page overflow before hydration at 320px`, async ({ page }) => {
+      await page.setViewportSize({ width: 320, height: 800 });
+      await page.goto(path);
+      const dimensions = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
+    });
+  }
+});
