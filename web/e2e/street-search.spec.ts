@@ -115,3 +115,21 @@ test("announces the number of results and uses an SVG, not an emoji, as the icon
   await expect(dialog).not.toContainText("🔎");
   await expect(dialog.locator("svg").first()).toBeVisible();
 });
+
+for (const [street, query] of [
+  ["Müllergatan", "muller"],
+  ["Rue Bèlle", "rue belle"],
+  ["Sankt\u00a0Eriksgatan", "  sankt   erik  "],
+]) {
+  test(`shared search folding finds ${street} from ${query.trim()} (B23)`, async ({ page, consoleErrors }) => {
+    await page.route("**/api/streets/all", (route) => route.fulfill({
+      json: [{ district: "ostermalm", street, slug: "fixture", count: 1,
+        meanPricePerSqm: 100_000, medianPricePerSqm: 100_000 }],
+    }));
+    const { dialog } = await openSearch(page);
+    await dialog.getByRole("combobox").fill(query);
+    await expect(dialog.getByRole("option")).toHaveCount(1);
+    await expect(dialog.getByRole("option")).toContainText(street);
+    expect(consoleErrors).toEqual([]);
+  });
+}

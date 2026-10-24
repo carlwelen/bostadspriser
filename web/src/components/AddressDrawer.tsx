@@ -15,6 +15,7 @@ import {
 import { SourceBadge } from "./SourceBadge";
 import { registerModal } from "./map/focusTrap";
 import type { Period } from "@/lib/api-types";
+import { slugifyStreet } from "@/lib/text";
 import { useAddressData } from "./map/useAddressData";
 
 const PERIODS = [
@@ -323,7 +324,7 @@ export function AddressDrawer({
           )}
 
           <a
-            href={`/street/${selection.district}/${slugify(selection.street)}${
+            href={`/street/${selection.district}/${slugifyStreet(selection.street)}${
               selection.houseNumber ? `/${encodeURIComponent(selection.houseNumber)}` : ""
             }`}
             className="mt-6 inline-flex items-center gap-2 text-sm text-zinc-700 hover:text-zinc-900"
@@ -400,15 +401,4 @@ function periodLabel(p: Period): string {
     case "12mo": return "senaste 12 månader";
     case "all": return "all tid";
   }
-}
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/å/g, "a")
-    .replace(/ä/g, "a")
-    .replace(/ö/g, "o")
-    .replace(/é/g, "e")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
 }
