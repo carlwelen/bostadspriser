@@ -2,6 +2,8 @@
 
 ## Current checkpoint (2026-10-24)
 
+- Live integration checkpoint: 8a61a15 -> 00e5c2d, full gate green. Remaining approved queue: 22a62cf, 85fe265, c6d646c, 5ab1bbf, 4bd971d, f07ca97, 7627e4d, 1f957f7, 50859e7, 64c50bf, 2f86ad6, 3dcd0fc, f50b6e8, 081ccb7, acd9acb. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
+
 This checkpoint supersedes the historical handoff below. `docs/backlog.md` contains the live queue and merge ledger.
 
 - Main is green through the complete B13 stack: `e87d287`, `25ed187`, `f8b53db`. Fresh reviewers verified source-safe matching, correction/recomputation, and real PostgreSQL lock-timeout recovery on a no-change retry. Latest full main gate: 407 vitest, 112 Playwright, 488 pytest.
