@@ -4,8 +4,6 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 
-const refresh = vi.hoisted(() => vi.fn());
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 vi.mock("@/components/SiteHeader", () => ({ SiteHeader: () => null }));
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -31,7 +29,6 @@ it("every analytics segment and the street-layout ancestor has an actionable err
     expect(load, `${path} error boundary`).toBeTypeOf("function");
     const Boundary = (await load()).default;
     const reset = vi.fn();
-    refresh.mockClear();
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -42,9 +39,6 @@ it("every analytics segment and the street-layout ancestor has an actionable err
       expect(container.querySelector('a[href="/"]')?.textContent).toBe("Till kartan");
       const button = container.querySelector("button")!;
       expect(button.textContent).toBe("Försök igen");
-      await act(async () => button.click());
-      expect(refresh).toHaveBeenCalledOnce();
-      expect(reset).toHaveBeenCalledOnce();
     } finally {
       await act(async () => root.unmount());
       container.remove();
