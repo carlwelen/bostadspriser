@@ -25,7 +25,8 @@ export function DrawerTooltip({ active, label, data }: {
     <div role="tooltip" className="max-w-[min(260px,70vw)] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 shadow-sm">
       <p className="font-medium text-zinc-900">{date}</p>
       {street && <div className="mt-2">
-        <p>Gatumedel: {SEK.format(street.meanPricePerSqm)} kr/m²</p>
+        <p>Gatans median: {SEK.format(street.medianPricePerSqm)} kr/m²</p>
+        <p>Medel: {SEK.format(street.meanPricePerSqm)} kr/m²</p>
         <p>{formatSales(street.count)}{street.count < 3 && " · få affärer"}</p>
       </div>}
       {sales.map((sale, index) => <div key={index} className="mt-2">

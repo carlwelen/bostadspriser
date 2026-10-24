@@ -14,7 +14,7 @@ export function drawerSeries(data: AddressResponse | null) {
       // One null is enough to break the line across any number of missing buckets.
       if (next.getTime() < t) trendRows.push({ t: next.getTime(), trend: null, count: 0 });
     }
-    trendRows.push({ t, trend: bucket.meanPricePerSqm, count: bucket.count });
+    trendRows.push({ t, trend: bucket.medianPricePerSqm, count: bucket.count });
   }
   // Separate series keep address dates from creating holes in the street curve,
   // and preserve multiple observations on the same date.
