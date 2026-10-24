@@ -247,7 +247,7 @@ def test_stats_warns_about_a_split_key(db) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_cluster_command_runs_and_refreshes_only_when_rows_changed(db, monkeypatch) -> None:
+def test_cluster_command_refreshes_every_non_dry_run(db, monkeypatch) -> None:
     refreshed: list[int] = []
     monkeypatch.setattr(run, "refresh_deduped", lambda: refreshed.append(1) or "refreshed")
     upsert_listings([_row("hemnet", "h"), _row("booli", "b", sold=DAY + timedelta(days=1))])
@@ -256,7 +256,7 @@ def test_cluster_command_runs_and_refreshes_only_when_rows_changed(db, monkeypat
     real = CliRunner().invoke(run.cli, ["cluster"])
     assert real.exit_code == 0 and "2 rows" in real.output and refreshed == [1]
     again = CliRunner().invoke(run.cli, ["cluster"])
-    assert again.exit_code == 0 and refreshed == [1]  # nothing changed, no refresh
+    assert again.exit_code == 0 and refreshed == [1, 1]
 
 
 def test_cluster_command_exits_1_when_a_violation_remains(db, monkeypatch) -> None:
@@ -359,3 +359,21 @@ def test_physical_detail_boundaries_and_missing_values_allow_matches(db, area, r
     upsert_listings([_row("hemnet", "h"),
                      _row("booli", "b", price=4_905_000, areaSqm=area, rooms=rooms)])
     assert match_clusters().rows_updated == 2
+
+
+def test_cluster_retry_repairs_failed_snapshot_refresh(db, monkeypatch):
+    upsert_listings([_row("hemnet", "h"), _row("booli", "b", price=4_905_000)])
+    outcomes = iter(["busy", "refreshed"])
+    attempts = []
+
+    def refresh():
+        outcome = next(outcomes)
+        attempts.append(outcome)
+        return outcome
+
+    monkeypatch.setattr(run, "refresh_deduped", refresh)
+    first = CliRunner().invoke(run.cli, ["cluster"])
+    assert first.exit_code == 0 and "updated 2 rows" in first.output
+    retry = CliRunner().invoke(run.cli, ["cluster"])
+    assert retry.exit_code == 0 and "updated 0 rows" in retry.output
+    assert attempts == ["busy", "refreshed"]

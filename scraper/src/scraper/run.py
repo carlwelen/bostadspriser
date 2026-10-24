@@ -623,7 +623,8 @@ def cluster_cmd(dry_run: bool, batch_size: int) -> None:
     )
     for target, keys in summary.examples:
         click.echo(f"  cluster {target}: {len(keys)} dedupKeys")
-    if not dry_run and summary.rows_updated:
+    if not dry_run:
+        # A previous pass may have written clusters but failed to refresh.
         refresh_deduped()
     if summary.violations:
         _warn_split_keys(summary.violations)
