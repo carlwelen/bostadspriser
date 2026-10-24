@@ -2,7 +2,7 @@
 
 ## Current checkpoint (2026-10-24)
 
-- Live integration checkpoint: 991a460 -> 1cdf2d9, full gate green. Remaining approved queue: cd6ec0f, 652dcd2, d33ea9a, dba781b, 6925f14, 220a0b7, 5024ea3, 79c9406, 3012848, fea8329, 904857a, 9c413cc, e56eb08, ccc3b70, 2a7deec, 011bd0d, 2e4a733, 6a2de79, 76919c1, adf2f95, 7ef637d, be51bfc, 772ab13. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
+- Live integration checkpoint: cd6ec0f -> 878e797, full gate green. Remaining approved queue: 652dcd2, d33ea9a, dba781b, 6925f14, 220a0b7, 5024ea3, 79c9406, 3012848, fea8329, 904857a, 9c413cc, e56eb08, ccc3b70, 2a7deec, 011bd0d, 2e4a733, 6a2de79, 76919c1, adf2f95, 7ef637d, be51bfc, 772ab13. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
 
 This checkpoint supersedes the historical handoff below. `docs/backlog.md` contains the live queue and merge ledger.
 
