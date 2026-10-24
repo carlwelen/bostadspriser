@@ -175,8 +175,12 @@ aggregation functions in `web/src/lib/aggregations.ts` are wrapped with
   survive JSON (no Date/bigint/Decimal/undefined); a test calls every cached
   function twice and compares the fresh result with the cache hit.
 - **Memory only.** `next.config.ts` sets `experimental.isrFlushToDisk: false`,
-  which keeps the data cache in an LRU bounded by `cacheMaxMemorySize` (50 MB by
-  default) and never writes `.next/cache/fetch-cache`. Without it, some cached
+  which keeps the data cache in an LRU with explicit `cacheMaxMemorySize:
+  16 * 1024 * 1024` (16 MiB) and never writes `.next/cache/fetch-cache`.
+  This bounds serialized payload size, not process heap: keys, objects and
+  per-entry overhead use additional memory, especially with many tiny entries.
+  `streetFromSlug` misses return null without populating the cache; valid
+  lookups still cache and revalidate normally, with one query on a cold lookup. Without it, some cached
   queries are keyed by URL input (street names, slugs, house numbers), so
   anonymous requests grew the on-disk cache without bound (200 random street ids
   added ~200 files), Next never cleans it, and it would also outlive restarts.

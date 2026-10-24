@@ -55,6 +55,20 @@ export function stockholmToday(asOf: Date = new Date()): Prisma.Sql {
 /** Median kr/m² as whole kronor (half-up), for use inside aggregate queries. */
 const MEDIAN_PPS = Prisma.sql`ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY "pricePerSqmSek"))::numeric)::bigint`;
 
+/**
+ * Room segmentation shared by page queries: undefined/[] includes unknown rooms;
+ * selected values match FLOOR(rooms), with 5 meaning 5+. Unknown rooms are
+ * excluded when a selection is active. Appended arguments preserve old callers.
+ */
+function roomFilter(rooms?: number[]): Prisma.Sql {
+  if (!rooms?.length) return Prisma.sql``;
+  const exact = rooms.filter((r) => r !== OPEN_ENDED_ROOMS);
+  const alternatives: Prisma.Sql[] = [];
+  if (exact.length) alternatives.push(Prisma.sql`FLOOR(rooms) IN (${Prisma.join(exact)})`);
+  if (rooms.includes(OPEN_ENDED_ROOMS)) alternatives.push(Prisma.sql`rooms >= ${OPEN_ENDED_ROOMS}`);
+  return Prisma.sql`AND (${Prisma.join(alternatives, " OR ")})`;
+}
+
 const TRUNC = (g: Granularity) => (g === "year" ? "year" : "month");
 
 // The slug lives in ./text (shared vectors with the scraper); re-exported so
@@ -67,16 +81,19 @@ async function streetFromSlugUncached(
   slug: string
 ): Promise<string | null> {
   const rows = await prisma.$queryRaw<Array<{ street: string }>>(Prisma.sql`
-    SELECT DISTINCT street
+    SELECT street
     FROM "DedupedListingMat"
-    WHERE district = ${district}::"District"
+    WHERE district = ${district}::"District" AND "streetSlug" = ${slug}
+    ORDER BY street COLLATE "C" ASC
+    LIMIT 1
   `);
-  return rows.find((r) => slugifyStreet(r.street) === slug)?.street ?? null;
+  return rows[0]?.street ?? null;
 }
 
 async function districtTimeseriesUncached(
   district: DistrictSlug,
-  granularity: Granularity = "month"
+  granularity: Granularity = "month",
+  rooms?: number[]
 ): Promise<TimeseriesPoint[]> {
   const trunc = TRUNC(granularity);
   const rows = await prisma.$queryRaw<
@@ -89,6 +106,7 @@ async function districtTimeseriesUncached(
       COUNT(*)::bigint                     AS n
     FROM "DedupedListingMat"
     WHERE district = ${district}::"District"
+      ${roomFilter(rooms)}
       AND "pricePerSqmSek" > 0
     GROUP BY bucket
     ORDER BY bucket ASC
@@ -106,7 +124,8 @@ async function streetTimeseriesUncached(
   district: DistrictSlug,
   street: string,
   granularity: Granularity = "month",
-  houseNumber?: string
+  houseNumber?: string,
+  rooms?: number[]
 ): Promise<TimeseriesPoint[]> {
   const trunc = TRUNC(granularity);
   const houseFilter = houseNumber
@@ -124,6 +143,7 @@ async function streetTimeseriesUncached(
     WHERE district = ${district}::"District"
       AND street    = ${street}
       ${houseFilter}
+      ${roomFilter(rooms)}
       AND "pricePerSqmSek" > 0
     GROUP BY bucket
     ORDER BY bucket ASC
@@ -139,7 +159,8 @@ async function streetTimeseriesUncached(
 
 async function listStreetsUncached(
   district: DistrictSlug,
-  limit = 200
+  limit = 200,
+  rooms?: number[]
 ): Promise<StreetSummary[]> {
   const rows = await prisma.$queryRaw<
     Array<{
@@ -157,6 +178,7 @@ async function listStreetsUncached(
            MAX("soldAt")                   AS latest
     FROM "DedupedListingMat"
     WHERE district = ${district}::"District"
+      ${roomFilter(rooms)}
       AND "pricePerSqmSek" > 0
     GROUP BY street
     ORDER BY n DESC, street ASC
@@ -191,7 +213,8 @@ const HOUSE_NUMBER_ORDER = Prisma.sql`
 /** Houses with at least one priced sale; count, mean and median are over priced sales (as in listStreets). */
 async function listHouseNumbersUncached(
   district: DistrictSlug,
-  street: string
+  street: string,
+  rooms?: number[]
 ): Promise<
   Array<{ houseNumber: string; count: number; meanPricePerSqm: number; medianPricePerSqm: number }>
 > {
@@ -206,6 +229,7 @@ async function listHouseNumbersUncached(
     WHERE district = ${district}::"District"
       AND street    = ${street}
       AND "houseNumber" IS NOT NULL
+      ${roomFilter(rooms)}
       AND "pricePerSqmSek" > 0
     GROUP BY "houseNumber"
     ORDER BY ${HOUSE_NUMBER_ORDER}
@@ -220,7 +244,7 @@ async function listHouseNumbersUncached(
 }
 
 async function recentSalesUncached(
-  where: { district: DistrictSlug; street?: string; houseNumber?: string },
+  where: { district: DistrictSlug; street?: string; houseNumber?: string; rooms?: number[] },
   limit = 25
 ): Promise<RecentSale[]> {
   const conds: Prisma.Sql[] = [Prisma.sql`district = ${where.district}::"District"`];
@@ -241,6 +265,8 @@ async function recentSalesUncached(
     SELECT street, "houseNumber", rooms, "areaSqm", "priceSek", "pricePerSqmSek", "soldAt", sources
     FROM "DedupedListingMat"
     WHERE ${Prisma.join(conds, " AND ")}
+      AND "pricePerSqmSek" > 0
+      ${roomFilter(where.rooms)}
     ORDER BY "soldAt" DESC
     LIMIT ${limit}
   `);
@@ -563,10 +589,11 @@ async function summarize(
 /** Summary of every sale on one street. */
 async function streetSummaryUncached(
   district: DistrictSlug,
-  street: string
+  street: string,
+  rooms?: number[]
 ): Promise<SalesSummary> {
   const { summary } = await summarize(
-    Prisma.sql`district = ${district}::"District" AND street = ${street}`
+    Prisma.sql`district = ${district}::"District" AND street = ${street} ${roomFilter(rooms)}`
   );
   return summary;
 }
@@ -585,10 +612,11 @@ async function addressSummaryUncached(
 
 /** Exact number of streets with sales in a district, plus the district summary. */
 async function districtStreetCountUncached(
-  district: DistrictSlug
+  district: DistrictSlug,
+  rooms?: number[]
 ): Promise<DistrictStreetCount> {
   const { streetCount, summary } = await summarize(
-    Prisma.sql`district = ${district}::"District"`
+    Prisma.sql`district = ${district}::"District" ${roomFilter(rooms)}`
   );
   return { streetCount, ...summary };
 }
@@ -597,9 +625,10 @@ export type DistrictSummary = SalesSummary;
 
 /** Dedup-aware single-shot summary for one district. */
 async function districtSummaryUncached(
-  district: DistrictSlug
+  district: DistrictSlug,
+  rooms?: number[]
 ): Promise<DistrictSummary> {
-  const { summary } = await summarize(Prisma.sql`district = ${district}::"District"`);
+  const { summary } = await summarize(Prisma.sql`district = ${district}::"District" ${roomFilter(rooms)}`);
   return summary;
 }
 
@@ -619,6 +648,11 @@ export type DistrictMomChange = {
   /** Sales behind each mean, so callers can say how thin the data is. */
   currentCount: number;
   previousCount: number;
+  /** SQL medians for the same complete-month populations as the mean fields. */
+  currentMedian: number | null;
+  previousMedian: number | null;
+  /** Median-based change, subject to the same minimum-count rule as pctChange. */
+  medianPctChange: number | null;
 };
 
 /**
@@ -633,12 +667,13 @@ export type DistrictMomChange = {
  */
 async function districtMomChangeUncached(
   district: DistrictSlug,
-  asOf: Date = new Date()
+  asOf: Date = new Date(),
+  rooms?: number[]
 ): Promise<DistrictMomChange | null> {
   // `back` = whole calendar months before `asOf`'s month (Stockholm): 1 is the
   // latest complete month, 2 the one before it. Months with no sales have no row.
   const rows = await prisma.$queryRaw<
-    Array<{ back: number; mean_pps: bigint; n: bigint; current_month: string; previous_month: string }>
+    Array<{ back: number; mean_pps: bigint; median_pps: bigint; n: bigint; current_month: string; previous_month: string }>
   >(Prisma.sql`
     WITH bounds AS (
       SELECT date_trunc('month', ${asOf}::timestamptz AT TIME ZONE 'Europe/Stockholm')::date AS cur
@@ -646,11 +681,13 @@ async function districtMomChangeUncached(
     SELECT ((EXTRACT(YEAR FROM b.cur) * 12 + EXTRACT(MONTH FROM b.cur))
           - (EXTRACT(YEAR FROM l."soldAt") * 12 + EXTRACT(MONTH FROM l."soldAt")))::int AS back,
            AVG(l."pricePerSqmSek")::bigint                                     AS mean_pps,
+           ${MEDIAN_PPS}                                                       AS median_pps,
            COUNT(*)::bigint                                                    AS n,
            to_char(b.cur - INTERVAL '1 month', 'YYYY-MM-DD')                   AS current_month,
            to_char(b.cur - INTERVAL '2 months', 'YYYY-MM-DD')                  AS previous_month
     FROM "DedupedListingMat" l, bounds b
     WHERE l.district = ${district}::"District"
+      ${roomFilter(rooms)}
       AND l."pricePerSqmSek" > 0
       AND l."soldAt" >= (b.cur - INTERVAL '2 months')::date
       AND l."soldAt" <  b.cur
@@ -662,6 +699,8 @@ async function districtMomChangeUncached(
   const prev = rows.find((r) => r.back === 2);
   const current = cur ? Number(cur.mean_pps) : null;
   const previous = prev ? Number(prev.mean_pps) : null;
+  const currentMedian = cur ? Number(cur.median_pps) : null;
+  const previousMedian = prev ? Number(prev.median_pps) : null;
   const currentCount = cur ? Number(cur.n) : 0;
   const previousCount = prev ? Number(prev.n) : 0;
   const pctChange =
@@ -672,7 +711,15 @@ async function districtMomChangeUncached(
     previousCount >= MIN_MOM_SALES
       ? ((current - previous) / previous) * 100
       : null;
+  const medianPctChange =
+    currentMedian !== null && previousMedian !== null && previousMedian > 0 &&
+    currentCount >= MIN_MOM_SALES && previousCount >= MIN_MOM_SALES
+      ? ((currentMedian - previousMedian) / previousMedian) * 100
+      : null;
   return {
+    currentMedian,
+    previousMedian,
+    medianPctChange,
     current,
     previous,
     pctChange,
@@ -809,6 +856,8 @@ async function listAllStreetsUncached(limit = 4000): Promise<StreetsAllItem[]> {
 }
 
 export type AddressDrawerData = {
+  /** Uncapped priced street population in the selected period, across all houses. */
+  streetSummary: SalesSummary;
   streetSeries: TimeseriesPoint[];
   addressSales: AddressSale[];
 };
@@ -831,7 +880,7 @@ export async function addressDrawerData(
     : Prisma.sql``;
   const houseClause = house ? Prisma.sql`AND "houseNumber" = ${house}` : Prisma.sql``;
 
-  const [sales, series] = await Promise.all([
+  const [sales, series, { summary: streetSummary }] = await Promise.all([
     prisma.$queryRaw<
       Array<{ soldAt: Date; priceSek: bigint; pricePerSqmSek: bigint; sources: string[] | null }>
     >(Prisma.sql`
@@ -861,9 +910,11 @@ export async function addressDrawerData(
       GROUP BY bucket
       ORDER BY bucket ASC
     `),
+    summarize(Prisma.sql`district = ${district}::"District" AND street = ${street} ${sinceClause}`),
   ]);
 
   return {
+    streetSummary,
     streetSeries: series.map((r) => ({
       bucket: r.bucket.toISOString().slice(0, 10),
       meanPricePerSqm: Number(r.mean_price_per_sqm),
@@ -895,7 +946,8 @@ export type LatestScrapeRun = {
   oldestSoldAt: string | null;
 };
 
-/** For every (source, district): its most recently finished ok/partial run. */
+/** For every (source, district): its latest finished ok/partial non-backfill run.
+ * Legacy rows retain their old meaning because historical kinds are unknown. */
 async function latestScrapeRunsUncached(): Promise<LatestScrapeRun[]> {
   const rows = await prisma.$queryRaw<
     Array<{
@@ -915,6 +967,7 @@ async function latestScrapeRunsUncached(): Promise<LatestScrapeRun[]> {
            "startedAt", "finishedAt", pages, "rowsUpserted", "rowsRejected", "oldestSoldAt"
     FROM "ScrapeRun"
     WHERE status IN ('ok', 'partial') AND "finishedAt" IS NOT NULL
+      AND kind <> 'backfill'
     ORDER BY source, district, "finishedAt" DESC, "startedAt" DESC
   `);
   return rows.map((r) => ({
@@ -932,7 +985,7 @@ async function latestScrapeRunsUncached(): Promise<LatestScrapeRun[]> {
 
 export type SourceFreshness = {
   source: string;
-  /** Finish time (ISO, UTC) of the source's latest ok/partial run; null if it has none. */
+  /** Finish time (ISO, UTC) of the latest ok/partial non-backfill run; null if none. */
   lastSuccessAt: string | null;
   /** Raw (not deduplicated) rows from this source, and the sold-date range they cover. */
   listingCount: number;
@@ -955,6 +1008,7 @@ async function sourceFreshnessUncached(): Promise<SourceFreshness[]> {
       SELECT source, MAX("finishedAt") AS last_success
       FROM "ScrapeRun"
       WHERE status IN ('ok', 'partial') AND "finishedAt" IS NOT NULL
+      AND kind <> 'backfill'
       GROUP BY source
     ), coverage AS (
       SELECT source, COUNT(*)::bigint AS n, MIN("soldAt") AS earliest, MAX("soldAt") AS latest
@@ -1024,7 +1078,23 @@ export async function dedupKeysInMultipleClusters(
 // `...Uncached` implementation above. Left uncached on purpose: heatmapPoints
 // and addressDrawerData (large or user-keyed, covered by HTTP caching),
 // dedupKeysInMultipleClusters (a diagnostic that must see live data).
-export const streetFromSlug = cached("streetFromSlug", streetFromSlugUncached);
+// Next only stores fulfilled results. Reject missing streets inside the cache
+// boundary, then restore the public null contract outside it. This keeps random
+// URL misses out of the LRU without a second query for valid cold lookups.
+class MissingStreet extends Error {}
+const cachedStreetFromSlug = cached("streetFromSlug", async (district: DistrictSlug, slug: string) => {
+  const street = await streetFromSlugUncached(district, slug);
+  if (street === null) throw new MissingStreet();
+  return street;
+});
+export async function streetFromSlug(district: DistrictSlug, slug: string): Promise<string | null> {
+  try {
+    return await cachedStreetFromSlug(district, slug);
+  } catch (error) {
+    if (error instanceof MissingStreet) return null;
+    throw error;
+  }
+}
 export const districtTimeseries = cached("districtTimeseries", districtTimeseriesUncached);
 export const streetTimeseries = cached("streetTimeseries", streetTimeseriesUncached);
 export const listStreets = cached("listStreets", listStreetsUncached);

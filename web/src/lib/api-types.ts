@@ -2,6 +2,7 @@
 // re-declaring them; the route handlers are typed against them, so a shape
 // change fails the typecheck on both sides.
 
+import type { SalesSummary } from "./aggregations";
 import type { DistrictSlug } from "./districts";
 
 export type {
@@ -93,6 +94,8 @@ export type AddressSale = {
 };
 
 export type AddressResponse = {
+  /** Period-filtered, uncapped SQL street summary. Optional for older clients/mocks. */
+  streetSummary?: SalesSummary;
   district: DistrictSlug;
   street: string;
   house: string | null;

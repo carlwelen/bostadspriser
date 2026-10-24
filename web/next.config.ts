@@ -11,11 +11,13 @@ const nextConfig: NextConfig = {
   // The e2e suite builds into its own directory so it never clobbers a
   // running `pnpm dev` (see scripts/check.sh).
   distDir: process.env.NEXT_DIST_DIR || ".next",
+  // Next counts serialized payload bytes; heap overhead is additional.
+  cacheMaxMemorySize: 16 * 1024 * 1024,
   experimental: {
     // Keep Next's data cache (unstable_cache, see src/lib/cache.ts) in memory
     // only. On disk it grows without bound (some cached queries are keyed by
     // URL input), is never cleaned, and would outlive restarts and re-seeds.
-    // In memory it is an LRU bounded by cacheMaxMemorySize (50 MB by default).
+    // In memory it is an LRU bounded by cacheMaxMemorySize (16 MiB serialized payload).
     isrFlushToDisk: false,
   },
 };
