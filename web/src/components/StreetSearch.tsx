@@ -7,17 +7,9 @@ import { registerModal } from "./map/focusTrap";
 import { soldWord } from "./map/format";
 import { districtName } from "@/lib/districts";
 import type { StreetsAllItem } from "@/lib/api-types";
+import { foldForSearch } from "@/lib/text";
 
 const SEK = new Intl.NumberFormat("sv-SE");
-
-/** Fold Swedish diacritics so "ostermalm" matches "Östermalm". */
-function fold(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[åä]/g, "a")
-    .replace(/ö/g, "o")
-    .replace(/é/g, "e");
-}
 
 const hrefOf = (s: StreetsAllItem) => `/street/${s.district}/${s.slug}`;
 
@@ -91,10 +83,10 @@ export function StreetSearch({ renderTrigger }: { renderTrigger?: (openSearch: (
 
   const filtered = useMemo(() => {
     if (!streets) return [] as StreetsAllItem[];
-    const q = fold(query.trim());
+    const q = foldForSearch(query);
     if (!q) return streets.slice(0, 30);
     return streets
-      .filter((s) => fold(s.street).includes(q) || fold(districtName(s.district)).includes(q))
+      .filter((s) => foldForSearch(s.street).includes(q) || foldForSearch(districtName(s.district)).includes(q))
       .slice(0, 50);
   }, [streets, query]);
 
