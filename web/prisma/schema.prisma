@@ -40,6 +40,8 @@ model Listing {
   // Null = not clustered.
   clusterId       String?       @db.VarChar(64)
   street          String
+  // Maintained by a database trigger, including reflected scraper inserts/updates.
+  streetSlug      String        @default("")
   houseNumber     String?
   district        District
   rooms           Decimal?      @db.Decimal(4, 1)
@@ -66,6 +68,7 @@ model Listing {
   @@index([dedupKey])
   // Serves the fuzzy matcher's lookups; DedupedListing does not use it.
   @@index([clusterId])
+  @@index([district, streetSlug])
   @@index([district, soldAt])
   @@index([street, houseNumber, soldAt])
   @@index([lat, lng])
