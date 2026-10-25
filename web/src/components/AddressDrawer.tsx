@@ -182,7 +182,16 @@ export function AddressDrawer({
                 {selection.street} • {periodLabel(period)}
               </p>
             </div>
-            <div className="mt-2 h-64 w-full">
+            <div
+              className="mt-2 h-64 w-full"
+              onBlurCapture={(event) => {
+                const next = event.relatedTarget;
+                // Recharts clears keyboard tooltips on blur, including focus entering their content.
+                if (next instanceof Element && event.currentTarget.contains(next) && next.closest('[role="tooltip"]')) {
+                  event.stopPropagation();
+                }
+              }}
+            >
               {error ? (
                 <div
                   role="alert"

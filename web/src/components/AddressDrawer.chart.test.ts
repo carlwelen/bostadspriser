@@ -155,3 +155,37 @@ it("does not manufacture a street summary when SQL data is unavailable (B14)", a
 it("plots each SQL bucket median without re-aggregating rows (B14)", () => {
   expect(drawerSeries(fixture).trendRows.map((point) => point.trend)).toEqual([145_000, 155_000]);
 });
+
+it("keeps a keyboard tooltip mounted on focus entering its content and dismisses it on exit (F12)", async () => {
+  await renderChart({ ...fixture, streetSeries: [fixture.streetSeries[0]], addressSales: Array.from({ length: 20 }, (_, index) => ({
+    ...fixture.addressSales[0], soldAt: "2025-06-01", pricePerSqmSek: 100_000 + index * 1_000,
+  })) }, async (host) => {
+    const chart = host.querySelector<HTMLElement>('[role="application"]')!;
+    const tooltip = () => host.querySelector<HTMLElement>('[role="tooltip"]');
+    await act(async () => {
+      chart.focus();
+      chart.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    const content = tooltip()!;
+    expect(content).not.toBeNull();
+    expect(content.textContent).toContain("119 000 kr/m²");
+    await act(async () => content.focus());
+    expect(tooltip()).toBe(content);
+    expect(document.activeElement).toBe(content);
+    await act(async () => chart.focus());
+    expect(tooltip()).toBeNull();
+    expect(document.activeElement).toBe(chart);
+    await act(async () => {
+      chart.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    expect(tooltip()).not.toBeNull();
+    await act(async () => tooltip()!.focus());
+    expect(document.activeElement).toBe(tooltip());
+    const fullPage = host.querySelector<HTMLAnchorElement>('a[href]')!;
+    await act(async () => fullPage.focus());
+    expect(tooltip()).toBeNull();
+    expect(document.activeElement).toBe(fullPage);
+  });
+});
