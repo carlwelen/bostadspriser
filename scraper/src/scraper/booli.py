@@ -28,6 +28,7 @@ from datetime import date, datetime, timezone
 from typing import AsyncIterator
 from urllib.parse import quote
 
+from .coordinates import normalize_coordinates
 from .dates import stockholm_today
 from .normalize import (
     dedup_key,
@@ -205,8 +206,7 @@ def card_fields(card: dict, district: str) -> dict | None:
         return None
     final_price, price_per_sqm = prices
 
-    lat = card.get("latitude")
-    lng = card.get("longitude")
+    lat, lng = normalize_coordinates(card.get("latitude"), card.get("longitude"))
 
     return {
         "sourceId": str(booli_id),

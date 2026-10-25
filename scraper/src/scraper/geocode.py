@@ -17,6 +17,7 @@ import logging
 import re
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -73,6 +74,7 @@ class GeocodeSummary:
     ok: int = 0
     not_found: int = 0
     failed: int = 0
+    coordinates_cleared: int = 0  # committed legacy cleanup also changes canonical selection
     # The pass stopped early because Mapbox kept answering 429. The rows not yet
     # tried (and the one that tripped it) keep their attempt budget.
     rate_limited: bool = False
@@ -114,20 +116,29 @@ def _redact(text_: str, token: str) -> str:
 
 
 def mark_inline_pending() -> int:
-    """Relabel `pending` rows that already have coordinates as `inline`.
+    """Maintain legacy coordinates; return the number relabelled inline."""
+    return _maintain_coordinates()[0]
 
-    Rows written between the geocodeStatus migration and the scraper learning to
-    set it would otherwise stay mislabelled. Idempotent; returns rows changed.
-    """
+
+def _maintain_coordinates() -> tuple[int, int]:
+    """Return committed (inline relabels, invalid pairs cleared for repair)."""
     with session() as s:
+        repaired = s.execute(
+            text(
+                'UPDATE "Listing" SET lat = NULL, lng = NULL, "geocodedAt" = NULL, "geocodeStatus" = \'pending\' '
+                'WHERE lat NOT BETWEEN -90 AND 90 OR lng NOT BETWEEN -180 AND 180'
+            )
+        ).rowcount
         n = s.execute(
             text(
                 'UPDATE "Listing" SET "geocodeStatus" = \'inline\' '
-                'WHERE "geocodeStatus" = \'pending\' AND lat IS NOT NULL AND lng IS NOT NULL'
+                'WHERE "geocodeStatus" = \'pending\' AND lat BETWEEN -90 AND 90 AND lng BETWEEN -180 AND 180'
             )
         ).rowcount
         s.commit()
-    return n
+    if repaired:
+        log.info("cleared invalid legacy coordinates for repair count=%d", repaired)
+    return n, repaired
 
 
 def _new_salt() -> str:
@@ -240,8 +251,11 @@ def geocode_pending(
     write_batch_size: int = WRITE_BATCH_SIZE,
     client: httpx.Client | None = None,
     order_salt: str | None = None,
+    on_cleanup: Callable[[int], None] | None = None,
 ) -> GeocodeSummary:
     """Geocode up to `limit` rows. Returns the outcome counts.
+
+    `on_cleanup` records committed maintenance before later work can fail.
 
     Bound for a row Mapbox only ever answers with 5xx/network errors: it is never
     charged, so it stays selectable and costs about REQUEST_ATTEMPTS requests (with
@@ -253,7 +267,9 @@ def geocode_pending(
     if not cfg.mapbox_token:
         raise GeocodeConfigError("MAPBOX_TOKEN is not set")
 
-    relabelled = mark_inline_pending()
+    relabelled, coordinates_cleared = _maintain_coordinates()
+    if on_cleanup is not None:
+        on_cleanup(coordinates_cleared)
     if relabelled:
         log.info("relabelled pending rows that already had coordinates as inline count=%d", relabelled)
 
@@ -270,7 +286,7 @@ def geocode_pending(
             .limit(limit)
         ).all()
 
-    summary = GeocodeSummary()
+    summary = GeocodeSummary(coordinates_cleared=coordinates_cleared)
     pending: list[dict] = []  # outcomes waiting to be written
 
     def flush() -> None:

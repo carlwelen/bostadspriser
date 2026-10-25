@@ -445,7 +445,7 @@ def test_writes_are_batched(db, mapbox, sleeps) -> None:
     writes = [(u, many) for u, many in updates if "b_id" in u]  # the batched outcome writes
     assert len(writes) == 3  # ceil(5/2) statements, not 5 UPDATEs (the last holds a single row)
     assert [many for _, many in writes[:2]] == [True, True]
-    assert len(updates) == 4  # plus the catch-up UPDATE at the start of the pass
+    assert len(updates) == 5  # plus legacy cleanup and the inline catch-up at the start
     assert {r["geocodeStatus"] for r in _all(db).values()} == {"ok"}
 
 
@@ -798,7 +798,8 @@ def test_geocoder_repairs_incomplete_source_pairs(db, mapbox, sleeps, coordinate
     (("status", 503), "pending", 0, "unavailable"),
 ])
 def test_incomplete_legacy_pair_preserves_outcome_and_retry_semantics(db, mapbox, sleeps, answer, status, attempts, flag):
-    upsert_listing(_row("partial", lat=59.33))
+    upsert_listing(_row("partial"))
+    _set(db, "partial", lat=59.33)  # legacy half-pair, bypass current ingest normalization
     mapbox.default = [answer]
     summary = _pass(mapbox)
     assert len(mapbox.requests) == (geo.REQUEST_ATTEMPTS if flag else 1)
@@ -814,7 +815,8 @@ def test_incomplete_legacy_pair_preserves_outcome_and_retry_semantics(db, mapbox
 @pytest.mark.parametrize("answer", [("empty",), ("ok", INSIDE)])
 @pytest.mark.parametrize("new_status", ["inline", "pending"])
 def test_complete_pair_arriving_during_incomplete_lookup_is_preserved(db, mapbox, sleeps, answer, new_status):
-    upsert_listing(_row("partial", lat=59.33))
+    upsert_listing(_row("partial"))
+    _set(db, "partial", lat=59.33)  # legacy half-pair, bypass current ingest normalization
     mapbox.default = [answer]
     original = mapbox.handler
 
@@ -835,8 +837,8 @@ def test_complete_pair_arriving_during_incomplete_lookup_is_preserved(db, mapbox
 
 
 def test_incomplete_legacy_pair_at_attempt_cap_is_left_unchanged(db, mapbox, sleeps):
-    upsert_listing(_row("partial", lat=59.33))
-    _set(db, "partial", geocodeStatus="failed", geocodeAttempts=geo.MAX_ATTEMPTS)
+    upsert_listing(_row("partial"))
+    _set(db, "partial", lat=59.33, geocodeStatus="failed", geocodeAttempts=geo.MAX_ATTEMPTS)
     assert _pass(mapbox).ok == 0 and mapbox.requests == []
     stored = _all(db)["partial"]
     assert stored["geocodeAttempts"] == geo.MAX_ATTEMPTS

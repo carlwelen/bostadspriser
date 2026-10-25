@@ -481,19 +481,25 @@ def geocode(limit: int, max_attempts: int) -> None:
     stays selectable and costs about 4 requests (with backoff) each time it is reached
     first, and the pass exits 75 when nothing else was answered.
     """
+    coordinates_cleared = 0
+    summary = None
+
+    def cleanup_committed(count: int) -> None:
+        nonlocal coordinates_cleared
+        coordinates_cleared += count
+
     try:
-        summary = geocode_pending(limit=limit, max_attempts=max_attempts)
+        summary = geocode_pending(limit=limit, max_attempts=max_attempts, on_cleanup=cleanup_committed)
     except GeocodeConfigError as e:
+        summary = e.summary
         click.echo(f"error: {e}", err=True)
-        stored = e.summary.ok if e.summary is not None else 0
-        if stored:  # coordinates saved before the token was rejected still change the view
-            refresh_deduped()
         sys.exit(EXIT_CONFIG)
+    finally:
+        if coordinates_cleared or (summary is not None and summary.ok):
+            refresh_deduped()
     click.echo(
         f"geocoded: ok {summary.ok}, not found {summary.not_found}, failed {summary.failed}"
     )
-    if summary.ok:  # only coordinates change what the deduplicated view shows
-        refresh_deduped()
     if summary.rate_limited:
         click.echo("rate limited by Mapbox: pass stopped early; run again later", err=True)
         sys.exit(EXIT_TEMPFAIL)

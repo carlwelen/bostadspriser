@@ -19,6 +19,7 @@ from datetime import date, datetime, timezone
 from typing import AsyncIterator
 from zoneinfo import ZoneInfo
 
+from .coordinates import normalize_coordinates
 from .dates import stockholm_today
 from .normalize import (
     dedup_key,
@@ -116,7 +117,9 @@ def card_fields(card: dict, district: str) -> dict | None:
     if not street:
         return None
 
-    coords = card.get("coordinates") or {}
+    coords = card.get("coordinates")
+    coords = coords if isinstance(coords, dict) else {}
+    lat, lng = normalize_coordinates(coords.get("lat"), coords.get("long"))
     try:
         area_sqm = parse_sqm(card.get("livingArea"))
         rooms = parse_rooms(card.get("rooms"))
@@ -142,8 +145,8 @@ def card_fields(card: dict, district: str) -> dict | None:
         "priceSek": price_sek,
         "pricePerSqmSek": price_per_sqm,
         "soldAt": sold_at,
-        "lat": coords.get("lat"),
-        "lng": coords.get("long"),
+        "lat": lat,
+        "lng": lng,
     }
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from contextlib import contextmanager
 from typing import Iterator
 
@@ -10,6 +11,7 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from .config import load_config
+from .coordinates import normalize_coordinates
 from .revalidate import revalidate_app
 
 log = logging.getLogger("scraper.db")
@@ -124,9 +126,29 @@ def _prepare(row: dict) -> dict:
     """Drop the database-stamped columns; mark coordinates that ship with the data
     as `inline` (a geocoder-produced pair is `ok`, see geocode.py)."""
     clean = {k: v for k, v in row.items() if k not in _SERVER_STAMPED}
-    if _has_coords(clean):
-        clean["geocodeStatus"] = "inline"
+    if "raw" in clean:
+        clean["raw"] = _json_safe(clean["raw"])
+    if _COORDINATE_COLS.intersection(clean):
+        clean["lat"], clean["lng"] = normalize_coordinates(clean.get("lat"), clean.get("lng"))
+        if _has_coords(clean):
+            clean["geocodeStatus"] = "inline"
+        else:
+            clean["geocodedAt"] = None
+            clean["geocodeStatus"] = "pending"
     return clean
+
+
+def _json_safe(value):
+    """Preserve nonfinite raw numbers as text: PostgreSQL JSON rejects NaN/Infinity."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_json_safe(v) for v in value)
+    return value
 
 
 def _has_coords(row: dict) -> bool:
