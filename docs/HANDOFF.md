@@ -2,6 +2,8 @@
 
 ## Current checkpoint (2026-10-25, audit1 corrections)
 
+- Live integration checkpoint: 023a8c2 -> 95683c3, full gate green. Remaining approved queue: 95d51b1, e8b0b04, 7f21875, a374e52, 0de29a4, 671722a, c396c2c, 9d670ed, 681cb6b, 492fdc0, b2e1923, 8a666a6, d9fcd9c, 69e3f2d. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
+
 This checkpoint supersedes the historical sections below. Read current backlog and verify Git/process state before resuming.
 
 - Main: F45 e43485c → dd09d10, full519Vitest/298browser/764pytest GREEN in /tmp/main-f45-integration.log and /tmp/check-e43485c.log. Previous green ledger e8c1c98 (a8789bd →5a641bc). Published main remains b1730bb. This checkpoint records the green F45 integration. User authorizes GitHub pushes, superseding the original no-remote request.
