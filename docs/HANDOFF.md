@@ -2,7 +2,7 @@
 
 ## Current checkpoint (2026-10-25)
 
-- Live integration checkpoint: 717df2f -> 7fc9ec8, full gate green. Remaining approved queue: a8789bd, e8b0b04, 7f21875, a374e52, 0de29a4, 671722a, c396c2c, 9d670ed. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
+- Live integration checkpoint: a8789bd -> 5a641bc, full gate green. Remaining approved queue: e8b0b04, 7f21875, a374e52, 0de29a4, 671722a, c396c2c, 9d670ed. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
 
 This supersedes the historical handoff below. Use docs/backlog.md and current Git/log evidence.
 
