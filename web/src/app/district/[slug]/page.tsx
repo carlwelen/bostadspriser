@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "../../siteMetadata";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { comparisonHref } from "@/components/comparison";
@@ -22,7 +23,7 @@ import {
   listStreets,
   recentSales,
 } from "@/lib/aggregations";
-import { districtName, isDistrictSlug } from "@/lib/districts";
+import { districtColor, districtName, isDistrictSlug } from "@/lib/districts";
 import { describeMom } from "./mom";
 
 export const dynamic = "force-dynamic";
@@ -35,10 +36,7 @@ export async function generateMetadata({
   const { slug } = await params;
   if (!isDistrictSlug(slug)) return {};
   const name = districtName(slug);
-  return {
-    title: `${name} — bostadspriser`,
-    description: `Slutpriser och prisutveckling för ${name} i Stockholms innerstad.`,
-  };
+  return pageMetadata(`${name} — bostadspriser`, `Slutpriser och prisutveckling för ${name} i Stockholms innerstad.`, `/district/${slug}`);
 }
 
 const SEK = new Intl.NumberFormat("sv-SE");
@@ -119,7 +117,7 @@ export default async function DistrictPage({
               </Link>
             </div>
           </div>
-          <PriceChart series={[{ name: districtName(slug), points }]} granularity={granularity} />
+          <PriceChart series={[{ name: districtName(slug), points, color: districtColor(slug) }]} granularity={granularity} />
         </section>
 
         {topStreets.length > 0 && (

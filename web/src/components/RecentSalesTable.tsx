@@ -22,15 +22,16 @@ export function RecentSalesTable({
       className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm"
     >
       <table className="w-full min-w-[40rem] text-sm">
+        <caption className="sr-only">Senaste försäljningar</caption>
         <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wider text-zinc-500">
           <tr>
-            <th className="px-4 py-3 font-medium">Datum</th>
-            {showStreet && <th className="px-4 py-3 font-medium">Adress</th>}
-            <th className="px-4 py-3 font-medium">Rum</th>
-            <th className="px-4 py-3 font-medium">Yta</th>
-            <th className="px-4 py-3 text-right font-medium">Pris</th>
-            <th className="px-4 py-3 text-right font-medium">Pris/m²</th>
-            <th className="px-4 py-3 font-medium">Källa</th>
+            <th scope="col" className="px-4 py-3 font-medium">Datum</th>
+            {showStreet && <th scope="col" className="px-4 py-3 font-medium">Adress</th>}
+            <th scope="col" className="px-4 py-3 font-medium">Rum</th>
+            <th scope="col" className="px-4 py-3 font-medium">Yta</th>
+            <th scope="col" className="px-4 py-3 text-right font-medium">Pris</th>
+            <th scope="col" className="px-4 py-3 text-right font-medium">Pris/m²</th>
+            <th scope="col" className="px-4 py-3 font-medium">Källa</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-100">

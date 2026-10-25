@@ -14,7 +14,8 @@ import {
 
 import { useMemo } from "react";
 import type { Granularity } from "@/lib/aggregations";
-import { CHART_COLORS } from "./chartColors";
+import { ChartDataTable } from "./ChartDataTable";
+import { CHART_COLORS, CHART_THEME } from "./chartColors";
 import { formatSales } from "./plural";
 import {
   buildChartData,
@@ -119,7 +120,7 @@ function dotFor(name: string, color: string) {
         cx={cx}
         cy={cy}
         r={low ? 4 : 2.5}
-        fill={low ? "#ffffff" : color}
+        fill={low ? CHART_THEME.surface : color}
         stroke={low ? color : "none"}
         strokeWidth={low ? 1.75 : 0}
         strokeOpacity={1}
@@ -149,11 +150,19 @@ export function PriceChart({
     rows.map((r) => r.t),
     MAX_X_TICKS
   );
+  const accessibleName = `Prisutveckling: ${series.map((s) => s.name).join(", ")}`;
+  const dataTable = <ChartDataTable title="Prisutveckling – diagramdata"
+    headers={["Serie", "Period", "Median kr/m²", "Medel kr/m²", "Antal försäljningar"]}
+    rows={series.flatMap((s) => s.points.map((point) => [s.name,
+      formatBucketLong(new Date(`${point.bucket}T00:00:00Z`).getTime(), granularity),
+      SEK.format(point.medianPricePerSqm), SEK.format(point.meanPricePerSqm),
+      `${point.count}${isLowSample(point.count) ? " (få affärer)" : ""}`,
+    ]))} />;
   const colorOf = (s: Series, i: number) => s.color ?? CHART_COLORS[i % CHART_COLORS.length];
 
   const axes = (
     <>
-      <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
+      <CartesianGrid stroke={CHART_THEME.grid} strokeDasharray="3 3" />
       <XAxis
         dataKey="t"
         type="number"
@@ -161,12 +170,12 @@ export function PriceChart({
         domain={["dataMin", "dataMax"]}
         ticks={ticks}
         tickFormatter={(t) => formatBucket(Number(t), granularity)}
-        tick={{ fontSize: 11, fill: "#71717a" }}
+        tick={{ fontSize: 11, fill: CHART_THEME.axis }}
         tickLine={false}
         axisLine={false}
       />
       <YAxis
-        tick={{ fontSize: 11, fill: "#71717a" }}
+        tick={{ fontSize: 11, fill: CHART_THEME.axis }}
         tickLine={false}
         axisLine={false}
         tickFormatter={(v) => `${SEK.format(Math.round(Number(v) / 1000))}k`}
@@ -174,7 +183,7 @@ export function PriceChart({
         domain={["auto", "auto"]}
       />
       <Tooltip
-        cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3" }}
+        cursor={{ stroke: CHART_THEME.cursor, strokeDasharray: "3 3" }}
         content={<ChartTooltip granularity={granularity} />}
       />
     </>
@@ -185,37 +194,40 @@ export function PriceChart({
     const color = colorOf(s, 0);
     const gradId = `g-${s.name.replace(/[^a-z0-9]/gi, "_")}`;
     return (
-      <div className="h-72 w-full min-w-0">
-        <ResponsiveContainer initialDimension={{ width: 200, height: 288 }}>
-          <AreaChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 4 }}>
-            <defs>
-              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={color} stopOpacity={0.18} />
-                <stop offset="100%" stopColor={color} stopOpacity={0.01} />
-              </linearGradient>
-            </defs>
-            {axes}
-            <Area
-              type="monotone"
-              dataKey={s.name}
-              stroke={color}
-              strokeWidth={1.75}
-              fill={`url(#${gradId})`}
-              dot={dotFor(s.name, color)}
-              activeDot={{ r: 4 }}
-              connectNulls={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+      <div role="group" aria-label={accessibleName}>
+        <div className="h-72 w-full min-w-0">
+          <ResponsiveContainer initialDimension={{ width: 200, height: 288 }}>
+            <AreaChart aria-label={accessibleName} data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 4 }}>
+              <defs>
+                <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={color} stopOpacity={0.18} />
+                  <stop offset="100%" stopColor={color} stopOpacity={0.01} />
+                </linearGradient>
+              </defs>
+              {axes}
+              <Area
+                type="monotone"
+                dataKey={s.name}
+                stroke={color}
+                strokeWidth={1.75}
+                fill={`url(#${gradId})`}
+                dot={dotFor(s.name, color)}
+                activeDot={{ r: 4 }}
+                connectNulls={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+        {dataTable}
       </div>
     );
   }
 
   return (
-    <div>
+    <div role="group" aria-label={accessibleName}>
       <div className="h-72 w-full min-w-0">
         <ResponsiveContainer initialDimension={{ width: 200, height: 288 }}>
-          <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 4 }}>
+          <LineChart aria-label={accessibleName} data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 4 }}>
             {axes}
             {/* Paint the lead series last so coincident comparison dots cannot hide it. */}
             {series.map((s, i) => ({ s, i })).reverse().map(({ s, i }) => (
@@ -233,9 +245,9 @@ export function PriceChart({
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+      <div role="list" aria-label="Diagramförklaring" className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
         {series.map((s, i) => (
-          <div key={s.name} className="flex items-center gap-1.5 text-zinc-700">
+          <div role="listitem" key={s.name} className="flex items-center gap-1.5 text-zinc-700">
             <span
               className="h-2 w-3 rounded-full"
               style={{ background: colorOf(s, i) }}
@@ -245,6 +257,7 @@ export function PriceChart({
           </div>
         ))}
       </div>
+      {dataTable}
     </div>
   );
 }

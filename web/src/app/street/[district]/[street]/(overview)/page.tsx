@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "../../../../siteMetadata";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { comparisonHref } from "@/components/comparison";
@@ -34,10 +35,7 @@ export async function generateMetadata({
   const resolved = await resolveStreet(districtParam, streetSlug);
   if (!resolved) return {};
   const { district, street } = resolved;
-  return {
-    title: `${street}, ${districtName(district)} — bostadspriser`,
-    description: `Slutpriser för ${street} i ${districtName(district)}.`,
-  };
+  return pageMetadata(`${street}, ${districtName(district)} — bostadspriser`, `Slutpriser för ${street} i ${districtName(district)}.`, `/street/${district}/${streetSlug}`);
 }
 
 const SEK = new Intl.NumberFormat("sv-SE");

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { BrandMark } from "./BrandMark";
 import { MobileNav } from "./MobileNav";
 import { StreetSearch } from "./StreetSearch";
@@ -8,8 +9,9 @@ import { StreetSearch } from "./StreetSearch";
 type Crumb = { label: string; href?: string };
 
 export function SiteHeader({ crumbs = [] }: { crumbs?: Crumb[] }) {
+  const [selectionKey, setSelectionKey] = useState(0);
   return (
-    <StreetSearch renderTrigger={(openSearch) => <header className="sticky top-0 z-30 border-b border-zinc-200/70">
+    <StreetSearch onSelect={() => setSelectionKey((key) => key + 1)} renderTrigger={(openSearch) => <header className="sticky top-0 z-30 border-b border-zinc-200/70">
       {/* The blur sits on its own layer: backdrop-filter on the header itself would make
           it the containing block of the fixed street-search overlay inside it. */}
       <div aria-hidden className="absolute inset-0 -z-10 bg-white/75 backdrop-blur" />
@@ -21,8 +23,8 @@ export function SiteHeader({ crumbs = [] }: { crumbs?: Crumb[] }) {
         <span className="hidden md:block">
           <BrandMark />
         </span>
-        <MobileNav crumbs={crumbs} openSearch={openSearch} />
-        <nav className="hidden items-center gap-1 text-sm text-zinc-500 md:flex">
+        <MobileNav crumbs={crumbs} openSearch={openSearch} selectionKey={selectionKey} />
+        <nav aria-label="Brödsmulor" className="hidden items-center gap-1 text-sm text-zinc-500 md:flex">
           {crumbs.length > 0 ? (
             <>
               <Link href="/" className="rounded px-2 py-1 hover:bg-zinc-100">
@@ -36,14 +38,14 @@ export function SiteHeader({ crumbs = [] }: { crumbs?: Crumb[] }) {
                       {c.label}
                     </Link>
                   ) : (
-                    <span className="rounded px-2 py-1 text-zinc-900">{c.label}</span>
+                    <span aria-current="page" className="rounded px-2 py-1 text-zinc-900">{c.label}</span>
                   )}
                 </span>
               ))}
             </>
           ) : null}
         </nav>
-        <div className="hidden items-center gap-2 text-sm md:flex">
+        <nav aria-label="Huvudnavigation" className="hidden items-center gap-2 text-sm md:flex">
           <Link
             href="/insights"
             className="rounded-md px-3 py-1.5 text-zinc-700 hover:bg-zinc-100"
@@ -59,7 +61,7 @@ export function SiteHeader({ crumbs = [] }: { crumbs?: Crumb[] }) {
           <button type="button" aria-haspopup="dialog" onClick={openSearch} className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50">
             Sök gata
           </button>
-        </div>
+        </nav>
       </div>
     </header>} />
   );

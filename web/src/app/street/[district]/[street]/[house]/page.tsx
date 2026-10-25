@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
+import { pageMetadata } from "../../../../siteMetadata";
 import { notFound } from "next/navigation";
+import { CHART_THEME } from "@/components/chartColors";
 import { GranularityToggle } from "@/components/GranularityToggle";
 import { granularityCaption, parseGranularity } from "@/components/granularity";
 import { PageHero } from "@/components/PageHero";
@@ -15,10 +18,22 @@ import {
   recentSales,
   streetTimeseries,
 } from "@/lib/aggregations";
-import { districtName } from "@/lib/districts";
+import { districtColor, districtName } from "@/lib/districts";
 import { resolveStreet } from "../../../resolveStreet";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: {
+  params: Promise<{ district: string; street: string; house: string }>;
+}): Promise<Metadata> {
+  const { district: districtParam, street: streetSlug, house } = await params;
+  const resolved = await resolveStreet(districtParam, streetSlug);
+  if (!resolved) return {};
+  const { district, street } = resolved;
+  return pageMetadata(`${street} ${house}, ${districtName(district)} — bostadspriser`,
+    `Slutpriser och prisutveckling för ${street} ${house} i ${districtName(district)}, med jämförelse mot gatan och stadsdelen.`,
+    `/street/${district}/${streetSlug}/${encodeURIComponent(house)}`);
+}
 
 export default async function AddressPage({
   params,
@@ -79,9 +94,9 @@ export default async function AddressPage({
           </div>
           <PriceChart
             series={[
-              { name: `${street} ${houseNumber}`, points: addressPoints, color: "#2563eb" },
-              { name: `${street} (gata)`, points: streetPoints, color: "#a1a1aa" },
-              { name: `${districtName(district)} (stadsdel)`, points: districtPoints, color: "#0f172a" },
+              { name: `${street} ${houseNumber}`, points: addressPoints, color: CHART_THEME.address },
+              { name: `${street} (gata)`, points: streetPoints, color: CHART_THEME.reference },
+              { name: `${districtName(district)} (stadsdel)`, points: districtPoints, color: districtColor(district) },
             ]}
             granularity={granularity}
           />

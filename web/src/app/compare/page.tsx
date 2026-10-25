@@ -1,7 +1,8 @@
 import Link from "next/link";
+import { pageMetadata } from "../siteMetadata";
 import { ComparisonNavigation } from "@/components/ComparisonNavigation";
 import { CompareBuilder } from "@/components/CompareBuilder";
-import { CHART_COLORS } from "@/components/chartColors";
+import { comparisonColors } from "@/components/chartColors";
 import { comparisonHref, comparisonIds, parseComparisonSpec, type ComparisonSpec } from "@/components/comparison";
 import { GranularityToggle } from "@/components/GranularityToggle";
 import { granularityCaption, parseGranularity } from "@/components/granularity";
@@ -23,6 +24,7 @@ import {
 } from "@/lib/districts";
 
 export const dynamic = "force-dynamic";
+export const metadata = pageMetadata("Jämför bostadspriser — Stockholms innerstad", "Jämför medianpris per kvadratmeter över tid för gator och stadsdelar i Stockholms innerstad.", "/compare");
 
 async function loadSeries(spec: ComparisonSpec, granularity: Granularity): Promise<{ name: string; points: TimeseriesPoint[] } | null> {
   if (spec.kind === "district") {
@@ -47,8 +49,9 @@ export default async function ComparePage({
     const data = await loadSeries(parseComparisonSpec(id)!, granularity);
     return data ? { ...data, id } : null;
   }));
-  const selected = loaded.filter((s): s is NonNullable<typeof s> => !!s)
-    .map((s, i) => ({ ...s, color: CHART_COLORS[i % CHART_COLORS.length] }));
+  const available = loaded.filter((s): s is NonNullable<typeof s> => !!s);
+  const colors = comparisonColors(available.map((s) => s.id));
+  const selected = available.map((s, i) => ({ ...s, color: colors[i] }));
   const series: Series[] = selected;
   const streets = await listAllStreets();
   const options = [

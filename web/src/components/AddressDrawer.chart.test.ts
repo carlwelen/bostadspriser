@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { AddressDrawer, type AddressSelection } from "./AddressDrawer";
+import { CHART_THEME } from "./chartColors";
 import { drawerSeries } from "./map/drawerSeries";
 import type { AddressResponse } from "@/lib/api-types";
 
@@ -108,9 +109,9 @@ it("keeps sparse street buckets visible as hollow points (F12)", async () => {
   ] }, (host) => {
     const dots = [...host.querySelectorAll(".recharts-area-dots circle")];
     expect(dots).toHaveLength(2);
-    expect(dots[0].getAttribute("fill")).toBe("white");
+    expect(dots[0].getAttribute("fill")).toBe(CHART_THEME.surface);
     expect(Number(dots[0].getAttribute("r"))).toBeGreaterThanOrEqual(4);
-    expect(dots[1].getAttribute("fill")).toBe("#1d4ed8");
+    expect(dots[1].getAttribute("fill")).toBe(CHART_THEME.primary);
   });
 });
 
@@ -154,4 +155,46 @@ it("does not manufacture a street summary when SQL data is unavailable (B14)", a
 
 it("plots each SQL bucket median without re-aggregating rows (B14)", () => {
   expect(drawerSeries(fixture).trendRows.map((point) => point.trend)).toEqual([145_000, 155_000]);
+});
+
+it("names the focusable drawer chart for assistive technology (F21)", async () => {
+  await renderChart(fixture, (host) => {
+    const chart = host.querySelector('svg[role="application"]');
+    expect(chart?.getAttribute("aria-label")).toBe("Prisutveckling på Karlavägen 10 och gatan");
+    expect(chart?.getAttribute("tabindex")).toBe("0");
+  });
+});
+
+it("keeps a keyboard tooltip mounted on focus entering its content and dismisses it on exit (F12)", async () => {
+  await renderChart({ ...fixture, streetSeries: [fixture.streetSeries[0]], addressSales: Array.from({ length: 20 }, (_, index) => ({
+    ...fixture.addressSales[0], soldAt: "2025-06-01", pricePerSqmSek: 100_000 + index * 1_000,
+  })) }, async (host) => {
+    const chart = host.querySelector<HTMLElement>('[role="application"]')!;
+    const tooltip = () => host.querySelector<HTMLElement>('[role="tooltip"]');
+    await act(async () => {
+      chart.focus();
+      chart.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    const content = tooltip()!;
+    expect(content).not.toBeNull();
+    expect(content.textContent).toContain("119 000 kr/m²");
+    await act(async () => content.focus());
+    expect(tooltip()).toBe(content);
+    expect(document.activeElement).toBe(content);
+    await act(async () => chart.focus());
+    expect(tooltip()).toBeNull();
+    expect(document.activeElement).toBe(chart);
+    await act(async () => {
+      chart.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    expect(tooltip()).not.toBeNull();
+    await act(async () => tooltip()!.focus());
+    expect(document.activeElement).toBe(tooltip());
+    const fullPage = host.querySelector<HTMLAnchorElement>('a[href]')!;
+    await act(async () => fullPage.focus());
+    expect(tooltip()).toBeNull();
+    expect(document.activeElement).toBe(fullPage);
+  });
 });

@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import type { AddressResponse } from "@/lib/api-types";
 import { DrawerTooltip } from "./DrawerTooltip";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+afterEach(() => vi.unstubAllGlobals());
+
 it("lets keyboard users scroll dense same-day records without changing the active chart date (F12)", async () => {
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   const data: AddressResponse = {
     district: "ostermalm", street: "Karlavägen", house: "10", period: "12mo", granularity: "month",
     streetSeries: [],
