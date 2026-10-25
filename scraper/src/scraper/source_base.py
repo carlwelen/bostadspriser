@@ -31,6 +31,7 @@ from playwright.async_api import Browser, BrowserContext, async_playwright
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from .config import Config, load_config
+from .dates import stockholm_today
 from .errors import CrawlIncomplete
 from .pagination import card_key
 
@@ -297,6 +298,12 @@ async def crawl(
                 for c in cards:
                     sold_at = source.parse_sold_at(c)
                     if sold_at is None:
+                        continue
+                    if sold_at > stockholm_today():
+                        # Bad dates cannot enter coverage, but a future-only page
+                        # must not hide valid cards on the following page.
+                        in_range_on_page += 1
+                        progress.rejected += 1
                         continue
                     # Drop cards that leaked across district boundaries.
                     if source.accept_card is not None and not source.accept_card(c, district):

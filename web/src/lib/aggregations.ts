@@ -327,7 +327,8 @@ export type StreetMover = {
 /**
  * Streets whose median price/m² moved the most between two disjoint windows
  * ending today (Stockholm): the last 90 days, against the 12 months before
- * them. Streets need `MIN_MOVER_RECENT_SALES` sales in the recent and
+ * them. Only positive changes qualify for up, negative changes for down.
+ * Streets need `MIN_MOVER_RECENT_SALES` sales in the recent and
  * `MIN_MOVER_PRIOR_SALES` in the prior window. Both windows' sizes are returned
  * so the UI can show how much data stands behind a percentage. `asOf` pins
  * "now" for tests.
@@ -338,6 +339,9 @@ async function topMoversUncached(
   asOf: Date = new Date()
 ): Promise<StreetMover[]> {
   const op = direction === "up" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
+  const sign = direction === "up"
+    ? Prisma.sql`recent_median > prior_median`
+    : Prisma.sql`recent_median < prior_median`;
   const today = stockholmToday(asOf);
   const recentFrom = Prisma.sql`(${today} - ${MOVER_RECENT_DAYS}::int)`;
   const priorFrom = Prisma.sql`(${today} - ${MOVER_RECENT_DAYS + MOVER_PRIOR_DAYS}::int)`;
@@ -383,6 +387,7 @@ async function topMoversUncached(
     WHERE recent_n >= ${MIN_MOVER_RECENT_SALES}
       AND prior_n  >= ${MIN_MOVER_PRIOR_SALES}
       AND prior_median > 0
+      AND ${sign}
     ORDER BY pct ${op}, district ASC, street ASC
     LIMIT ${limit}
   `);
@@ -417,7 +422,7 @@ async function pricePerSqmDistributionUncached(
   return rows.map((r) => ({ bucket: Number(r.bucket), count: Number(r.n) }));
 }
 
-/** Per-room-count breakdown: average price/m², average area, count. */
+/** Per-room-count breakdown, flooring 1–15 rooms into buckets capped at 7+. */
 async function roomsBreakdownUncached(): Promise<
   Array<{
     rooms: number;
@@ -438,7 +443,7 @@ async function roomsBreakdownUncached(): Promise<
       mean_price: bigint;
     }>
   >(Prisma.sql`
-    SELECT FLOOR(rooms)::int        AS rooms_floor,
+    SELECT LEAST(FLOOR(rooms), 7)::int AS rooms_floor,
            COUNT(*)::bigint         AS n,
            AVG("pricePerSqmSek")::bigint  AS mean_pps,
            ${MEDIAN_PPS}                  AS median_pps,
@@ -447,8 +452,8 @@ async function roomsBreakdownUncached(): Promise<
     FROM "DedupedListingMat"
     WHERE rooms IS NOT NULL
       AND "pricePerSqmSek" > 0
-      AND rooms >= 1 AND rooms < 8
-    GROUP BY FLOOR(rooms)
+      AND rooms BETWEEN 1 AND 15
+    GROUP BY LEAST(FLOOR(rooms), 7)
     ORDER BY rooms_floor ASC
   `);
   return rows.map((r) => ({
@@ -776,8 +781,9 @@ export async function heatmapPoints(
 ): Promise<{ points: HeatmapPoint[]; truncated: boolean }> {
   const { districts, bbox, priceMin, priceMax, rooms, sinceDays } = filters;
   const conds: Prisma.Sql[] = [
-    Prisma.sql`lat IS NOT NULL`,
-    Prisma.sql`lng IS NOT NULL`,
+    // Inclusive geographic bounds also exclude NULL, NaN and infinities.
+    Prisma.sql`lat BETWEEN -90 AND 90`,
+    Prisma.sql`lng BETWEEN -180 AND 180`,
     Prisma.sql`"pricePerSqmSek" > 0`,
   ];
   if (districts && districts.length > 0) {

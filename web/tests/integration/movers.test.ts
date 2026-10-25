@@ -70,16 +70,16 @@ describe("thresholds", () => {
     expect([MIN_MOVER_RECENT_SALES, MIN_MOVER_PRIOR_SALES]).toEqual([5, 10]);
   });
 
-  it("include a street exactly at both thresholds and exclude one just below either", async () => {
+  it.each(["up", "down"] as const)("includes exact thresholds and excludes too few sales for %s", async (direction) => {
     await seed(prisma, [
-      ...street("Exact", 10, 100_000, 5, 110_000),
-      ...street("FewRecent", 10, 100_000, 4, 150_000),
-      ...street("FewPrior", 9, 100_000, 5, 150_000),
+      ...street("Exact", 10, 100_000, 5, direction === "up" ? 110_000 : 90_000),
+      ...street("FewRecent", 10, 100_000, 4, direction === "up" ? 150_000 : 50_000),
+      ...street("FewPrior", 9, 100_000, 5, direction === "up" ? 150_000 : 50_000),
     ]);
-    const movers = await topMovers("up", 10, AS_OF);
+    const movers = await topMovers(direction, 10, AS_OF);
     expect(movers.map((m) => m.street)).toEqual(["Exact"]);
     expect(movers[0]).toMatchObject({ recentCount: 5, priorCount: 10 });
-    expect(movers[0].pctChange).toBeCloseTo(10, 6);
+    expect(movers[0].pctChange).toBeCloseTo(direction === "up" ? 10 : -10, 6);
   });
 });
 
@@ -131,24 +131,27 @@ describe("medians over disjoint windows", () => {
       ...street("Up20", 10, 100_000, 5, 120_000),
       ...street("Up50", 10, 100_000, 5, 150_000),
       ...street("Down20", 10, 100_000, 5, 80_000, "norrmalm"),
+      ...street("Down50", 10, 100_000, 5, 50_000),
+      ...street("Unchanged", 10, 100_000, 5, 100_000),
     ]);
-    expect((await topMovers("up", 5, AS_OF)).map((m) => m.street)).toEqual(["Up50", "Up20", "Down20"]);
-    expect((await topMovers("down", 5, AS_OF)).map((m) => m.street)).toEqual(["Down20", "Up20", "Up50"]);
+    expect((await topMovers("up", 5, AS_OF)).map((m) => m.street)).toEqual(["Up50", "Up20"]);
+    expect((await topMovers("down", 5, AS_OF)).map((m) => m.street)).toEqual(["Down50", "Down20"]);
     expect((await topMovers("up", 1, AS_OF)).map((m) => m.street)).toEqual(["Up50"]);
+    expect((await topMovers("down", 1, AS_OF)).map((m) => m.street)).toEqual(["Down50"]);
   });
 
-  it("breaks ties by district (enum order) and then street", async () => {
+  it.each(["up", "down"] as const)("breaks %s ties by district (enum order) and then street", async (direction) => {
+    const recentPps = direction === "up" ? 110_000 : 90_000;
     await seed(prisma, [
-      ...street("Samma", 10, 100_000, 5, 110_000, "sodermalm"),
-      ...street("Samma", 10, 100_000, 5, 110_000, "norrmalm"),
-      ...street("Samma", 10, 100_000, 5, 110_000, "vasastan"),
-      ...street("Aaa", 10, 100_000, 5, 110_000, "vasastan"),
+      ...street("Samma", 10, 100_000, 5, recentPps, "sodermalm"),
+      ...street("Samma", 10, 100_000, 5, recentPps, "norrmalm"),
+      ...street("Samma", 10, 100_000, 5, recentPps, "vasastan"),
+      ...street("Aaa", 10, 100_000, 5, recentPps, "vasastan"),
     ]);
     const key = (ms: Awaited<ReturnType<typeof topMovers>>) => ms.map((m) => `${m.district}/${m.street}`);
     const expected = ["vasastan/Aaa", "vasastan/Samma", "norrmalm/Samma", "sodermalm/Samma"];
-    expect(key(await topMovers("up", 10, AS_OF))).toEqual(expected);
-    expect(key(await topMovers("down", 10, AS_OF))).toEqual(expected);
-    expect(key(await topMovers("up", 2, AS_OF))).toEqual(expected.slice(0, 2));
+    expect(key(await topMovers(direction, 10, AS_OF))).toEqual(expected);
+    expect(key(await topMovers(direction, 2, AS_OF))).toEqual(expected.slice(0, 2));
   });
 
   it("district outranks street in ties", async () => {
@@ -164,6 +167,33 @@ describe("medians over disjoint windows", () => {
       "norrmalm/Samma",
       "sodermalm/Aaa",
     ]);
+  });
+
+  it.each([80_000, 100_000, 120_000])("returns only the matching sign for a homogeneous %i population", async (recentPps) => {
+    await seed(prisma, [
+      ...street("OnlyA", 10, 100_000, 5, recentPps),
+      ...street("OnlyB", 10, 100_000, 5, recentPps),
+    ]);
+    for (const direction of ["up", "down"] as const) {
+      const eligible = direction === "up" ? recentPps > 100_000 : recentPps < 100_000;
+      expect((await topMovers(direction, 6, AS_OF)).map((m) => m.street))
+        .toEqual(eligible ? ["OnlyA", "OnlyB"] : []);
+      expect((await topMovers(direction, 1, AS_OF)).map((m) => m.street))
+        .toEqual(eligible ? ["OnlyA"] : []);
+    }
+  });
+
+  it("uses the median sign even when the recent mean rises", async () => {
+    await seed(prisma, [
+      ...sales("MedianFalls", repeat("2026-01-15", 10), 100_000),
+      ...sales("MedianFalls", repeat("2026-09-01", 3), 80_000),
+      ...sales("MedianFalls", repeat("2026-09-01", 2), 200_000),
+    ]);
+    expect(await topMovers("up", 6, AS_OF)).toEqual([]);
+    expect(await topMovers("down", 6, AS_OF)).toMatchObject([{
+      street: "MedianFalls", pctChange: -20, recentMedianPricePerSqm: 80_000,
+      windowMeanPricePerSqm: 128_000, priorCount: 10, recentCount: 5,
+    }]);
   });
 
   it("returns nothing on an empty database", async () => {

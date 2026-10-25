@@ -19,6 +19,8 @@ from datetime import date, datetime, timezone
 from typing import AsyncIterator
 from zoneinfo import ZoneInfo
 
+from .coordinates import normalize_coordinates
+from .dates import stockholm_today
 from .normalize import (
     dedup_key,
     parse_rooms,
@@ -101,13 +103,13 @@ def _parse_sold_at(card: dict) -> date | None:
 def card_fields(card: dict, district: str) -> dict | None:
     """Derive the Listing columns that come from a SaleCard. None if unparseable.
 
-    Pure function of the card: no id, no timestamps. `_to_row` adds those for
-    inserts; `reparse` calls this directly to re-derive stored rows from `raw`.
+    Future sale dates are rejected against the Stockholm calendar day. `_to_row`
+    adds insertion metadata; `reparse` re-derives stored rows from `raw`.
     """
     listing_id = card.get("listingId") or card.get("id")
     addr = card.get("streetAddress") or ""
     sold_at = _parse_sold_at(card)
-    if not (listing_id and sold_at and addr):
+    if not (listing_id and sold_at and addr) or sold_at > stockholm_today():
         return None
 
     # "Sankt Eriksgatan 10 B" → ("Sankt Eriksgatan", "10B")
@@ -115,7 +117,9 @@ def card_fields(card: dict, district: str) -> dict | None:
     if not street:
         return None
 
-    coords = card.get("coordinates") or {}
+    coords = card.get("coordinates")
+    coords = coords if isinstance(coords, dict) else {}
+    lat, lng = normalize_coordinates(coords.get("lat"), coords.get("long"))
     try:
         area_sqm = parse_sqm(card.get("livingArea"))
         rooms = parse_rooms(card.get("rooms"))
@@ -141,8 +145,8 @@ def card_fields(card: dict, district: str) -> dict | None:
         "priceSek": price_sek,
         "pricePerSqmSek": price_per_sqm,
         "soldAt": sold_at,
-        "lat": coords.get("lat"),
-        "lng": coords.get("long"),
+        "lat": lat,
+        "lng": lng,
     }
 
 

@@ -22,7 +22,7 @@ export function StatCard({
   tone?: Tone;
 }) {
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-zinc-200 bg-white p-5 transition-[border-color,box-shadow] duration-200 ease-out hover:border-zinc-300 hover:shadow-[0_1px_2px_rgb(0_0_0_/_0.02),0_8px_24px_-16px_rgb(15_23_42_/_0.12)]">
+    <div className="group relative min-w-0 rounded-xl border border-zinc-200 bg-white p-5 [overflow-wrap:anywhere] transition-[border-color,box-shadow] duration-200 ease-out hover:border-zinc-300 hover:shadow-[0_1px_2px_rgb(0_0_0_/_0.02),0_8px_24px_-16px_rgb(15_23_42_/_0.12)]">
       <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-500">
         {label}
       </p>

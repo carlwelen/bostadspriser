@@ -369,7 +369,7 @@ def test_httpx_request_logging_cannot_leak_the_token(db, mapbox, sleeps, monkeyp
 
 def test_late_inline_coordinates_are_never_overwritten_by_an_outcome(db, mapbox, sleeps) -> None:
     """An `update` can upsert inline coordinates while geocode waits on Mapbox; the
-    outcome write is guarded by `lat IS NULL` and the pending/failed status."""
+    outcome write requires an incomplete coordinate pair and pending/failed status."""
     upsert_listings([_row("x", street="Xxx", id="id-x"), _row("y", street="Yyy", id="id-y")])
     real = mapbox.handler
 
@@ -445,7 +445,7 @@ def test_writes_are_batched(db, mapbox, sleeps) -> None:
     writes = [(u, many) for u, many in updates if "b_id" in u]  # the batched outcome writes
     assert len(writes) == 3  # ceil(5/2) statements, not 5 UPDATEs (the last holds a single row)
     assert [many for _, many in writes[:2]] == [True, True]
-    assert len(updates) == 4  # plus the catch-up UPDATE at the start of the pass
+    assert len(updates) == 5  # plus legacy cleanup and the inline catch-up at the start
     assert {r["geocodeStatus"] for r in _all(db).values()} == {"ok"}
 
 
@@ -769,3 +769,77 @@ def test_reduced_budget_rows_stay_uncharged_when_a_later_row_is_answered(db, sle
 def test_help_documents_the_always_failing_row_bound() -> None:
     out = CliRunner().invoke(run.cli, ["geocode", "--help"]).output
     assert "never charged" in out and f"{geo.REQUEST_ATTEMPTS} requests" in out
+
+
+@pytest.mark.parametrize("coordinates", [{"lat": 59.33}, {"long": 18.07}])
+@pytest.mark.parametrize("status, attempts", [("pending", 0), ("failed", 2)])
+def test_geocoder_repairs_incomplete_source_pairs(db, mapbox, sleeps, coordinates, status, attempts):
+    from scraper import hemnet
+    from tests.test_hemnet_parser import SAMPLE_CARD
+
+    row = hemnet._to_row({**SAMPLE_CARD, "coordinates": coordinates}, "ostermalm")
+    assert row is not None
+    upsert_listing(row)
+    _set(db, row["sourceId"], geocodeStatus=status, geocodeAttempts=attempts)
+    summary = _pass(mapbox)
+    assert summary.ok == 1 and len(mapbox.requests) == 1
+    stored = _all(db)[row["sourceId"]]
+    assert (stored["lat"], stored["lng"]) == (INSIDE[1], INSIDE[0])
+    assert stored["geocodeStatus"] == "ok" and stored["geocodeAttempts"] == attempts + 1
+    assert stored["geocodedAt"] is not None
+    _pass(mapbox)
+    assert len(mapbox.requests) == 1
+
+
+@pytest.mark.parametrize("answer, status, attempts, flag", [
+    (("empty",), "not_found", 1, None),
+    (("status", 422), "failed", 1, None),
+    (("status", 429), "pending", 0, "rate_limited"),
+    (("status", 503), "pending", 0, "unavailable"),
+])
+def test_incomplete_legacy_pair_preserves_outcome_and_retry_semantics(db, mapbox, sleeps, answer, status, attempts, flag):
+    upsert_listing(_row("partial"))
+    _set(db, "partial", lat=59.33)  # legacy half-pair, bypass current ingest normalization
+    mapbox.default = [answer]
+    summary = _pass(mapbox)
+    assert len(mapbox.requests) == (geo.REQUEST_ATTEMPTS if flag else 1)
+    stored = _all(db)["partial"]
+    assert stored["geocodeStatus"] == status and stored["geocodeAttempts"] == attempts
+    if flag:
+        assert getattr(summary, flag)
+        assert (stored["lat"], stored["lng"]) == (59.33, None)
+    else:
+        assert stored["lat"] is None and stored["lng"] is None
+
+
+@pytest.mark.parametrize("answer", [("empty",), ("ok", INSIDE)])
+@pytest.mark.parametrize("new_status", ["inline", "pending"])
+def test_complete_pair_arriving_during_incomplete_lookup_is_preserved(db, mapbox, sleeps, answer, new_status):
+    upsert_listing(_row("partial"))
+    _set(db, "partial", lat=59.33)  # legacy half-pair, bypass current ingest normalization
+    mapbox.default = [answer]
+    original = mapbox.handler
+
+    def handler(request):
+        # Simulate a new source result, and also a legacy writer without a status update.
+        if new_status == "inline":
+            upsert_listing(_row("partial", lat=59.31, lng=18.01))
+        else:
+            _set(db, "partial", lat=59.31, lng=18.01)
+        return original(request)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        geo.geocode_pending(client=client)
+    assert len(mapbox.requests) == 1
+    stored = _all(db)["partial"]
+    assert (stored["lat"], stored["lng"]) == (59.31, 18.01)
+    assert stored["geocodeStatus"] == new_status and stored["geocodeAttempts"] == 0
+
+
+def test_incomplete_legacy_pair_at_attempt_cap_is_left_unchanged(db, mapbox, sleeps):
+    upsert_listing(_row("partial"))
+    _set(db, "partial", lat=59.33, geocodeStatus="failed", geocodeAttempts=geo.MAX_ATTEMPTS)
+    assert _pass(mapbox).ok == 0 and mapbox.requests == []
+    stored = _all(db)["partial"]
+    assert stored["geocodeAttempts"] == geo.MAX_ATTEMPTS
+    assert (stored["lat"], stored["lng"]) == (59.33, None)

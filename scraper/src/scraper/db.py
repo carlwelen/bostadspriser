@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import logging
+import math
 from contextlib import contextmanager
+from decimal import Decimal
 from typing import Iterator
 
-from sqlalchemy import MetaData, Table, and_, case, create_engine, func, text
+from sqlalchemy import MetaData, Table, and_, case, create_engine, func, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from .config import load_config
+from .coordinates import normalize_coordinates
 from .revalidate import revalidate_app
 
 log = logging.getLogger("scraper.db")
@@ -89,6 +92,43 @@ def upsert_listing(row: dict) -> None:
 
 
 DEFAULT_BATCH_SIZE = 100
+# Every fact used by the fuzzy matcher, plus the exact-key membership it groups.
+MATCH_FIELDS = frozenset({"street", "houseNumber", "soldAt", "priceSek", "areaSqm", "rooms", "dedupKey"})
+
+
+def repair_corrected_clusters(s: Session, corrected_ids: list[str]) -> None:
+    """Repair groups in the same transaction as corrected/deleted listing facts."""
+    if not corrected_ids:
+        return
+    # A corrected row may have lost its dedupKey; the matcher intentionally skips
+    # those rows, so remove their old assignment before rebuilding current groups.
+    table = listing_table()
+    s.execute(update(table).where(table.c.id.in_(corrected_ids)).values(clusterId=None))
+    from .cluster import match_clusters
+
+    match_clusters(transaction=s)
+
+
+def _corrected_ids(s: Session, rows: list[dict]) -> list[str]:
+    table = listing_table()
+    cols = [table.c.id, table.c.source, table.c.sourceId, *[table.c[f] for f in sorted(MATCH_FIELDS)]]
+    previous = s.execute(select(*cols).where(
+        tuple_(table.c.source, table.c.sourceId).in_([(r["source"], r["sourceId"]) for r in rows])
+    ).with_for_update()).mappings()
+    incoming = {(r["source"], r["sourceId"]): r for r in rows}
+    corrected = []
+    for old in previous:
+        row = incoming[old["source"], old["sourceId"]]
+        for field in MATCH_FIELDS & row.keys():
+            value = row[field]
+            # Decimal columns compare at their stored precision, not the binary
+            # float approximation of an unchanged parser value (e.g. 35.3).
+            if isinstance(old[field], Decimal) and value is not None:
+                value = Decimal(str(value))
+            if old[field] != value:
+                corrected.append(old["id"])
+                break
+    return corrected
 
 
 def upsert_listings(rows: list[dict], batch_size: int = DEFAULT_BATCH_SIZE) -> int:
@@ -113,8 +153,10 @@ def upsert_listings(rows: list[dict], batch_size: int = DEFAULT_BATCH_SIZE) -> i
         for r in batch:
             groups.setdefault(frozenset(r), []).append(r)
         with session() as s:
+            corrected_ids = _corrected_ids(s, batch)
             for group in groups.values():
                 s.execute(_upsert_stmt(group))
+            repair_corrected_clusters(s, corrected_ids)
             s.commit()
         written += len(batch)
     return written
@@ -124,9 +166,29 @@ def _prepare(row: dict) -> dict:
     """Drop the database-stamped columns; mark coordinates that ship with the data
     as `inline` (a geocoder-produced pair is `ok`, see geocode.py)."""
     clean = {k: v for k, v in row.items() if k not in _SERVER_STAMPED}
-    if _has_coords(clean):
-        clean["geocodeStatus"] = "inline"
+    if "raw" in clean:
+        clean["raw"] = _json_safe(clean["raw"])
+    if _COORDINATE_COLS.intersection(clean):
+        clean["lat"], clean["lng"] = normalize_coordinates(clean.get("lat"), clean.get("lng"))
+        if _has_coords(clean):
+            clean["geocodeStatus"] = "inline"
+        else:
+            clean["geocodedAt"] = None
+            clean["geocodeStatus"] = "pending"
     return clean
+
+
+def _json_safe(value):
+    """Preserve nonfinite raw numbers as text: PostgreSQL JSON rejects NaN/Infinity."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_json_safe(v) for v in value)
+    return value
 
 
 def _has_coords(row: dict) -> bool:

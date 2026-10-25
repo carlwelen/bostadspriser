@@ -261,7 +261,7 @@ def test_cluster_command_refreshes_every_non_dry_run(db, monkeypatch) -> None:
 
 def test_cluster_command_exits_1_when_a_violation_remains(db, monkeypatch) -> None:
     monkeypatch.setattr(
-        cluster_mod, "dedup_keys_in_multiple_clusters", lambda: [("k1", ["a", "b"])]
+        cluster_mod, "dedup_keys_in_multiple_clusters", lambda **kw: [("k1", ["a", "b"])]
     )
     result = CliRunner().invoke(run.cli, ["cluster"])
     assert result.exit_code == 1 and "k1" in result.output
@@ -315,8 +315,8 @@ def test_correction_undoes_stale_cluster(db):
     upsert_listings([_row("hemnet", "h"), _row("booli", "b", price=4_905_000)])
     match_clusters()
     upsert_listings([_row("booli", "b", price=6_200_000)])
-    assert match_clusters().rows_updated == 2
     assert set(_clusters(db).values()) == {None}
+    assert match_clusters().rows_updated == 0  # the correction already repaired its groups
 
 
 def test_split_key_without_cross_source_partner_is_healed(db):

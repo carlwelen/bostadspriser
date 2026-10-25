@@ -224,8 +224,12 @@ class FakeScrapeRuns:
                      rows_rejected=rows_rejected, oldest_sold_at=oldest_sold_at, error=error,
                      last_page=last_page, complete_through=complete_through, finishedAt=True)
 
-    def latest_run(self, source, district, *, kind, watermark=False):
+    def latest_run(self, source, district, *, kind, watermark=False, not_after=None):
         rows = [r for r in self.runs if r["source"] == source and r["district"] == district and r["kind"] == kind]
+        if not_after is not None:
+            rows = [r for r in rows if r["since"] is None or r["since"] <= not_after]
+            if watermark:
+                rows = [r for r in rows if r["complete_through"] is not None and r["complete_through"] <= not_after]
         if watermark:
             rows = [r for r in rows if r["status"] == "ok" and r["finishedAt"] and r["complete_through"]]
         if not rows:

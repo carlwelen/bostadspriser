@@ -18,6 +18,7 @@ from .booli import iter_district as _booli_iter
 from . import crawl_state, scrape_run
 from .cluster import dedup_keys_in_multiple_clusters, match_clusters
 from .db import DEFAULT_BATCH_SIZE, engine, refresh_deduped, upsert_listings
+from .dates import stockholm_today
 from .errors import CrawlIncomplete
 from .geocode import MAX_ATTEMPTS as MAX_GEOCODE_ATTEMPTS
 from .geocode import GeocodeConfigError, geocode_pending, mark_inline_pending
@@ -174,6 +175,9 @@ def _run_recorded(
     watermark: date | None = None,
 ) -> RunReport:
     """Commit rows before advancing durable progress; persistence failures fail the run."""
+    today = stockholm_today()
+    if watermark is not None and watermark > today:
+        watermark = None
     progress = CrawlProgress()
     report = RunReport(0, progress, committed_page=base_last_page, committed_oldest=base_oldest)
     run_id = None
@@ -198,6 +202,9 @@ def _run_recorded(
             district, since, progress=progress, max_pages=max_pages, start_page=start_page
         ):
             sold_at = row.get("soldAt")
+            if isinstance(sold_at, date) and sold_at > stockholm_today():
+                progress.rejected += 1
+                continue
             if isinstance(sold_at, date):
                 report.newest = max(report.newest or sold_at, sold_at)
             yield row
@@ -474,19 +481,25 @@ def geocode(limit: int, max_attempts: int) -> None:
     stays selectable and costs about 4 requests (with backoff) each time it is reached
     first, and the pass exits 75 when nothing else was answered.
     """
+    coordinates_cleared = 0
+    summary = None
+
+    def cleanup_committed(count: int) -> None:
+        nonlocal coordinates_cleared
+        coordinates_cleared += count
+
     try:
-        summary = geocode_pending(limit=limit, max_attempts=max_attempts)
+        summary = geocode_pending(limit=limit, max_attempts=max_attempts, on_cleanup=cleanup_committed)
     except GeocodeConfigError as e:
+        summary = e.summary
         click.echo(f"error: {e}", err=True)
-        stored = e.summary.ok if e.summary is not None else 0
-        if stored:  # coordinates saved before the token was rejected still change the view
-            refresh_deduped()
         sys.exit(EXIT_CONFIG)
+    finally:
+        if coordinates_cleared or (summary is not None and summary.ok):
+            refresh_deduped()
     click.echo(
         f"geocoded: ok {summary.ok}, not found {summary.not_found}, failed {summary.failed}"
     )
-    if summary.ok:  # only coordinates change what the deduplicated view shows
-        refresh_deduped()
     if summary.rate_limited:
         click.echo("rate limited by Mapbox: pass stopped early; run again later", err=True)
         sys.exit(EXIT_TEMPFAIL)
