@@ -351,6 +351,14 @@ export function HeatmapMap({ districts, showHeatmap, mode, filters, onPriceBreak
     setVis(HEX_FILL_LAYER, !inPrice && showHeatmap);
     setVis(HEX_OUTLINE_LAYER, !inPrice && showHeatmap);
 
+  }, [mode, showHeatmap, styleReady, points, hexes]);
+
+  // Data-driven layer rebuilds should not move the camera.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady) return;
+    const inPrice = mode === "price";
+
     // Tilt the camera in frequency mode so the extrusions are legible.
     map.easeTo({
       pitch: inPrice ? 0 : 55,
