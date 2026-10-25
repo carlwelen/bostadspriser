@@ -6,14 +6,18 @@ adding new sources or fixing a normalization bug.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from sqlalchemy import bindparam, select, update
 
 from .db import listing_table, session
 from .normalize import dedup_key
 
 
-def backfill_dedup_keys(batch_size: int = 1000) -> int:
-    """Fill dedupKey where NULL, one transaction (and one executemany) per batch."""
+def backfill_dedup_keys(
+    batch_size: int = 1000, *, on_commit: Callable[[], None] | None = None,
+) -> int:
+    """Fill NULL dedupKey values in batches; call on_commit after each committed batch."""
     if batch_size < 1:
         raise ValueError("batch_size must be >= 1")
     table = listing_table()
@@ -47,6 +51,8 @@ def backfill_dedup_keys(batch_size: int = 1000) -> int:
                 ],
             )
             s.commit()
+            if on_commit is not None:
+                on_commit()
         updated += len(rows)
 
     return updated
