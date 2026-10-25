@@ -90,7 +90,7 @@ export function PriceAreaScatter({ data }: { data: Point[] }) {
                 data={pts}
                 fill={colorOf(district)}
                 fillOpacity={0.55}
-                stroke={CHART_THEME.surface}
+                stroke={colorOf(district)}
                 strokeWidth={1}
               />
             ))}

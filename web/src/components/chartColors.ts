@@ -11,11 +11,18 @@ export const CHART_THEME = {
   cursor: "#a1a1aa",
 } as const;
 
-// Street comparisons use separate tones so a street cannot take a district's identity.
+// Prefer separate street tones, then use district tones that are absent from the comparison.
 const STREET_COLORS = [CHART_THEME.address, CHART_THEME.reference, "#6f3c9f", "#6b5900"] as const;
 export const CHART_COLORS = [...DISTRICTS.map((district) => district.color), ...STREET_COLORS];
 
-export function comparisonColor(id: string, index: number): string {
-  const slug = id.startsWith("district:") ? id.slice(9) : "";
-  return isDistrictSlug(slug) ? districtColor(slug) : STREET_COLORS[index % STREET_COLORS.length];
+/** Reserve selected district identities before assigning streets every remaining tone. */
+export function comparisonColors(ids: readonly string[]): string[] {
+  const streetColors = [...STREET_COLORS, ...DISTRICTS
+    .filter((district) => !ids.includes(`district:${district.slug}`))
+    .map((district) => district.color)];
+  let streetIndex = 0;
+  return ids.map((id) => {
+    const slug = id.startsWith("district:") ? id.slice(9) : "";
+    return isDistrictSlug(slug) ? districtColor(slug) : streetColors[streetIndex++ % streetColors.length];
+  });
 }
