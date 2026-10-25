@@ -20,7 +20,7 @@ export function SummaryCards({
   extra?: ReactNode;
 }) {
   return (
-    <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+    <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       <StatCard label="Försäljningar" value={SEK.format(summary.count)} />
       <StatCard
         label="Median pris/m²"
