@@ -43,28 +43,33 @@ macOS (darwin/arm64), Node 26, pnpm 12, uv, Python 3.12. The docker CLI lives at
 | Install scraper deps | `cd scraper && uv sync` |
 | Install Playwright browser (one-time) | `cd scraper && uv run playwright install chromium` |
 | Scraper tests / lint | `cd scraper && uv run pytest -q` / `uv run ruff check` |
-| Initial backfill (one district) | `cd scraper && uv run scraper scrape --source hemnet --district ostermalm --since 2025-05-03` |
+| Historical backfill (one district) | `cd scraper && uv run scraper backfill --source hemnet --district ostermalm --since 2025-05-03 --resume --max-pages 100` |
 | Daily refresh (all sources × districts) | `cd scraper && uv run scraper update` |
 | Geocode pending rows | `cd scraper && uv run scraper geocode --limit 200` |
 | Backfill dedup keys | `cd scraper && uv run scraper backfill-dedup` |
+| Preview reparsing / optional pruning | `cd scraper && uv run scraper reparse --dry-run` (add `--prune-unparseable` only for an explicitly requested cleanup) |
+| Preview cross-source matching | `cd scraper && uv run scraper cluster --dry-run` |
+| Refresh the read snapshot | `cd scraper && uv run scraper refresh-view` |
 | DB stats | `cd scraper && uv run scraper stats` |
+
+Live scrape/geocode commands above are operational references, not authorization for agents to run them. The hardening loop uses fixtures and isolated test databases only. `--log-level` is a global option before the subcommand; scrape/update/backfill support `--max-pages`. `update --lookback-days` sets the cold-start window (default 14 days).
 
 ## Testing
 
 - **Never point tests at the dev DB (`bostadspriser`).** Test databases are resolved by `web/scripts/test-db.cjs` (web) and `scraper/tests/conftest.py` (pytest): `TEST_DATABASE_URL`, else `DATABASE_URL` with the name replaced by `TEST_DB_NAME` (default `bostadspriser_test`). Both refuse any database whose name lacks a `test` segment, and truncation re-checks `current_database()`.
 - Parallel worktrees: give each one its own `TEST_DB_NAME` (e.g. `bostadspriser_test_b`) and `E2E_PORT`.
 - Web integration tests (`web/tests/integration/`) call `aggregations.ts` functions and route handlers (`GET(new Request(…))`) directly against the seeded test DB. The deterministic fixture is `web/tests/fixtures/listings.ts`; seeding is `web/tests/support/seed.ts`.
-- E2E (`web/e2e/`) runs a production build from `.next-e2e/` with an empty `NEXT_PUBLIC_MAPBOX_TOKEN`; every off-origin request is aborted. Known baseline bugs are pinned as `test.fail(...)` (or listed in `KNOWN_CONSOLE_ERRORS`) with their backlog ID. The fixing commit flips them.
+- E2E (`web/e2e/`) runs a production build from `.next-e2e/` with an empty `NEXT_PUBLIC_MAPBOX_TOKEN`; an automatic fixture rejects off-origin requests and uses a local exact-origin transport proxy to block redirect escapes. Service workers and proxy tunnels are blocked. Network probes use only test-owned local servers. Known baseline bugs are pinned as `test.fail(...)` (or listed in `KNOWN_CONSOLE_ERRORS`) with their backlog ID. The fixing commit flips them.
 - Scraper DB tests request the `db` fixture; it migrates the test DB via `pnpm exec prisma migrate deploy` (so `web/node_modules` must be installed) and truncates all tables per test. conftest also redirects the cache/state dirs to a temp dir and sets a fake `MAPBOX_TOKEN`.
 - **Never run the live scrapers in tests.** Scraper tests are fixture-based (captured `SaleCard` / `SoldProperty` shapes).
 
 ## Architecture notes
 
 ### Schema
-- `Listing` is the single primary table: one row per sold listing per source, with `(source, sourceId)` as the natural key for idempotent re-scrapes. Indexes: `(district, soldAt)`, `(street, houseNumber, soldAt)`, `(lat, lng)`, `(dedupKey)`.
+- `Listing` is the single primary table: one row per sold listing per source, with `(source, sourceId)` as the natural key for idempotent re-scrapes. Indexes include district/date, street/address/date, coordinates, dedup key, and persisted `streetSlug` lookups. A database trigger maintains `streetSlug` for both Prisma and reflected Python writes; shared Unicode vectors verify SQL/TypeScript/Python parity.
 - `dedupKey` = blake2b of normalized address + soldAt + price (`normalize.dedup_key`); it collapses the same sale seen via Hemnet and Booli.
-- **All reads go through the `"DedupedListing"` view**: `DISTINCT ON` the sale's group key (`dedupKey`, falling back to `id`), preferring priced rows, then rows with coordinates, then Hemnet, then the latest `lastSeenAt`, then `id`; it adds a `sources text[]` column. Recreating the view is needed whenever `Listing` gains a column (`l.*` is frozen at creation).
-- Other tables: `ScrapeRun` (one row per source/district crawl; written by the scraper, read by `latestScrapeRuns()`/`sourceFreshness()`). `Listing.geocodeStatus`/`geocodeAttempts` track geocoding, `Listing.lastSeenAt` is bumped on every upsert.
+- **Application reads use `"DedupedListingMat"`, a materialized snapshot of the `"DedupedListing"` view.** The view selects one representative per sale (`clusterId`, then `dedupKey`, then `id`), preferring priced rows, then rows with coordinates, then Hemnet, then the latest `lastSeenAt`, then `id`; it adds a `sources text[]` column. Schema migrations that alter view columns must recreate both views and restore their indexes; `l.*` is frozen at creation.
+- Other tables: `ScrapeRun` (durable per-source/district invocation, kind, original cutoff, committed page checkpoint and status; read for resume/update coverage and freshness). Explicit backfills never count as freshness. `Listing.geocodeStatus`/`geocodeAttempts` track geocoding, `Listing.lastSeenAt` is bumped on every upsert.
 - Prisma's `@default(uuid())` is a client-side default. SQLAlchemy reflection doesn't see it, so the scraper generates `id = str(uuid.uuid4())` per row in `_to_row`.
 
 ### Aggregations live in SQL
@@ -72,14 +77,23 @@ macOS (darwin/arm64), Node 26, pnpm 12, uv, Python 3.12. The docker CLI lives at
 
 Date cut-offs ("last N days", "current month") must use `stockholmToday(asOf)` and take an `asOf` parameter so tests can pin time; never `CURRENT_DATE`/`now()`, which follow the DB session's time zone.
 
+### Snapshot and cache refresh
+Every writing scraper command refreshes `DedupedListingMat` after committed changes, including committed batches before a later failure. `refresh_deduped_listing()` uses plain refresh with a five-second lock timeout. `stats` compares live-view and snapshot counts; `refresh-view` retries a refresh explicitly.
+
+After a successful committed refresh, the scraper attempts `POST $APP_URL/api/revalidate` with `Authorization: Bearer $REVALIDATE_SECRET` (at least 16 characters). Notification has a five-second timeout, no redirects, no inherited proxy settings and no retries; failures are logged safely and do not abort the completed database operation. The endpoint invalidates the listing cache tag. Next's data cache is memory-only (`isrFlushToDisk: false`), bounded at 16 MiB of serialized payload, not process heap. Missing street slugs are not cached.
+
 ### Scrapers
 Both sites render server-side and ship data in `__NEXT_DATA__.props.pageProps.__APOLLO_STATE__`: Hemnet as `__typename == "SaleCard"`, Booli as `"SoldProperty"`. See `.claude/agent-memory/backend-architect/booli_scraper.md` for Booli specifics (area IDs, `descriptiveAreaName` district filter).
+
+Shared modules: `source_base.py` owns browser/fetch orchestration; `pagination.py` enforces bounded, non-repeating progress; `lock.py` enforces one writing command; `scrape_run.py` persists invocation/checkpoint records; `crawl_state.py` reads durable coverage and resume state; `backfill.py` coordinates historical runs; `reparse.py` re-derives stored raw cards; `cluster.py` recomputes source-safe cross-source groups.
+
+Update/backfill state is stored in `ScrapeRun`, with no automatic import or access to the old protected JSON state. Cold-start update cutoffs survive empty/partial/failed attempts; only successful nonempty updates establish a watermark. Resumed backfills overlap the last committed page and require the same original cutoff. See `scraper/docs/durable-crawl-state.md`. `reparse` reports unparseable rows by default; opt-in pruning locks and rechecks known-source rows, retaining unknown sources. See `scraper/docs/prune-unparseable.md`.
 
 Polite-crawling behaviour (do not make it more aggressive or add circumvention):
 - **Single worker, jittered 3–5 s delay** between page fetches.
 - **Persistent storageState** at `scraper/.state/storageState.json`. *Don't delete it between runs.*
 - **HTML cache** at `scraper/.cache/<date>_<urlhash>.html`. Challenge pages are detected via `_looks_real()` and never cached.
-- **429/503 → exponential backoff** via tenacity, then the page is skipped so cron can retry.
+- **429/503 → bounded backoff**, then an incomplete crawl is reported so the command cannot advance its update watermark; a later invocation can retry.
 - **Localized fields**: `"4 900 000 kr"`, `"35 m²"`, `"2,5 rum"`. Parsers in `normalize.py` (tests in `tests/test_normalize.py`) must tolerate NBSP and comma decimals.
 - **Hemnet `soldAt` is Stockholm-local midnight as Unix epoch.** Converting in UTC drops a day during DST; `_to_row` uses `ZoneInfo("Europe/Stockholm")`. Booli ships `soldDate` as `YYYY-MM-DD`.
 
@@ -91,17 +105,17 @@ The landing page (`/`) toggles between two visualizations:
 - **Pris**: color-by-`pricePerSqm` heatmap layer + circle dots with hover popups. Flat camera.
 - **Frekvens**: h3-js client-side aggregation at **resolution 9** (~175 m edge), rendered as `fill-extrusion` keyed off the count; camera tilts to 55°.
 
-Both read `/api/heatmap` GeoJSON. The query currently caps at **50,000** features (B25 will pick a deliberate cap) and supports `districts`, `bbox`, `rooms` (`5` = 5 or more), `priceMin`/`priceMax` (0 = no bound), `sinceDays`. Popups are built from DOM nodes (`web/src/components/map/popups.ts`); never `setHTML`/`innerHTML` with scraped strings.
+Both read `/api/heatmap` GeoJSON. The query currently caps at **30,000** newest features and reports `truncated` when older matches are omitted. Supported filters are `districts`, `bbox`, `rooms` (`5` = 5 or more), `priceMin`/`priceMax` (0 = no bound), `sinceDays`. Popups are built from DOM nodes (`web/src/components/map/popups.ts`); never `setHTML`/`innerHTML` with scraped strings.
 
 ## Routes
 
 | Path | Purpose |
 |---|---|
 | `/` | Landing: full-bleed Mapbox map + sidebar (districts, rooms, period, Pris/Frekvens, heatmap toggle) + address drawer |
-| `/district/[slug]` | District summary: count, mean kr/m², MoM %, top streets, recent sales, monthly chart |
+| `/district/[slug]` | District summary: count, median kr/m², median MoM %, room filters, top streets, recent sales, month/year chart |
 | `/street/[district]/[street]` | Street drill-down: chart, house-number list, recent sales |
-| `/street/[district]/[street]/[house]` | Address drill-down: chart with street overlay, sales |
-| `/compare?series=district:ostermalm,street:vasastan/odengatan` | Multi-series chart |
+| `/street/[district]/[street]/[house]` | Address drill-down: address/street/district comparison chart, SQL summary and sales |
+| `/compare?series=district:ostermalm,street:vasastan/odengatan` | Editable multi-series comparison chart |
 | `/insights` | Dataset-wide stats: distribution, rooms breakdown, top movers, scatter |
 | `/api/timeseries?scope=district\|street&id=…&granularity=month\|year` | JSON time series |
 | `/api/heatmap?districts=…&bbox=w,s,e,n&rooms=…&sinceDays=…` | GeoJSON FeatureCollection |
