@@ -10,10 +10,11 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from . import scrape_run
+from .dates import stockholm_today
 
 
 def complete_through(source: str, district: str) -> date | None:
-    row = scrape_run.latest_run(source, district, kind="update", watermark=True)
+    row = scrape_run.latest_run(source, district, kind="update", watermark=True, not_after=stockholm_today())
     return row["completeThrough"] if row else None
 
 
@@ -21,9 +22,9 @@ def update_window(source: str, district: str, overlap: timedelta, lookback_days:
     through = complete_through(source, district)
     if through is not None:
         return through - overlap, through
-    latest = scrape_run.latest_run(source, district, kind="update")
+    latest = scrape_run.latest_run(source, district, kind="update", not_after=stockholm_today())
     since = latest["since"] if latest else None
-    return since or date.today() - timedelta(days=lookback_days), None
+    return since or stockholm_today() - timedelta(days=lookback_days), None
 
 
 def backfill_progress(source: str, district: str) -> dict | None:
