@@ -96,4 +96,33 @@ describe("/api/heatmap payload", { timeout: 120_000 }, () => {
     expect(first).toContain("Gata 000001");
     expect(await streets()).toEqual(first);
   });
+
+  it("excludes invalid newer rows before applying the cap and truncation flag", async () => {
+    await seedMany(HEATMAP_LIMIT);
+    await prisma.$executeRaw`
+      INSERT INTO "Listing" (id, source, "sourceId", "dedupKey", street, district,
+                             rooms, "areaSqm", "priceSek", "pricePerSqmSek", "soldAt", lat, lng, raw)
+      SELECT 'invalid-geo-' || g, 'hemnet', 'invalid-geo-' || g, 'invalid-geo-' || g,
+             'Invalid coordinates', 'vasastan', 2, 50, 5000000, 100000,
+             DATE '2026-03-02', 91, 18, '{}'::jsonb
+      FROM generate_series(1, 400) g`;
+    await prisma.$executeRaw`SELECT refresh_deduped_listing()`;
+    const exact = await get();
+    expect(exact.features).toHaveLength(HEATMAP_LIMIT);
+    expect(exact.features.some((f) => f.properties.street === "Invalid coordinates")).toBe(false);
+    expect(exact.truncated).toBe(false);
+    expect(exact.features[0].properties.soldAt).toBe("2026-02-28");
+
+    await prisma.$executeRaw`
+      INSERT INTO "Listing" (id, source, "sourceId", "dedupKey", street, district,
+                             rooms, "areaSqm", "priceSek", "pricePerSqmSek", "soldAt", lat, lng, raw)
+      VALUES ('extra-valid', 'hemnet', 'extra-valid', 'extra-valid', 'Newest valid', 'vasastan',
+              2, 50, 5000000, 100000, DATE '2026-03-01', 59, 18, '{}'::jsonb)`;
+    await prisma.$executeRaw`SELECT refresh_deduped_listing()`;
+    const overflow = await get();
+    expect(overflow.features).toHaveLength(HEATMAP_LIMIT);
+    expect(overflow.truncated).toBe(true);
+    expect(overflow.features[0].properties.street).toBe("Newest valid");
+    expect(overflow.features.some((f) => f.properties.street === "Invalid coordinates")).toBe(false);
+  });
 });

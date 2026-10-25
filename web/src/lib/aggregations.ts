@@ -781,8 +781,9 @@ export async function heatmapPoints(
 ): Promise<{ points: HeatmapPoint[]; truncated: boolean }> {
   const { districts, bbox, priceMin, priceMax, rooms, sinceDays } = filters;
   const conds: Prisma.Sql[] = [
-    Prisma.sql`lat IS NOT NULL`,
-    Prisma.sql`lng IS NOT NULL`,
+    // Inclusive geographic bounds also exclude NULL, NaN and infinities.
+    Prisma.sql`lat BETWEEN -90 AND 90`,
+    Prisma.sql`lng BETWEEN -180 AND 180`,
     Prisma.sql`"pricePerSqmSek" > 0`,
   ];
   if (districts && districts.length > 0) {
