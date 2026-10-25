@@ -31,9 +31,11 @@ writes only changed rows, so corrections also undo obsolete clusters.
 from __future__ import annotations
 
 import logging
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from .db import session
 from .normalize import normalize_address
@@ -123,10 +125,10 @@ class _UnionFind:
             self.parent[max(ra, rb)] = min(ra, rb)
 
 
-def dedup_keys_in_multiple_clusters() -> list[tuple[str, list[str]]]:
+def dedup_keys_in_multiple_clusters(*, transaction: Session | None = None) -> list[tuple[str, list[str]]]:
     """dedupKeys whose rows carry more than one clusterId: an invariant violation
     (the same sale split over clusters). The Python twin of the web check."""
-    with session() as s:
+    with nullcontext(transaction) if transaction is not None else session() as s:
         rows = s.execute(
             text(
                 'SELECT "dedupKey", array_agg(DISTINCT "clusterId" ORDER BY "clusterId") '
@@ -137,8 +139,14 @@ def dedup_keys_in_multiple_clusters() -> list[tuple[str, list[str]]]:
     return [(key, list(cids)) for key, cids in rows]
 
 
-def match_clusters(*, dry_run: bool = False, batch_size: int = 500) -> ClusterSummary:
-    """Link cross-source copies of the same sale; see the module docstring."""
+def match_clusters(
+    *, dry_run: bool = False, batch_size: int = 500, transaction: Session | None = None,
+) -> ClusterSummary:
+    """Link cross-source copies; optionally join the caller's correction transaction.
+
+    With a transaction, the caller owns commit/rollback so listing corrections
+    and their rebuilt groups become visible together, including partial runs.
+    """
     if batch_size < 1:
         raise ValueError("batch_size must be >= 1")
     summary = ClusterSummary(dry_run=dry_run)
@@ -146,7 +154,7 @@ def match_clusters(*, dry_run: bool = False, batch_size: int = 500) -> ClusterSu
     # Rebuild from current facts, never from old clusterIds: corrected records
     # must be able to leave a previously valid cluster.
     uf = _UnionFind()
-    with session() as s:
+    with nullcontext(transaction) if transaction is not None else session() as s:
         rows = list(s.execute(text(
             'SELECT id, source, "dedupKey", "clusterId" FROM "Listing" '
             'WHERE "dedupKey" IS NOT NULL'
@@ -198,9 +206,10 @@ def match_clusters(*, dry_run: bool = False, batch_size: int = 500) -> ClusterSu
             for start in range(0, len(changes), batch_size):
                 s.execute(text('UPDATE "Listing" SET "clusterId" = :target WHERE id = :id'),
                           changes[start:start + batch_size])
-            s.commit()
+            if transaction is None:
+                s.commit()
 
-    summary.violations = dedup_keys_in_multiple_clusters()
+        summary.violations = dedup_keys_in_multiple_clusters(transaction=s)
     log.info(
         "cluster pass done pairs=%d clusters=%d rows_updated=%d violations=%d dry_run=%s",
         summary.pairs, summary.components, summary.rows_updated, len(summary.violations), dry_run,

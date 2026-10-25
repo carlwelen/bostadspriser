@@ -224,7 +224,9 @@ def test_reparse_locks_batch_rows_unless_dry_run(db) -> None:
         dry = [s for s in statements if s.lstrip().upper().startswith("SELECT") and '"Listing"' in s]
         statements.clear()
         reparse()
-        real = [s for s in statements if s.lstrip().upper().startswith("SELECT") and '"Listing"' in s]
+        # The matcher also reads current facts; these are the raw-card batch
+        # reads whose lock must cover deriving and writing the corrected fields.
+        real = [s for s in statements if s.lstrip().upper().startswith("SELECT") and '"Listing".raw' in s]
     finally:
         event.remove(db, "before_cursor_execute", capture)
     assert dry and not any("FOR UPDATE" in s for s in dry)

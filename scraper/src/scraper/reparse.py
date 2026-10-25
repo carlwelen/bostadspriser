@@ -21,7 +21,7 @@ from typing import Any, Callable
 from sqlalchemy import bindparam, delete, select, update
 
 from . import booli, hemnet
-from .db import listing_table, session
+from .db import MATCH_FIELDS, listing_table, repair_corrected_clusters, session
 
 # Source slug -> card -> Listing columns. New sources register here.
 _DERIVERS: dict[str, Callable[[dict, str], dict | None]] = {
@@ -114,6 +114,7 @@ def reparse(
 
             updates: list[dict] = []
             prune_ids: list[str] = []
+            corrected_ids: list[str] = []
             for row in rows:
                 summary.scanned += 1
                 deriver = _DERIVERS.get(row.source)
@@ -134,6 +135,8 @@ def reparse(
                     summary.sold_at_mismatch += 1
                 if not changed:
                     continue
+                if MATCH_FIELDS.intersection(changed):
+                    corrected_ids.append(row.id)
                 summary.changed += 1
                 for f in changed:
                     summary.by_field[f] += 1
@@ -154,6 +157,8 @@ def reparse(
                     deleted = result.rowcount
                     if deleted != len(prune_ids):
                         raise RuntimeError("prune count changed while batch rows were locked")
+                # Removing a member can also change the source-safe components.
+                repair_corrected_clusters(s, corrected_ids + prune_ids)
                 s.commit()
                 summary.pruned += deleted
                 if on_commit is not None:

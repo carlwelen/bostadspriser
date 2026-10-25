@@ -10,7 +10,7 @@ from collections.abc import Callable
 
 from sqlalchemy import bindparam, select, update
 
-from .db import listing_table, session
+from .db import listing_table, repair_corrected_clusters, session
 from .normalize import dedup_key
 
 
@@ -37,6 +37,7 @@ def backfill_dedup_keys(
                 .where(table.c.dedupKey.is_(None))
                 .order_by(table.c.id)
                 .limit(batch_size)
+                .with_for_update()
             ).all()
             if not rows:
                 break
@@ -50,6 +51,7 @@ def backfill_dedup_keys(
                     for r in rows
                 ],
             )
+            repair_corrected_clusters(s, [r.id for r in rows])
             s.commit()
             if on_commit is not None:
                 on_commit()
