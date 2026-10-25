@@ -2,7 +2,7 @@ import Link from "next/link";
 import { pageMetadata } from "../siteMetadata";
 import { ComparisonNavigation } from "@/components/ComparisonNavigation";
 import { CompareBuilder } from "@/components/CompareBuilder";
-import { comparisonColor } from "@/components/chartColors";
+import { comparisonColors } from "@/components/chartColors";
 import { comparisonHref, comparisonIds, parseComparisonSpec, type ComparisonSpec } from "@/components/comparison";
 import { GranularityToggle } from "@/components/GranularityToggle";
 import { granularityCaption, parseGranularity } from "@/components/granularity";
@@ -49,8 +49,9 @@ export default async function ComparePage({
     const data = await loadSeries(parseComparisonSpec(id)!, granularity);
     return data ? { ...data, id } : null;
   }));
-  const selected = loaded.filter((s): s is NonNullable<typeof s> => !!s)
-    .map((s, i) => ({ ...s, color: comparisonColor(s.id, i) }));
+  const available = loaded.filter((s): s is NonNullable<typeof s> => !!s);
+  const colors = comparisonColors(available.map((s) => s.id));
+  const selected = available.map((s, i) => ({ ...s, color: colors[i] }));
   const series: Series[] = selected;
   const streets = await listAllStreets();
   const options = [
