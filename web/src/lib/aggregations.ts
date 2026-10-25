@@ -417,7 +417,7 @@ async function pricePerSqmDistributionUncached(
   return rows.map((r) => ({ bucket: Number(r.bucket), count: Number(r.n) }));
 }
 
-/** Per-room-count breakdown: average price/m², average area, count. */
+/** Per-room-count breakdown, flooring 1–15 rooms into buckets capped at 7+. */
 async function roomsBreakdownUncached(): Promise<
   Array<{
     rooms: number;
@@ -438,7 +438,7 @@ async function roomsBreakdownUncached(): Promise<
       mean_price: bigint;
     }>
   >(Prisma.sql`
-    SELECT FLOOR(rooms)::int        AS rooms_floor,
+    SELECT LEAST(FLOOR(rooms), 7)::int AS rooms_floor,
            COUNT(*)::bigint         AS n,
            AVG("pricePerSqmSek")::bigint  AS mean_pps,
            ${MEDIAN_PPS}                  AS median_pps,
@@ -447,8 +447,8 @@ async function roomsBreakdownUncached(): Promise<
     FROM "DedupedListingMat"
     WHERE rooms IS NOT NULL
       AND "pricePerSqmSek" > 0
-      AND rooms >= 1 AND rooms < 8
-    GROUP BY FLOOR(rooms)
+      AND rooms BETWEEN 1 AND 15
+    GROUP BY LEAST(FLOOR(rooms), 7)
     ORDER BY rooms_floor ASC
   `);
   return rows.map((r) => ({
