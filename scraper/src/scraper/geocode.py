@@ -2,7 +2,7 @@
 
 Rows carry a `geocodeStatus` (pending | ok | not_found | failed | inline) and a
 `geocodeAttempts` counter. A pass selects rows that are `pending` or `failed`,
-have no coordinates and are under the attempt cap, asks Mapbox for each (query
+have an incomplete coordinate pair and are under the attempt cap, asks Mapbox for each (query
 built from the street, house number and the district's *display name*, biased to
 inner Stockholm), rejects answers outside that area, and writes the outcomes in
 batches. One rate-limited or failing lookup never aborts the pass.
@@ -263,7 +263,7 @@ def geocode_pending(
             select(table.c.id, table.c.street, table.c.houseNumber, table.c.district)
             .where(
                 table.c.geocodeStatus.in_(["pending", "failed"]),
-                table.c.lat.is_(None),
+                or_(table.c.lat.is_(None), table.c.lng.is_(None)),
                 table.c.geocodeAttempts < max_attempts,
             )
             .order_by(*_order_by(table, _new_salt() if order_salt is None else order_salt))
@@ -282,7 +282,7 @@ def geocode_pending(
             # Guarded: an `update` may have upserted inline coordinates while we waited
             # on Mapbox; never overwrite those (or a row someone already resolved).
             .where(
-                table.c.lat.is_(None),
+                or_(table.c.lat.is_(None), table.c.lng.is_(None)),
                 # (not IN: expanding parameters can't be used with executemany)
                 or_(table.c.geocodeStatus == "pending", table.c.geocodeStatus == "failed"),
             )
