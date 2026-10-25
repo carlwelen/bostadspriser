@@ -327,7 +327,8 @@ export type StreetMover = {
 /**
  * Streets whose median price/m² moved the most between two disjoint windows
  * ending today (Stockholm): the last 90 days, against the 12 months before
- * them. Streets need `MIN_MOVER_RECENT_SALES` sales in the recent and
+ * them. Only positive changes qualify for up, negative changes for down.
+ * Streets need `MIN_MOVER_RECENT_SALES` sales in the recent and
  * `MIN_MOVER_PRIOR_SALES` in the prior window. Both windows' sizes are returned
  * so the UI can show how much data stands behind a percentage. `asOf` pins
  * "now" for tests.
@@ -338,6 +339,9 @@ async function topMoversUncached(
   asOf: Date = new Date()
 ): Promise<StreetMover[]> {
   const op = direction === "up" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
+  const sign = direction === "up"
+    ? Prisma.sql`recent_median > prior_median`
+    : Prisma.sql`recent_median < prior_median`;
   const today = stockholmToday(asOf);
   const recentFrom = Prisma.sql`(${today} - ${MOVER_RECENT_DAYS}::int)`;
   const priorFrom = Prisma.sql`(${today} - ${MOVER_RECENT_DAYS + MOVER_PRIOR_DAYS}::int)`;
@@ -383,6 +387,7 @@ async function topMoversUncached(
     WHERE recent_n >= ${MIN_MOVER_RECENT_SALES}
       AND prior_n  >= ${MIN_MOVER_PRIOR_SALES}
       AND prior_median > 0
+      AND ${sign}
     ORDER BY pct ${op}, district ASC, street ASC
     LIMIT ${limit}
   `);

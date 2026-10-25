@@ -27,5 +27,6 @@ it("explains the disjoint median windows and shows each window's sample size", a
   expect(html).toContain("Senaste 90 dagar: 110 000 kr/m² (7 försäljningar)");
   expect(html).toContain("Föregående 12 månader: 100 000 kr/m² (14 försäljningar)");
   expect(html).not.toContain("222 222");
-  expect(html).toContain("Otillräckligt underlag.");
+  expect(html).toContain("Inga gator i denna riktning med tillräckligt underlag.");
+  expect(html).not.toContain("Otillräckligt underlag.");
 });

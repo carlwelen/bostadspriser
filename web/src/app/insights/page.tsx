@@ -269,7 +269,7 @@ function Movers({
         <p className="text-xs text-zinc-500">{subtitle}</p>
       </div>
       {entries.length === 0 ? (
-        <p className="text-sm text-zinc-500">Otillräckligt underlag.</p>
+        <p className="text-sm text-zinc-500">Inga gator i denna riktning med tillräckligt underlag.</p>
       ) : (
         <ul className="divide-y divide-zinc-100">
           {entries.map((m) => {
