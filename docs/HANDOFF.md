@@ -2,6 +2,8 @@
 
 ## Current checkpoint (2026-10-25)
 
+- Live integration checkpoint: 717df2f -> 7fc9ec8, full gate green. Remaining approved queue: a8789bd, e8b0b04, 7f21875, a374e52, 0de29a4, 671722a, c396c2c, 9d670ed. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
+
 This supersedes the historical handoff below. Use docs/backlog.md and current Git/log evidence.
 
 - **Latest integrated code:** ceb3d11(B14) ->2fb1fa0; ledger1c4fe21, full518vitest294e2e764pytest. Earlier F11 ->ed1785c, B56 ->20df838, initialF12 ->efaa936 are also integrated. Published main remainsb1730bb. Source branches hardening/d-map-phase3(e8b0b04) and hardening/b-refresh-failure(c68e1f2) are pushed.
