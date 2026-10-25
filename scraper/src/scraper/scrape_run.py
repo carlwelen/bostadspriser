@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import func, insert, or_, select, update
 
 from .db import session, table
 
@@ -142,10 +142,17 @@ def _update(run_id: str | None, *, required: bool = False, **values) -> None:
             raise
 
 
-def latest_run(source: str, district: str, *, kind: str, watermark: bool = False) -> dict | None:
+def latest_run(
+    source: str, district: str, *, kind: str, watermark: bool = False, not_after: date | None = None,
+) -> dict | None:
     """Latest explicitly classified run; legacy rows never imply crawl coverage."""
     t = table("ScrapeRun")
     query = select(t).where(t.c.source == source, t.c.district == district, t.c.kind == kind)
+    if not_after is not None:
+        # Ignore corrupt future state while retaining earlier valid coverage.
+        query = query.where(or_(t.c.since.is_(None), t.c.since <= not_after))
+        if watermark:
+            query = query.where(t.c.completeThrough <= not_after)
     if watermark:
         query = query.where(t.c.status == "ok", t.c.finishedAt.is_not(None), t.c.completeThrough.is_not(None))
     with session() as s:

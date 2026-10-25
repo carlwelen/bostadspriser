@@ -28,6 +28,7 @@ from datetime import date, datetime, timezone
 from typing import AsyncIterator
 from urllib.parse import quote
 
+from .dates import stockholm_today
 from .normalize import (
     dedup_key,
     parse_rooms,
@@ -155,13 +156,13 @@ def _parse_sold_at(card: dict) -> date | None:
 def card_fields(card: dict, district: str) -> dict | None:
     """Derive the Listing columns that come from a SoldProperty. None if unparseable.
 
-    Pure function of the card: no id, no timestamps. `_to_row` adds those for
-    inserts; `reparse` calls this directly to re-derive stored rows from `raw`.
+    Future sale dates are rejected against the Stockholm calendar day. `_to_row`
+    adds insertion metadata; `reparse` re-derives stored rows from `raw`.
     """
     booli_id = card.get("id") or card.get("booliId")
     addr = card.get("streetAddress") or ""
     sold_at = _parse_sold_at(card)
-    if not (booli_id and sold_at and addr):
+    if not (booli_id and sold_at and addr) or sold_at > stockholm_today():
         return None
 
     # "Sankt Eriksgatan 10 B" → ("Sankt Eriksgatan", "10B")

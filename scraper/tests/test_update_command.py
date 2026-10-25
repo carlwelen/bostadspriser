@@ -36,8 +36,8 @@ def fake_world(monkeypatch):
     )
     latest = scrape_run.latest_run
 
-    def seeded_watermark(source, district, *, kind, watermark=False):
-        row = latest(source, district, kind=kind, watermark=watermark)
+    def seeded_watermark(source, district, *, kind, watermark=False, not_after=None):
+        row = latest(source, district, kind=kind, watermark=watermark, not_after=not_after)
         if row is None and source == "hemnet" and kind == "update" and watermark:
             return {"completeThrough": date(2026, 5, 10)}
         return row

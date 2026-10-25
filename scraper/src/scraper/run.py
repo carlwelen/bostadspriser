@@ -18,6 +18,7 @@ from .booli import iter_district as _booli_iter
 from . import crawl_state, scrape_run
 from .cluster import dedup_keys_in_multiple_clusters, match_clusters
 from .db import DEFAULT_BATCH_SIZE, engine, refresh_deduped, upsert_listings
+from .dates import stockholm_today
 from .errors import CrawlIncomplete
 from .geocode import MAX_ATTEMPTS as MAX_GEOCODE_ATTEMPTS
 from .geocode import GeocodeConfigError, geocode_pending, mark_inline_pending
@@ -174,6 +175,9 @@ def _run_recorded(
     watermark: date | None = None,
 ) -> RunReport:
     """Commit rows before advancing durable progress; persistence failures fail the run."""
+    today = stockholm_today()
+    if watermark is not None and watermark > today:
+        watermark = None
     progress = CrawlProgress()
     report = RunReport(0, progress, committed_page=base_last_page, committed_oldest=base_oldest)
     run_id = None
@@ -198,6 +202,9 @@ def _run_recorded(
             district, since, progress=progress, max_pages=max_pages, start_page=start_page
         ):
             sold_at = row.get("soldAt")
+            if isinstance(sold_at, date) and sold_at > stockholm_today():
+                progress.rejected += 1
+                continue
             if isinstance(sold_at, date):
                 report.newest = max(report.newest or sold_at, sold_at)
             yield row
