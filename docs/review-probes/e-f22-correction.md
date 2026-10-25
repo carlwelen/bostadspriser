@@ -40,6 +40,27 @@ white in the production browser; all four outlines meet 3:1 (minimum 3.06:1).
   build and Ruff. Log: `/tmp/e-f22-check-final.log`.
 - Desktop/mobile screenshots use the `F22-correction-` prefix in `docs/screens/`.
 
+## Test readiness follow-up
+
+The next immutable review found a race in the supplied contrast test: the first
+visible scatter mark can precede the final computed fill/stroke paint on other
+marks. Parsing a transient non-RGB value raised `null.slice` before contrast could
+be checked. Production rendering passed the independent review probes.
+
+- Unchanged `d65f6b2` test reproduced the failure in nine of ten Pixel 7 repeats:
+  `pnpm exec playwright test e2e/chart-colors.spec.ts -g 'scatter observations'
+  --project=mobile --repeat-each=10`.
+  Log: `/tmp/e-f22-race-red.log`.
+- The follow-up waits for network settlement, every observation represented in
+  the chart-data table, and RGB fill/stroke paint on every mark. It retains the
+  full observation set, all four district fills, and the original composited 3:1
+  contrast assertions. No production code changes.
+- The same production contrast test then passes 20 consecutive desktop runs and
+  20 consecutive Pixel 7 runs (`--repeat-each=20`, both projects).
+  Log: `/tmp/e-f22-race-green.log`.
+- Full gate passes again: 542 Vitest, 344 Playwright, 759 pytest, typecheck,
+  zero-warning lint, production build and Ruff. Log: `/tmp/e-f22-race-check.log`.
+
 ## Inherited limitation: F41
 
 The selector remains unlimited. More than eight selected series can reuse

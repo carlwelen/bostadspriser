@@ -27,9 +27,18 @@ for (const ids of [
 
 test("scatter observations retain graphical-object contrast after compositing on white", async ({ page, consoleErrors }) => {
   await page.goto("/insights");
+  await page.waitForLoadState("networkidle");
   const scatter = page.getByRole("group", { name: "Yta och pris per kvadratmeter per stadsdel" });
   const points = scatter.locator(".recharts-scatter-symbol path");
+  const observations = await scatter.locator("tbody tr").count();
+  expect(observations).toBeGreaterThan(0);
+  await expect(points).toHaveCount(observations);
   await expect(points.first()).toBeVisible();
+  // Wait for every mark's computed paint to settle before parsing colour channels.
+  await expect.poll(() => points.evaluateAll((elements) => elements.every((element) => {
+    const style = getComputedStyle(element);
+    return /^rgb\(/.test(style.fill) && /^rgb\(/.test(style.stroke);
+  }))).toBe(true);
   const rendered = await points.evaluateAll((elements) => {
     const contrastOnWhite = (color: string, alpha: number) => {
       const rgb = color.match(/[\d.]+/g)!.slice(0, 3).map(Number);
