@@ -2,6 +2,16 @@
 
 ## Current checkpoint (2026-10-25)
 
+### Latest verified update
+
+- Main9b59f3a includes approved F11 source7cb4a17 ->ed1785c, full510vitest292e2e759pytest. Published remote remainsb1730bb; chart group held for F12. Wrapper11 is terminal; no active integration. Queue now ends7cb4a17 (already integrated); HARDENING_NO_FINAL_PUSH=1 suppresses last-source push.
+- F12 sourcee8b0b04 on hardening/d-map-phase3, full508/272/488+26browser, freshR report pending /tmp/r-f12-keyboard-final/REPORT.md. Remaining source order c0553f8,ceb3d11,717df2f,a8789bd,e8b0b04, then approved phase4 7f21875,a374e52,0de29a4,671722a. Use F37equivalent; skip5363f4b.
+- B56c68e1f2 APPROVED, source /tmp/bostadspriser-hardening-b-refresh, full506/292/764 and769reviewerpytest. Report docs/review-probes/b56-review.md. Integrate with gate; source/main not yet pushed.
+- E7b5e461(F21) andb2e1923(F23) APPROVED;492fdc0(F22) needs colour corrections. Final report docs/review-probes/e-final-batch-review.md saved before reviewer TPM error; scratch removed and reversion logs verified. E fixes interleaved colours/actual scatter contrast and preserves all8 palette tones; /tmp/e-f22-check-final.log running. Fresh correction review next. Optional inherited >8palette identity trackedF41.
+- Required docs task c396c2c+9d670ed (CLAUDE/README/perf) needs fresh R /tmp/r-docs-correction/REPORT.md (test_r_docs2/3118), active. The correction's combined gate539/338/759 passed.
+- Candidate /tmp/bostadspriser-final-candidate committed9d670ed; staged preparation a8789bd+E7b5e461/492fdc0/b2e1923+B56c68e1f2+F12e8b0b04. One additive chart-test conflict resolved keeping F21 and F12 tests,12focusedtests pass. Production merges preserve both changes. Await E correction, fullgate and immutable preparation snapshot. Preparation ancestry never merges to main.
+- Current three subagents: E correction, F12 R, docs R. B56 R done. Main/test3100, candidate/test_final3108. Audit rounds0; required P1/P2 and two clean audits/report remain. No live/protected-data work. Previous bullets below are historical detail superseded by this update.
+
 - Live integration checkpoint: 7cb4a17 -> ed1785c, full gate green. Remaining approved queue: later reviewed D/E UI batches; mandatory P1/P2 and audit rounds remain. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
 
 This checkpoint supersedes earlier status below. Read docs/backlog.md for per-ID status.
