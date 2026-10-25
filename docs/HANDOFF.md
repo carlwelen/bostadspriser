@@ -2,7 +2,7 @@
 
 ## Current checkpoint (2026-10-25, single-orchestrator resumption)
 
-- Live integration checkpoint: 0de29a4 -> ae7be06, full gate green. Remaining approved queue: 671722a, c396c2c, 9d670ed, 681cb6b, 492fdc0, b2e1923, 8a666a6, d9fcd9c, 69e3f2d, c0848c4, 4825985, 0885683, 20daae3, 9c44076. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
+- Live integration checkpoint: 671722a -> 7083b27, full gate green. Remaining approved queue: c396c2c, 9d670ed, 681cb6b, 492fdc0, b2e1923, 8a666a6, d9fcd9c, 69e3f2d, c0848c4, 4825985, 0885683, 20daae3, 9c44076. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
 
 This checkpoint supersedes historical state below. Read `docs/backlog.md` and verify Git/process state before acting.
 
