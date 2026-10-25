@@ -60,7 +60,8 @@ export function CompareBuilder({ options, selected, granularity }: {
       </div>
       <div role="group" aria-label="Valda serier" className="flex flex-wrap gap-2">
         {selected.map((s) => <Link key={s.id} href={comparisonHref(ids.filter((id) => id !== s.id), granularity)} scroll={false}
-          aria-label={`Ta bort ${s.name}`} className="inline-flex items-center gap-2 rounded-full border border-zinc-300 px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50">
+          aria-label={`Ta bort ${s.name}`} aria-disabled={pending}
+          className={`inline-flex items-center gap-2 rounded-full border border-zinc-300 px-3 py-1.5 text-sm text-zinc-800 ${pending ? "cursor-wait opacity-50" : "hover:bg-zinc-50"}`}>
           <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: s.color }} />{s.name}<span aria-hidden>×</span>
         </Link>)}
         {!selected.length && <p className="text-sm text-zinc-600">Välj en gata eller stadsdel för att börja jämföra.</p>}
