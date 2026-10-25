@@ -510,10 +510,19 @@ def geocode(limit: int, max_attempts: int) -> None:
 @exclusive
 def backfill_dedup() -> None:
     """Populate dedupKey on legacy rows that predate the column."""
-    n = backfill_dedup_keys()
-    click.echo(f"backfilled {n} rows")
-    if n:
-        refresh_deduped()
+    committed = False
+
+    def wrote_batch() -> None:
+        nonlocal committed
+        committed = True
+
+    try:
+        n = backfill_dedup_keys(on_commit=wrote_batch)
+        click.echo(f"backfilled {n} rows")
+    finally:
+        # Earlier batches survive a later failure and still change the snapshot.
+        if committed:
+            refresh_deduped()
 
 
 @cli.command("reparse")

@@ -18,7 +18,8 @@ import pytest
 from click.testing import CliRunner
 from sqlalchemy import text
 
-from scraper import hemnet, run
+from scraper import backfill, hemnet, run
+from scraper import db as db_module
 from scraper import geocode as geo
 from scraper.db import refresh_deduped, upsert_listings
 from scraper.errors import CrawlIncomplete
@@ -266,6 +267,76 @@ def test_backfill_dedup_refreshes_when_it_filled_keys_only(db, audit) -> None:
     assert audit() == 1
     assert CliRunner().invoke(run.cli, ["backfill-dedup"]).exit_code == 0
     assert audit() == 1
+
+
+def _fail_dedup_batch(db, monkeypatch, *, fail_at: int = 2) -> RuntimeError:
+    upsert_listings([
+        _row("legacy-a", id="legacy-a", dedupKey=None),
+        _row("legacy-b", id="legacy-b", street="Odengatan", dedupKey=None),
+    ])
+    failure = RuntimeError("later dedup batch failed")
+    derive = backfill.dedup_key
+    worker = run.backfill_dedup_keys
+    calls = 0
+
+    def fail(*args):
+        nonlocal calls
+        calls += 1
+        if calls == fail_at:
+            # A separate connection proves the previous batch committed before
+            # this failure; it is not merely visible in the worker's transaction.
+            with db.connect() as c:
+                stored = c.execute(text(
+                    'SELECT "dedupKey" FROM "Listing" WHERE id = \'legacy-a\''
+                )).scalar_one()
+            assert (stored is not None) == (fail_at > 1)
+            raise failure
+        return derive(*args)
+
+    monkeypatch.setattr(backfill, "dedup_key", fail)
+    monkeypatch.setattr(run, "backfill_dedup_keys", lambda **kw: worker(batch_size=1, **kw))
+    return failure
+
+
+@pytest.mark.parametrize("fail_at", [1, 2])
+def test_backfill_dedup_refreshes_committed_batches_despite_a_later_failure(db, monkeypatch, fail_at) -> None:
+    failure = _fail_dedup_batch(db, monkeypatch, fail_at=fail_at)
+    assert refresh_deduped() == "refreshed"
+    notifications = []
+    monkeypatch.setattr(db_module, "revalidate_app", lambda: notifications.append(True))
+
+    result = CliRunner().invoke(run.cli, ["backfill-dedup"])
+
+    assert result.exit_code == 1 and result.exception is failure
+    assert "backfilled" not in result.output
+    with db.connect() as c:
+        live = dict(c.execute(text('SELECT id, "dedupKey" FROM "Listing"')).all())
+        snapshot = dict(c.execute(text('SELECT id, "dedupKey" FROM "DedupedListingMat"')).all())
+    assert (live["legacy-a"] is not None) == (fail_at > 1)
+    assert live["legacy-b"] is None
+    assert snapshot == live
+    assert notifications == ([True] if fail_at > 1 else [])
+
+
+@pytest.mark.parametrize("stub,status", [(None, "missing"), (LOCK_STUB, "busy"), (FAILING_STUB, "failed")])
+def test_backfill_dedup_keeps_original_failure_when_its_refresh_cannot_complete(
+    db, use_function, monkeypatch, stub, status,
+) -> None:
+    failure = _fail_dedup_batch(db, monkeypatch)
+    use_function(stub)
+    attempts, notifications = [], []
+
+    def refresh():
+        attempts.append(refresh_deduped())
+
+    monkeypatch.setattr(run, "refresh_deduped", refresh)
+    monkeypatch.setattr(db_module, "revalidate_app", lambda: notifications.append(True))
+    result = CliRunner().invoke(run.cli, ["backfill-dedup"])
+
+    assert result.exit_code == 1 and result.exception is failure
+    assert "backfilled" not in result.output and "refreshed" not in result.output
+    assert attempts == [status]
+    assert notifications == []
 
 
 def test_refresh_view_command_refreshes_and_takes_the_lock(db, audit) -> None:
