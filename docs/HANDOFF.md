@@ -2,6 +2,8 @@
 
 ## Current checkpoint (2026-10-25)
 
+- Live integration checkpoint: 7cb4a17 -> ed1785c, full gate green. Remaining approved queue: later reviewed D/E UI batches; mandatory P1/P2 and audit rounds remain. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
+
 This checkpoint supersedes earlier status below. Read docs/backlog.md for per-ID status.
 
 - **Published main at this checkpoint: c7faa38.** All original handoffs, backend follow-ups and D/E follow-ups through 8001be3 -> cf709b0 are integrated and green. /tmp/hardening-integration10.log completed and pushed. No wrapper currently running; do not restart its already-integrated queue.
