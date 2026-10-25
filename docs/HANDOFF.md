@@ -15,7 +15,7 @@
 - Candidate /tmp/bostadspriser-final-candidate committed9d670ed; staged preparation a8789bd+E7b5e461/492fdc0/b2e1923+B56c68e1f2+F12e8b0b04. One additive chart-test conflict resolved keeping F21 and F12 tests,12focusedtests pass. Production merges preserve both changes. Await E correction, fullgate and immutable preparation snapshot. Preparation ancestry never merges to main.
 - Current three subagents: E correction, F12 R, docs R. B56 R done. Main/test3100, candidate/test_final3108. Audit rounds0; required P1/P2 and two clean audits/report remain. No live/protected-data work. Previous bullets below are historical detail superseded by this update.
 
-- Live integration checkpoint: 7cb4a17 -> ed1785c, full gate green. Remaining approved queue: later reviewed D/E UI batches; mandatory P1/P2 and audit rounds remain. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
+- Live integration checkpoint: c68e1f2 -> 20df838, full gate green. Remaining approved queue: c0553f8, ceb3d11, 717df2f, a8789bd, e8b0b04, 7f21875, a374e52, 0de29a4, 671722a, c396c2c, 9d670ed. F20 original4257179 and test12d76ea are folded into fe86f8b to keep each merge green; skip both originals. See backlog for active reviews and later follow-ups.
 
 This checkpoint supersedes earlier status below. Read docs/backlog.md for per-ID status.
 
