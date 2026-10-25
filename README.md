@@ -29,17 +29,20 @@ docker compose up -d postgres
 cd web
 pnpm install
 export $(grep DATABASE_URL ../.env)
-pnpm exec prisma migrate deploy   # creates the tables + DedupedListing view
+pnpm exec prisma migrate deploy   # creates tables, canonical view and read snapshot
 pnpm dev                          # http://localhost:3000
 
 cd ../scraper
 uv sync
 uv run playwright install chromium          # one-time, ~150MB
-uv run scraper scrape --source hemnet --district ostermalm --since 2025-04-01
+uv run scraper backfill --source hemnet --district ostermalm --since 2025-04-01 --resume
 uv run scraper update                       # incremental refresh, all sources
 uv run scraper geocode --limit 200          # rows without coordinates
 uv run scraper stats
+uv run scraper refresh-view                 # retry a failed snapshot refresh
 ```
+
+These are operator commands. Agents working on the hardening loop use fixtures and isolated test databases; they must not run live scrapers or geocoding. See `AGENTS.md`.
 
 ## Tests
 
@@ -48,8 +51,8 @@ scripts/check.sh            # typecheck, lint, vitest (unit + integration), buil
 scripts/check.sh --quick    # same without build + e2e
 ```
 
-Tests never touch the dev database. They use `bostadspriser_test` (override with `TEST_DB_NAME` or `TEST_DATABASE_URL`). The name must contain `test`, and the gate drops and recreates that database on every run.
+Tests never touch the dev database. They use `bostadspriser_test` (override with `TEST_DB_NAME` or `TEST_DATABASE_URL`). The name must contain a `test` segment, and the gate resets only that test database on every run. Parallel worktrees must use distinct `TEST_DB_NAME` and `E2E_PORT` values.
 
 ## Scraping etiquette
 
-The scraper is single-worker, sleeps 3–5 s with jitter between requests, caches fetched HTML to `scraper/.cache/`, and persists cookies to `scraper/.state/storageState.json`. On 429/503 it backs off exponentially and moves on so cron can retry. Whether scraping Hemnet and Booli is acceptable under their terms is an open owner decision (see `docs/backlog.md`).
+The scraper is single-worker, sleeps 3–5 s with jitter between requests, caches fetched HTML to `scraper/.cache/`, and persists cookies to `scraper/.state/storageState.json`. On 429/503 it uses bounded backoff and reports an incomplete crawl without advancing the update watermark; a later invocation can retry. Update/backfill checkpoints live in `ScrapeRun`. Writing commands attempt a materialized-view refresh and, after a successful refresh, notify the web cache when `APP_URL` and `REVALIDATE_SECRET` are configured. Refresh is best effort; inspect `stats` and use `refresh-view` to recover a stale snapshot. See `CLAUDE.md` and the owner decision in `docs/backlog.md` concerning permanent Mapbox geocoding storage.

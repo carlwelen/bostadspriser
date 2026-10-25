@@ -163,9 +163,11 @@ aggregation functions in `web/src/lib/aggregations.ts` are wrapped with
   or shorter than 16 characters (then nobody can invalidate), 400 for a
   malformed body or unknown tag. The secret is compared in constant time
   (SHA-256 of both sides, then `timingSafeEqual`).
-- **Who calls it.** The scraper *should* call it after
-  `refresh_deduped_listing()` (backlog B49); nothing does yet. `.env.example`
-  has `REVALIDATE_SECRET` and `APP_URL` for that.
+- **Who calls it.** The scraper calls it after a successful committed
+  `refresh_deduped_listing()` (B49). `APP_URL` and a 16+ character
+  `REVALIDATE_SECRET` configure the notification; failures are logged safely
+  and do not abort the completed database operation. The call has a five-second
+  timeout, no redirects, no inherited proxy settings and no retries.
 - **Safety net.** Entries expire after 3600 s (freshness queries: 300 s), so a
   missed call means up to an hour of stale pages, not forever.
 - **Which functions.** Everything the pages and `/api/streets*` /
