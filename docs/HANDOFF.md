@@ -4,6 +4,9 @@
 
 ### Latest verified update
 
+- F12e8b0b04 and docsc396c2c+9d670ed now APPROVED; reports f12-keyboard-correction-review.md and docs-hardening-correction-review.md. Dsourcee8b0b04 and B56sourcec68e1f2 pushed. E correctiond65f6b2 ready542/344/759, freshR /tmp/r-e-color-final active. Candidate9d670ed staged all corrections includingd65f6b2; fullgate /tmp/final-candidate-complete-gate.log running (test_final/3108). Then preparation commit and whole-code audits. F42 optional inherited keyboard date order.
+- Next approved merge queue: c68e1f2,c0553f8,ceb3d11,717df2f,a8789bd,e8b0b04,7f21875,a374e52,0de29a4,671722a,c396c2c,9d670ed. Wrapper12 will gate each source and publish complete groups at e8b0b04/671722a/9d670ed. Stop flag only between green checkpoints. E final four commits wait on fresh review.
+
 - Main9b59f3a includes approved F11 source7cb4a17 ->ed1785c, full510vitest292e2e759pytest. Published remote remainsb1730bb; chart group held for F12. Wrapper11 is terminal; no active integration. Queue now ends7cb4a17 (already integrated); HARDENING_NO_FINAL_PUSH=1 suppresses last-source push.
 - F12 sourcee8b0b04 on hardening/d-map-phase3, full508/272/488+26browser, freshR report pending /tmp/r-f12-keyboard-final/REPORT.md. Remaining source order c0553f8,ceb3d11,717df2f,a8789bd,e8b0b04, then approved phase4 7f21875,a374e52,0de29a4,671722a. Use F37equivalent; skip5363f4b.
 - B56c68e1f2 APPROVED, source /tmp/bostadspriser-hardening-b-refresh, full506/292/764 and769reviewerpytest. Report docs/review-probes/b56-review.md. Integrate with gate; source/main not yet pushed.

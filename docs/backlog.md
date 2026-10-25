@@ -27,7 +27,7 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | P0.1 | - | A | done | Repo under git with an untouched baseline commit | 5cbdd95 | Repo was already initialised ("Initial commit") |
 | P0.2 | - | A | done | pnpm install / prisma generate / tsc / lint / build / uv sync / pytest / ruff all green on macOS + Node 26 | be6641b | Dropped linux-only oxide binary; pnpm 12 `allowBuilds`; root `.env` loaded via `@next/env`; sitemap made dynamic (B24 build part) |
 | P0.3 | - | A | done | Vitest unit + integration harness on a real test DB, Playwright e2e smoke, pytest `db` fixture, `scripts/check.sh` | 51cfb49 | See CLAUDE.md "Testing" |
-| P0.4 | - | A | review | CLAUDE.md / README.md / agent memory paths match reality | 51cfb49, c396c2c, 9d670ed | Docs c396c2c corrected by9d670ed; candidate fullgate539/338/759. Fresh R docs correction review active (test_r_docs2/3118). |
+| P0.4 | - | A | review | CLAUDE.md / README.md / agent memory paths match reality | 51cfb49, c396c2c, 9d670ed | Fresh R APPROVE ordered c396c2c +9d670ed together; module/key/refresh inaccuracies resolved. Integrate both after B56/D; report docs-hardening-correction-review.md. |
 | P0.5 | - | A | done | This ledger seeded with every item | 51cfb49 | |
 
 ## Backend / data
@@ -104,7 +104,7 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | F9 | P1 | E | done | Compare builder: add-series combobox (streets + districts), removable chips, "Jämför" buttons, dedupe, shared palette | 7dfd56d, a2009cd (approved), 899da00, 36057a1 | Fresh R2 approved comparison builder correction integrated: guarded keyboard options, serialized navigation and annual entry links. Source a2009cd -> 36057a1; merge-seq full gate green. |
 | F10 | P1 | E | done | House page shows address vs street vs district | a13e78a | Address, street and district comparison integrated. Source c6d646c -> a13e78a; merge-seq full gate green. |
 | F11 | P1 | E/D | done | Numeric time axis with honest gaps (PriceChart E, AddressDrawer D) | 50859e7, 2f86ad6 (approved), 029515a, f1bf4a0, c384b7e, 7cb4a17 (D review), ed1785c | Fresh-review approved drawer numeric time axis and honest missing-bucket gaps integrated; publication waits for complete corrected F12 group. Source 7cb4a17 -> ed1785c; merge-seq full gate green. |
-| F12 | P1 | E/D | review | Tooltips show n; buckets with n < 3 de-emphasised | 50859e7, 2f86ad6 (approved), 029515a, f1bf4a0, c384b7e, c0553f8 (D review), 717df2f (correction), a8789bd, e8b0b04 | Keyboard correction gate508/272/488 plus26browser checks. Fresh R final stress/reversion review active (test_r_f12_final/3117); no merge until verdict. |
+| F12 | P1 | E/D | review | Tooltips show n; buckets with n < 3 de-emphasised | 50859e7, 2f86ad6 (approved), 029515a, f1bf4a0, c384b7e, c0553f8 (D review), 717df2f (correction), a8789bd, e8b0b04 | Fresh R APPROVE cumulative c0553f8/717df2f/a8789bd/e8b0b04:32productionbrowser,15unit,20SQL; all four production reversions fail meaningfully. Source published throughe8b0b04; integrate oldest-first. |
 | F13 | P1 | C+E | done | SQL `streetSummary` / `addressSummary` / `districtStreetCount`; correct labelled stats | 48d7aa0, e9e96b1 | SQL summary cards and thin-data MoM copy integrated. Source 22a62cf -> e9e96b1; merge-seq full gate green. |
 | F14 | P1 | C | done | House numbers sort naturally in SQL | a5b5813, 1ced813 | R approved |
 | F15 | P1 | D | done | Map filters round-trip through searchParams | 120347d, 7869c5a, 4efd397 | R approved; server-rendered from searchParams |
@@ -117,7 +117,7 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | F26 | P1 | E | done | Unknown district/street/house responds HTTP 404 (not a streamed 200); flip the pinned e2e test | 23a5ba3 | R approved. Layout-level validation + `(overview)` route group + `resolveStreet.ts` cache(). Nit: house page still runs its queries on 404 (→ B22) |
 | F20 | P2 | D | done | Mobile layout for `/` (bottom sheet/drawer below md; mobile nav) | 28003a6, 79d90e9, 95658e9, 53f3c86 | Fresh-review approved single header search instance integrated; same-route menu follow-up remains F21. Source 1f957f7 -> 53f3c86; merge-seq full gate green. |
 | F21 | P2 | D/E | review | aria-pressed toggles, drawer focus trap/return/aria-modal, StreetSearch combobox, SVG icon, contrast | 25810ae, abcda9d, 7b5e461 (E review) | Fresh R APPROVE with meaningful unit/browser reversions, actual keyboard tables/search/menu/modal controls. Integration pending. |
-| F22 | P2 | E | in-progress | One chart colour token source; colour-blind-safe district colours, identical everywhere | 492fdc0 | Fresh R requires interleaved street colour and composited scatter contrast corrections. E preserves8-tone capacity for all-street/mixed selections; correction fullgate underway. Inherited >8-series palette reuse trackedF41. |
+| F22 | P2 | E | review | One chart colour token source; colour-blind-safe district colours, identical everywhere | 492fdc0, d65f6b2 | Correction d65f6b2 ready:542vitest344e2e759pytest and4verifiedscreens; preserves all8palette tones and opaque scatter outlines. Fresh R at /tmp/r-e-color-final reviewing (test_r_e_color/3116). >8baseline reuse trackedF41. |
 | F23 | P2 | E | review | Per-page metadata, OG defaults, `metadataBase`, `/insights` in sitemap | b2e1923 | Fresh R APPROVE metadata/sitemap reversions, crawler HTML, letter-address canonical and actual PNG. Integration pending. |
 | F27 | P2 | E | done | Recent-sales table doesn't clip horizontally on mobile (scroll container or stacked rows) | 733b3dd | R-approved 2ef182e merged via merge-seq; full gate green. Remaining E stack integration continues oldest-first. |
 | F28 | P2 | E | done | Recharts `ResponsiveContainer` SSR warnings ("width(-1) and height(-1)") gone from server logs (initialDimension/minHeight) in PriceChart, Histogram, PriceAreaScatter | 64c50bf, 3dcd0fc (approved), 99ceb40, 7ae5c2c, e52ccb7 | Complete E SSR width/tooltip fixes and Swedish insights copy integrated; fresh R approved. Source 3dcd0fc -> e52ccb7; merge-seq full gate green. |
@@ -134,6 +134,8 @@ Owners: A platform, B scraper, C data/API, D map UI, E analytics UI.
 | F25 | P3 | E | todo | Optional dark mode via F22 tokens | | |
 
 | F41 | P3 | E | todo | Distinguish comparison series beyond the shared eight-tone palette with patterns/shapes and matching legend cues | | Baseline already reused colours after8 series; selector unlimited. F22 preserves8 distinct identities without introducing a product cap. |
+
+| F42 | P3 | D | todo | Order drawer keyboard traversal by actual dates while preserving gaps and individual observations | | Fresh F12 reviewer found inherited Recharts per-series key order. Every actual date remains reachable with correct n; no F12 blocker. |
 
 ## Owner decisions
 
